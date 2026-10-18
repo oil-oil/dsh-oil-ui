@@ -63,6 +63,9 @@ async function main() {
     usage()
     return
   }
+  const built = spawnSync('npm', ['run', 'build'], { cwd: root, stdio: 'inherit' })
+  if (built.error) throw built.error
+  if (built.status !== 0) throw new Error(`Build failed with exit code ${built.status}.`)
   const defaultOutput = path.join(root, '.work', `${packageJson.name}-${packageJson.version}.tgz`)
   const outputPath = path.resolve(outputArgument ?? defaultOutput)
   const outputDirectory = path.dirname(outputPath)

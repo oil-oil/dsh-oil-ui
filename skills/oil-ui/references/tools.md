@@ -42,7 +42,7 @@
   2. 用 `read_image` 查看返回的联系表 PNG，挑选编号后拉取：`oil_ui_media({ "action": "fetch", "refs": ["C1", "T2"], "dir": "assets", "sheet": true })`
   3. 拉取完整 PBR 贴图（Diffuse / Roughness / Normal）：`oil_ui_media({ "action": "fetch", "refs": ["T2"], "maps": "all", "resolution": "1k", "dir": "assets" })`
 
-`kind` 支持 `all|texture|design|photo|blueprint|map|plate|science|video`。每项 `use` 说明用途：`page` 可放进页面（CC BY/BY-SA 要署名），`reference` 只可下载到不上线的目录作为生图参考。所有成功下载自动记入 `SOURCES.md`。
+`kind` 支持 `all|texture|design|photo|blueprint|map|plate|science|video`。每项 `use` 说明用途：`page` 可放进页面（CC BY/BY-SA 要署名），`reference` 只可下载到不上线的目录作为生图参考。单个 URL 下载可用 `oil_ui_media({ "action": "fetch", "refs": "https://example.org/image.jpg", "out": "assets/image.jpg" })`；单文件下载不传 `dir`，输出路径不可覆盖已有文件。所有成功下载自动记入 `SOURCES.md`。
 
 ### 生图与改图（`oil_ui_image`）
 

@@ -91,18 +91,18 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 | 真实截图驱动的多轮视觉精修与对比度/排版巡检 | — | ✓ |
 | 多状态连拍（`states`）、交互步骤（`steps`）与录屏抽帧 | — | ✓ |
 | 博物馆/公有领域素材检索（`oil_ui_media`）与 AI 生图修图（`oil_ui_image`）完整分册 | — | ✓ |
-| 独立视觉评审子代理（`oil-ui-reviewer`）逐轮打分与走查 | — | ✓ |
+| 独立视觉评审子代理（`subagent` 自动注入 `reviewer-manual.md`）逐轮打分与走查 | — | ✓ |
 | 完整场景分册（营销落地页、数据后台、移动多屏、重绘改版、字体子集化） | — | ✓ |
 
-### 自动识别本地 Pro
+### 自动识别本地 Pro 与子代理评审注入
 
-在本机安装好 `oil-ui-pro`（默认位于 `~/.agents/skills/oil-ui-pro` 或 `~/.dsh/skills/oil-ui-pro`）后，不需要重启 DeepSeek Harness。Agent 在任务开始调用 `oil_ui_skill_status` 时，插件会重新扫描本机目录，把 `oil-ui-pro` 的 `SKILL.md` 和分册编译为原生工具说明，并返回 `activeSkillName: "oil-ui-pro"`。
+在本机安装好 `oil-ui-pro`（默认位于 `~/.agents/skills/oil-ui-pro` 或 `~/.dsh/skills/oil-ui-pro`）后，不需要重启 DeepSeek Harness。Agent 在任务开始调用 `oil_ui_skill_status` 时，插件会扫描本机目录，把 `oil-ui-pro` 的 `SKILL.md` 和分册编译为原生工具说明，并以高于宿主内置文件加载器的优先级生效。当主 Agent 派发子代理（`subagent`）做视觉与交互走查时，插件会自动向子代理注入原生化的 `reviewer-manual.md` 及 `references/` 目录路径，主 Agent 无需手动拼接手册路径。
 
 ### 版本检查与一次性 Pro 提醒
 
 原来在 `oil-ui` 脚本里的版本更新检查和一次性 Pro 推荐，在 `dsh-oil-ui` 里直接合进了 `oil_ui_skill_status`：
 
-- **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件每 10 分钟向 `https://ui.oiloil.org/api/store/versions` 静默核对一次版本号（结果缓存在 `~/.local/state/oil/<name>-update.json`，网络超时自动跳过，绝不阻塞任务）。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）可直接把当前生效的 Skill 更新到最新。
+- **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件每天最多向 `https://ui.oiloil.org/api/store/versions` 静默核对一次版本号（结果缓存在 `~/.local/state/oil/<name>-update.json`，断网或超时会自动跳过并进入退避冷却，不会阻塞任务）。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）可直接把当前生效的 Skill 更新到最新。
 - **一次性 Pro 提醒**：当本机只装了免费版 `oil-ui` 时，首次调用 `oil_ui_skill_status` 会在 `~/.local/state/oil-ui/recommended-oil-ui-pro` 写下标记，并返回一次 `recommendOnceNotice`，让 Agent 在任务收尾时顺带提一句 [ui.oiloil.org/pro](https://ui.oiloil.org/pro/)，之后不再重复打扰。
 
 ---
@@ -126,9 +126,9 @@ pnpm pack:plugin
 dsh plugin install ./.work/dsh-oil-ui-0.3.1.tgz
 ```
 
-### 3. 可选配置（`~/.dsh/config.yaml`）
+### 3. 可选配置与运行依赖
 
-如果需要使用 `oil_ui_image` 生图，或者想指定自定义的本地 Skill 路径，可以在配置里传入：
+插件开箱即用，默认会自动扫描本机的 `oil-ui-pro` 和 `image-gen` Skill。如需自定义路径或端口，可在 DeepSeek Harness 配置中设置（对应 [`src/config.ts`](src/config.ts)）：
 
 ```yaml
 plugins:
@@ -136,11 +136,19 @@ plugins:
     dsh-oil-ui:
       enabled: true
       config:
-        # 可选：优先加载指定目录下的 oil-ui 或 oil-ui-pro
-        # skillDir: /Users/you/.agents/skills/oil-ui-pro
-        openrouterApiKey: ${OPENROUTER_API_KEY}
-        imageModel: google/gemini-3.1-flash-image-preview
+        # 是否优先启用本机已安装的 oil-ui-pro（默认 true）
+        preferPro: true
+        # 可选：指定自定义的 oil-ui-pro 目录（默认自动扫描 .dsh/skills 与 .agents/skills）
+        # proSkillDir: /Users/you/.agents/skills/oil-ui-pro
+        # 可选：指定 image-gen 脚本路径（默认自动扫描 ~/.dsh/skills/image-gen 与 ~/.agents/skills/image-gen）
+        # imageGenScript: /Users/you/.agents/skills/image-gen/scripts/image_gen.py
+        # 可选：覆盖默认工作目录与本地截图预览服务端口（0 为自动分配空闲端口）
+        # workspaceRoot: /path/to/workspace
+        # previewPort: 0
 ```
+
+- **浏览器截图（`oil_ui_shoot`）**：使用本机安装的 Chrome / Chromium（或 Playwright Chromium）；若使用录屏抽帧（`record` / `motion`），需本机装有 `ffmpeg`。
+- **AI 生图修图（`oil_ui_image`）**：调用本机已安装的 `image-gen` Skill（需 `python3`），模型与 API Key 直接沿用 `image-gen` 自身的环境变量配置。
 
 ---
 

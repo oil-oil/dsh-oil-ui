@@ -53,9 +53,9 @@ export interface MediaRequest {
   out?: string;
   use?: 'page' | 'reference' | 'all';
   limit?: number;
-  sources?: string;
+  sources?: string | string[];
   sheet?: boolean;
-  maps?: string;
+  maps?: string | string[];
   resolution?: string;
   videoSize?: string;
   note?: string;

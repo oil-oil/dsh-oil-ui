@@ -37,20 +37,7 @@
         "reason": "Duplicate English README; README.md is retained."
       }
     ],
-    "paths": [
-      {
-        "path": ".git",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
-        "path": "assets/readme",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
-        "path": "README.en.md",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      }
-    ]
+    "paths": []
   },
   "fileCount": 32,
   "files": [
@@ -122,14 +109,14 @@
     },
     {
       "path": "references/layout-and-viewport.md",
-      "sha256": "f7de8794bddbe5a3ba8896970d80f97d3b5ee65a3420ae01cfac6afc5646990b",
-      "size": 1568,
+      "sha256": "827706ead63ed9f069b5878cd4f90ad20ddad1669a72445e3f2b8127a9499d47",
+      "size": 1576,
       "mode": "0644"
     },
     {
       "path": "references/media.md",
-      "sha256": "4e1b42f8567f55c3befac75f380f262e43a53845627793a80426a447cc7ade46",
-      "size": 17814,
+      "sha256": "2545a2e9899d26bbfc24bc0562691a723c04ccd2582c64b6d86af329ef9d22a4",
+      "size": 17837,
       "mode": "0644"
     },
     {
@@ -146,8 +133,8 @@
     },
     {
       "path": "references/reviewer-manual.md",
-      "sha256": "d725ebfa455a40717b2639b7522a57abc2ad74982965d6f093abf95a109abcd7",
-      "size": 11705,
+      "sha256": "c92ffaa147f9ec8c60b8c17e6538d6c7c59a293772d1d6fcfb2e640efaf7f734",
+      "size": 11726,
       "mode": "0644"
     },
     {
@@ -158,14 +145,14 @@
     },
     {
       "path": "references/style-explorer.md",
-      "sha256": "f7be62a1c4952dc784c1d47718261942e92cb23d3c162aa016302e71de2964a9",
-      "size": 4213,
+      "sha256": "f6b9ab8c82cda08d78bc691e576fa2780a2d66acb23ebcabf1f9626e17fcf884",
+      "size": 4242,
       "mode": "0644"
     },
     {
       "path": "references/tools.md",
-      "sha256": "7f01bd98f643d20c2df0eea7b90540e75f1bd5933213c44bdd7c9d9e5015768f",
-      "size": 7825,
+      "sha256": "f9e55495fa6444ccf3b200c0fcd05260c845e737512a2609a0c0564bdc61d7ed",
+      "size": 8026,
       "mode": "0644"
     },
     {

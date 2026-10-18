@@ -1,5 +1,5 @@
-import { expect, it, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile, realpath } from 'node:fs/promises';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, mkdir, writeFile, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
@@ -14,6 +14,9 @@ vi.mock('node:os', async original => {
   const os = await original<typeof import('node:os')>();
   return { ...os, homedir: () => localHome.path || os.homedir() };
 });
+
+beforeEach(() => { vi.stubEnv('OIL_NO_UPDATE_CHECK', '1'); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 it('registers 5 native Harness tools, validates their schemas and operates directly in session cwd', async () => {
   const root = await mkdtemp(join(tmpdir(), 'oil-plugin-'));
@@ -109,6 +112,20 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
       expect(tools.get(name)!.isConcurrencySafe?.({}) ?? false).toBe(false);
     }
 
+    for (const tool of tools.values()) {
+      for (const field of Object.values(tool.parameters.properties ?? {})) {
+        expect(field.description).toMatch(/[\u4e00-\u9fff]/);
+      }
+    }
+    for (const [name, args] of [
+      ['oil_ui_shoot', { states: { invalid: true } }],
+      ['oil_ui_shoot', { stitch: [{ label: 'missing path' }] }],
+      ['oil_ui_shoot', { record: {} }],
+      ['oil_ui_media', { refs: [1] }],
+      ['oil_ui_media', { maps: false }],
+      ['oil_ui_explorer', { manifest: [] }],
+    ] as const) await expect(run(name, args)).rejects.toThrow();
+
     await expect(run('oil_ui_image', {})).rejects.toThrow();
     await expect(run('oil_ui_image', { prompt: '' })).rejects.toThrow('prompt');
 
@@ -144,6 +161,7 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
   const pending: Promise<unknown>[] = [];
   const disposers: (() => void | Promise<void>)[] = [];
   let provider: SkillProvider | undefined;
+  const invalidate = vi.fn();
   const ctx = {
     effect(fn: () => () => Promise<void>) {
       disposers.push(fn());
@@ -160,7 +178,10 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
       register: vi.fn(),
       get: registry.get.bind(registry),
       registerProvider(create: Parameters<SkillRegistry['registerProvider']>[0]) {
-        const dispose = registry.registerProvider(control => (provider = create(control)));
+        const dispose = registry.registerProvider(control => {
+          invalidate.mockImplementation(() => control.invalidate?.());
+          return provider = create({ ...control, invalidate });
+        });
         disposers.push(dispose);
         return dispose;
       },
@@ -174,7 +195,7 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
     expect(provider?.name).toBe('oil-ui-provider');
     expect((await registry.list()).map(s => s.name)).toEqual(['oil-ui']);
     const before = await provider!.list({});
-    expect(before).toEqual([expect.objectContaining({ name: 'oil-ui', rank: 600 })]);
+    expect(before).toEqual([expect.objectContaining({ name: 'oil-ui', rank: 20 })]);
 
     await mkdir(pro, { recursive: true });
     await writeFile(
@@ -193,9 +214,22 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
       visibleMatchesOriginal: true,
     });
     expect((await registry.list()).map(s => s.name)).toEqual(['oil-ui-pro']);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    await tools.get('oil_ui_skill_status')!.execute({}, exec);
+    await tools.get('oil_ui_skill_status')!.execute({}, exec);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ skills: { 'oil-ui-pro': { version: '0.0.0' } } }))));
+    await tools.get('oil_ui_skill_status')!.execute({ update: true }, exec);
+    expect(invalidate).toHaveBeenCalledTimes(2);
     const loadedPro = await registry.get('oil-ui-pro');
     expect(loadedPro?.content).toContain('oil_ui_shoot');
-    expect(await provider!.list({})).toEqual([expect.objectContaining({ name: 'oil-ui-pro', rank: 100 })]);
+    expect(await provider!.list({})).toEqual([expect.objectContaining({ name: 'oil-ui-pro', rank: 10 })]);
+    disposers.push(registry.registerProvider(() => ({
+      name: 'filesystem',
+      async list() { return [{ name: 'oil-ui-pro', description: 'Raw filesystem Skill', source: 'project-dsh', provider: 'filesystem', rank: 100, locator: pro, invocation: { modelInvocable: true, userInvocable: true } }]; },
+      async get() { throw new Error('Filesystem Skill must lose arbitration'); },
+    })));
+    expect((await registry.get('oil-ui-pro'))?.provider).toBe('oil-ui-provider');
     const old = Array.isArray(before) ? before[0] : undefined;
     expect(await provider!.get(old!, {})).toBeUndefined();
   } finally {
@@ -207,6 +241,7 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
 });
 
 it('triggers one-time Pro recommendation once on lite edition and reports cached update notices', async () => {
+  vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
   const root = await mkdtemp(join(tmpdir(), 'dsh-oil-ui-recommend-'));
   localHome.path = root;
   const stateDir = join(root, 'state');
@@ -235,7 +270,7 @@ it('triggers one-time Pro recommendation once on lite edition and reports cached
   }
 });
 
-it('automatically injects reviewer-manual.md into subagent system prompt and shadows main agent prompt without conflict', async () => {
+it('automatically injects reviewer-manual.md into subagent system prompt and preserves the main section and manages an independent reviewer section', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-oil-ui-subagent-')));
   const proDir = join(root, '.dsh/skills/oil-ui-pro');
   const rootCtx = new Context();
@@ -298,8 +333,9 @@ it('automatically injects reviewer-manual.md into subagent system prompt and sha
       },
     };
     for (const listener of createdListeners) await listener({ agent: liteSubagent });
-    expect(subSections).toHaveLength(1);
-    expect(subSections[0]!.name).toBe('oil-ui');
+    await vi.waitFor(() => expect(subSections).toHaveLength(1));
+    expect(subSections[0]!.name).toBe('oil-ui-subagent-reviewer');
+    expect(subSections[0]!.text).toContain('/references');
     expect(subSections[0]!.text).toContain('# 视觉与交互评审手册 (子 Agent 专用)');
     expect(subSections[0]!.text).toContain('oil_ui_shoot');
     expect(subSections[0]!.text).toContain('read_image');
@@ -328,7 +364,7 @@ it('automatically injects reviewer-manual.md into subagent system prompt and sha
       },
     };
     for (const listener of createdListeners) await listener({ agent: proSubagent });
-    expect(proSubSections).toHaveLength(1);
+    await vi.waitFor(() => expect(proSubSections).toHaveLength(1));
     expect(proSubSections[0]!.text).toContain('Pro 专属标识');
     expect(proSubSections[0]!.text).toContain('能用 `oil_ui_shoot` 时');
   } finally {
@@ -338,3 +374,46 @@ it('automatically injects reviewer-manual.md into subagent system prompt and sha
 });
 
 
+
+it('never awaits reviewer setup in agent/created, falls back after compile failure, and disposes only its own section', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-reviewer-fallback-')));
+  const pro = join(root, 'pro');
+  const disposers: (() => void | Promise<void>)[] = [];
+  let listener: ((payload: { agent: unknown }) => unknown) | undefined;
+  const inherited = 'Main Oil UI guidance';
+  const sections = new Map([['oil-ui', inherited]]);
+  const disposeReviewer = vi.fn();
+  const agent = {
+    session: { header: { cwd: root, origin: 'subagent' } },
+    ctx: { systemPrompt: { section(section: { name: string; text: string }) {
+      sections.set(section.name, section.text);
+      return () => { sections.delete(section.name); disposeReviewer(); };
+    } } },
+  };
+  const ctx = {
+    effect(fn: () => () => void | Promise<void>) { disposers.push(fn()); },
+    inject(services: string[], fn: (value: unknown) => unknown) { if (services.includes('systemPrompt')) fn(ctx); },
+    systemPrompt: { section() { return () => {}; } },
+    on(_name: string, fn: typeof listener) { listener = fn; },
+  };
+  try {
+    await mkdir(join(pro, 'references'), { recursive: true });
+    await writeFile(join(pro, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Test\n---\nTest');
+    await writeFile(join(pro, 'references/tools.md'), 'node scripts/shoot.mjs <target>');
+    await symlink(root, join(pro, 'references/escape'));
+    apply(ctx as unknown as Context, { previewPort: 0, preferPro: true, proSkillDir: pro });
+    expect(listener!({ agent })).toBeUndefined();
+    expect(listener!({ agent })).toBeUndefined();
+    await vi.waitFor(() => expect(sections.get('oil-ui-subagent-reviewer')).toContain('# 视觉与交互评审手册'));
+    expect(sections.get('oil-ui')).toBe(inherited);
+    expect(sections.size).toBe(2);
+    await Promise.all(disposers.map(dispose => dispose()));
+    expect(disposeReviewer).toHaveBeenCalledTimes(1);
+    expect(sections.get('oil-ui')).toBe(inherited);
+    expect(sections.size).toBe(1);
+    expect(listener!({ agent })).toBeUndefined();
+  } finally {
+    await Promise.all(disposers.map(dispose => dispose()));
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -91,18 +91,18 @@ It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoi
 | Screenshot-driven multi-round visual refinement & typography/contrast linting | — | ✓ |
 | Multi-state captures (`states`), scripted interactions (`steps`) & motion frame strips | — | ✓ |
 | Museum/public-domain media (`oil_ui_media`) & AI image generation (`oil_ui_image`) playbooks | — | ✓ |
-| Independent visual review subagent (`oil-ui-reviewer`) with rubric scoring | — | ✓ |
+| Independent visual review subagent (`subagent` auto-injected with `reviewer-manual.md`) | — | ✓ |
 | Full domain playbooks (marketing sites, data consoles, mobile flows, redesigns, font subsetting) | — | ✓ |
 
-### Automatic Local Pro Detection
+### Automatic Local Pro Detection & Subagent Review Injection
 
-Once `oil-ui-pro` is installed locally (in `~/.agents/skills/oil-ui-pro` or `~/.dsh/skills/oil-ui-pro`), you do not need to restart DeepSeek Harness. When the agent calls `oil_ui_skill_status`, the plugin scans your local Skill directories, compiles `oil-ui-pro` and its reference manuals into native tool instructions, and returns `activeSkillName: "oil-ui-pro"`.
+Once `oil-ui-pro` is installed locally (in `~/.agents/skills/oil-ui-pro` or `~/.dsh/skills/oil-ui-pro`), you do not need to restart DeepSeek Harness. When the agent calls `oil_ui_skill_status`, the plugin scans your local Skill directories, compiles `oil-ui-pro` and its reference manuals into native tool instructions, and registers them above the built-in filesystem loader. When the main agent spawns a `subagent` for visual and interaction review, the plugin automatically injects the compiled `reviewer-manual.md` and `references/` directory path into the subagent's system prompt.
 
 ### Version Check & One-Time Pro Notice
 
 The update check and one-time Pro prompt from upstream `oil-ui` are built directly into `oil_ui_skill_status`:
 
-- **Cached version check & self-update**: `oil_ui_skill_status` checks `https://ui.oiloil.org/api/store/versions` at most once every 10 minutes (cached in `~/.local/state/oil/<name>-update.json`, failing silently on network timeouts). When a newer version is available, it attaches `updateNotice`; passing `{"update": true}` (or running `/oil-ui-status update`) updates the active Skill in place.
+- **Cached version check & self-update**: `oil_ui_skill_status` checks `https://ui.oiloil.org/api/store/versions` at most once per day (cached in `~/.local/state/oil/<name>-update.json`, with automatic backoff when offline so it never blocks a task). When a newer version is available, it attaches `updateNotice`; passing `{"update": true}` (or running `/oil-ui-status update`) updates the active Skill in place.
 - **One-time Pro prompt**: When running on the free `oil-ui` edition, the first `oil_ui_skill_status` call writes a marker to `~/.local/state/oil-ui/recommended-oil-ui-pro` and returns `recommendOnceNotice` once so the agent can mention [ui.oiloil.org/en/pro](https://ui.oiloil.org/en/pro/) at the end of its reply—never nagging on subsequent runs.
 
 ---
@@ -126,9 +126,9 @@ This outputs `.work/dsh-oil-ui-<version>.tgz`.
 dsh plugin install ./.work/dsh-oil-ui-0.3.1.tgz
 ```
 
-### 3. Optional configuration (`~/.dsh/config.yaml`)
+### 3. Optional configuration & runtime dependencies
 
-To enable AI image generation (`oil_ui_image`) or point to a custom Skill directory:
+The plugin works out of the box and automatically discovers local `oil-ui-pro` and `image-gen` installations. To override paths or ports, configure `dsh-oil-ui` in your DeepSeek Harness settings (matching [`src/config.ts`](src/config.ts)):
 
 ```yaml
 plugins:
@@ -136,11 +136,19 @@ plugins:
     dsh-oil-ui:
       enabled: true
       config:
-        # Optional: override local Skill discovery path
-        # skillDir: /Users/you/.agents/skills/oil-ui-pro
-        openrouterApiKey: ${OPENROUTER_API_KEY}
-        imageModel: google/gemini-3.1-flash-image-preview
+        # Prefer locally installed oil-ui-pro when available (default: true)
+        preferPro: true
+        # Optional: custom path to oil-ui-pro (auto-discovered in .dsh/skills and .agents/skills)
+        # proSkillDir: /Users/you/.agents/skills/oil-ui-pro
+        # Optional: custom path to image_gen.py (auto-discovered in ~/.dsh/skills/image-gen and ~/.agents/skills/image-gen)
+        # imageGenScript: /Users/you/.agents/skills/image-gen/scripts/image_gen.py
+        # Optional: override workspace root and local preview server port (0 = random available port)
+        # workspaceRoot: /path/to/workspace
+        # previewPort: 0
 ```
+
+- **Browser captures (`oil_ui_shoot`)**: Uses locally installed Chrome / Chromium (or Playwright Chromium). Motion frame strips (`record` / `motion`) require `ffmpeg`.
+- **AI image generation (`oil_ui_image`)**: Delegates to your local `image-gen` Skill (`python3`), using `image-gen`'s own environment variables for model and API key configuration.
 
 ---
 

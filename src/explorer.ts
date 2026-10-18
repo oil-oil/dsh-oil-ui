@@ -59,15 +59,16 @@ function canonical(value: unknown): string {
 }
 
 /** Embeds only resources inside the owning project (or the active template's Skill root). */
-class Embedder {
+export class Embedder {
+  private realRoot: Promise<string>;
   private cache = new Map<string,Buffer>();
   private total = 0;
-  constructor(private root: string) {}
+  constructor(private root: string) { this.realRoot = realpath(root); }
   async path(value: string, base: string): Promise<string> {
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) throw new Error(`Use local assets, received ${value}`);
     const clean = decodeURIComponent(value.split(/[?#]/,1)[0]!);
     const path = resolve(base,clean);
-    const root = await realpath(this.root);
+    const root = await this.realRoot;
     const actual = await realpath(path);
     const rel = relative(root,actual);
     if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error('Explorer resources must remain within the project');
@@ -200,9 +201,8 @@ class Embedder {
   }
 }
 
-export async function defaultManifest(project: {title:string;request:string;directory:string}) {
+export async function defaultManifest(project: {title:string;request:string;directory:string}, embed = new Embedder(project.directory)) {
   const candidates = [];
-  const embed = new Embedder(project.directory);
   for (const id of ['a','b','c']) {
     let foundPath: string | null = null;
     let foundSource = `${id}.html`;
@@ -224,7 +224,7 @@ export async function defaultManifest(project: {title:string;request:string;dire
   return {schemaVersion:1,project:project.title,brief:project.request,candidates};
 }
 
-export async function buildExplorer(input: unknown, projectDirectory: string, active: ActiveSkill, manifestDir?: string, outputPath?: string): Promise<string> {
+export async function buildExplorer(input: unknown, projectDirectory: string, active: ActiveSkill, manifestDir?: string, outputPath?: string, embed = new Embedder(projectDirectory)): Promise<string> {
   const raw = record(typeof input === 'string' ? JSON.parse(input) : input,'manifest');
   if (raw.schemaVersion !== 1) throw new Error('manifest.schemaVersion must be 1');
   const data: RecordValue = {schemaVersion:1,project:text(raw.project,'project'),brief:text(raw.brief,'brief'),round:text(raw.round ?? '01','round')};
@@ -237,7 +237,6 @@ export async function buildExplorer(input: unknown, projectDirectory: string, ac
     data.serve = serve;
   }
   if (!Array.isArray(raw.candidates) || !raw.candidates.length) throw new Error('candidates must contain at least one candidate');
-  const embed = new Embedder(projectDirectory);
   const ids = new Set<string>();
   const candidates: RecordValue[] = [];
   const origins = new Set<string>();

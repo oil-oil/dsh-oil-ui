@@ -119,7 +119,7 @@
 
 ## 真实贴图与科学、工程素材
 
-读 `--sheet` 生成的联系表 PNG 挑选，`imageUrl` 用来下载；`look` 里的四边色、纸底和干净区域，直接对应下文的背景融合、正片叠底和压字位置。Poly Haven 的 `textureMaps.diffuse.url` 才是表面颜色贴图，`roughness` 和 `normal` 分别供实时材质的粗糙度与法线使用；渲染球和模型预览图不适合重复铺贴。
+读 `oil_ui_media` 的 `sheet: true` 生成的联系表 PNG 挑选，`imageUrl` 用来下载；`look` 里的四边色、纸底和干净区域，直接对应下文的背景融合、正片叠底和压字位置。Poly Haven 的 `textureMaps.diffuse.url` 才是表面颜色贴图，`roughness` 和 `normal` 分别供实时材质的粗糙度与法线使用；渲染球和模型预览图不适合重复铺贴。
 
 - 用 Diffuse JPG 做 CSS `background-repeat: repeat` 或 SVG `<pattern>`，在最终尺寸下检查四边接缝和重复频率。部分素材只沿一个轴重复；不要只看缩略图就认定双轴无缝。
 - Three.js 的颜色贴图用 sRGB，粗糙度与法线用线性数据；本工具选择 OpenGL 法线，按模型 UV 和实际光照检查方向。重复材质设置两个轴的 RepeatWrapping；模型 glTF 依赖清单中的 UV 贴图用于该模型，不能当作无缝材质。

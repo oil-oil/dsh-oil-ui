@@ -1,9 +1,11 @@
+import { createReadStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { createServer, type Server } from 'node:http';
 import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveActiveSkill, resolveImageGenScript, type ImageGenOptions, type SkillOptions } from './upstream.ts';
-import { buildExplorer, defaultManifest } from './explorer.ts';
+import { buildExplorer, defaultManifest, Embedder } from './explorer.ts';
 import { ManagedProcesses, timeout } from './processes.ts';
 import type { ExplorerRequest, ImageRequest, MediaRequest, ShootRequest } from './tool-requests.ts';
 
@@ -122,7 +124,7 @@ export class DesignWorkbench {
     }
   }
 
-  private async safeOutput(directory: string, scanExisting = true): Promise<void> {
+  private async safeOutput(directory: string): Promise<void> {
     let current = directory;
     while (dirname(current) !== current) {
       const info = await lstat(current).catch((e: NodeJS.ErrnoException) => {
@@ -132,17 +134,6 @@ export class DesignWorkbench {
       if (info?.isSymbolicLink()) throw new Error('Output paths cannot traverse symlinks');
       current = dirname(current);
     }
-    const visit = async (path: string): Promise<void> => {
-      const info = await lstat(path).catch((e: NodeJS.ErrnoException) => {
-        if (e.code === 'ENOENT') return null;
-        throw e;
-      });
-      if (info?.isSymbolicLink()) throw new Error('Output paths cannot traverse symlinks');
-      if (info?.isDirectory()) {
-        for (const entry of await readdir(path)) await visit(join(path, entry));
-      }
-    };
-    if (scanExisting) await visit(directory);
     await mkdir(directory, { recursive: true });
   }
 
@@ -205,10 +196,25 @@ export class DesignWorkbench {
         if (info?.isDirectory()) {
           target = await this.scopedPath(workspace, `${relPath.replace(/\/+$/, '')}/index.html`);
         }
-        const bytes = await readFile(target);
+        const fileInfo = await stat(target);
+        if (!fileInfo.isFile()) { res.writeHead(404).end(); return; }
+        let start = 0, end = fileInfo.size - 1;
+        const range = req.headers.range;
+        if (range) {
+          const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+          if (!match || (!match[1] && !match[2])) { res.writeHead(416, { 'content-range': `bytes */${fileInfo.size}` }).end(); return; }
+          if (match[1]) { start = Number(match[1]); if (match[2]) end = Math.min(end, Number(match[2])); }
+          else start = Math.max(0, fileInfo.size - Number(match[2]));
+          if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= fileInfo.size) {
+            res.writeHead(416, { 'content-range': `bytes */${fileInfo.size}` }).end(); return;
+          }
+        }
         const ext = extname(target).toLowerCase();
         const isExplorer = basename(target) === 'style-explorer.html' || basename(target) === 'explorer.html';
-        res.writeHead(200, {
+        res.writeHead(range ? 206 : 200, {
+          'accept-ranges': 'bytes',
+          'content-length': Math.max(0, end - start + 1),
+          ...(range ? { 'content-range': `bytes ${start}-${end}/${fileInfo.size}` } : {}),
           'content-type': MIME[ext] ?? 'application/octet-stream',
           'cache-control': 'no-store',
           'x-content-type-options': 'nosniff',
@@ -217,9 +223,11 @@ export class DesignWorkbench {
             : "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' data: blob: https:; connect-src 'self' https:; frame-ancestors 'none'",
         });
         if (req.method === 'HEAD') res.end();
-        else res.end(bytes);
+        else if (!fileInfo.size) res.end();
+        else await pipeline(createReadStream(target, { start, end }), res);
       } catch {
-        res.writeHead(404).end();
+        if (!res.headersSent) res.writeHead(404).end();
+        else res.destroy();
       }
     });
 
@@ -240,6 +248,7 @@ export class DesignWorkbench {
 
   async explorer(cwd: string, input: ExplorerRequest = {}) {
     const workspace = await this.resolveWorkspace(cwd);
+    const embedder = new Embedder(workspace);
     let manifest: unknown = input.manifest;
     let manifestDir = workspace;
     let manifestFilePath: string | null = null;
@@ -272,7 +281,7 @@ export class DesignWorkbench {
           title: input.title?.trim() || basename(workspace) || 'Design Exploration',
           request: input.brief?.trim() || input.request?.trim() || 'Compare candidate directions side by side',
           directory: workspace,
-        });
+        }, embedder);
         const firstSource = String((manifest as { candidates?: { source?: string }[] }).candidates?.[0]?.source ?? '');
         if (firstSource.startsWith('directions/')) manifestDir = join(workspace, 'directions');
         else if (firstSource.startsWith('explore/')) manifestDir = join(workspace, 'explore');
@@ -280,14 +289,14 @@ export class DesignWorkbench {
     }
 
     const outPath = await this.scopedPath(workspace, input.out ?? 'style-explorer.html');
-    await this.safeOutput(dirname(outPath), false);
+    await this.safeOutput(dirname(outPath));
 
     const active = await resolveActiveSkill({ ...this.skillOptions, cwd: workspace });
-    const html = await buildExplorer(manifest, workspace, active, manifestDir, outPath);
+    const html = await buildExplorer(manifest, workspace, active, manifestDir, outPath, embedder);
 
     if (!manifestFilePath) {
-      await this.safeOutput(manifestDir, false);
-      manifestFilePath = join(manifestDir, 'manifest.json');
+      await this.safeOutput(manifestDir);
+      manifestFilePath = await this.scopedPath(workspace, join(manifestDir, 'manifest.json'));
       await writeFile(manifestFilePath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     }
     await writeFile(outPath, html, 'utf8');
@@ -315,7 +324,7 @@ export class DesignWorkbench {
         throw new Error('viewport/size must be desktop, mobile, phone, or WIDTHxHEIGHT (1..16384)');
       }
     }
-    return tokens.join(',');
+    return tokens.map(token => token.toLowerCase()).join(',');
   }
 
   async shoot(cwd: string, input: ShootRequest = {}, signal?: AbortSignal) {
@@ -341,13 +350,20 @@ export class DesignWorkbench {
       throw new Error('compare requires compare (or before) reference image');
     }
 
-    const defaultOut = mode === 'evidence' ? 'evidence' : 'shots/desktop.png';
+    const bool = (value: boolean | string | undefined) => value !== undefined && value !== false && value !== 'false' && value !== '0' && value !== '';
+    const record = bool(input.record), motion = bool(input.motion);
+    const multiOutput = mode === 'evidence' || input.evidence || sizeStr.includes(',') ||
+      Boolean(Array.isArray(input.states) ? input.states.length : input.states?.trim()) || record || motion ||
+      Boolean(input.zoom !== undefined && String(input.zoom).includes(','));
+    const defaultOut = mode === 'evidence' ? 'evidence' : multiOutput ? 'shots' : 'shots/desktop.png';
     const requestedOut = input.out ?? defaultOut;
     const outResolved = await this.scopedPath(workspace, requestedOut);
     const isSinglePngOut = extname(outResolved).toLowerCase() === '.png';
 
+    if (isSinglePngOut && multiOutput) throw new Error('Multiple screenshots/recordings require a directory out instead of a single PNG');
+
     if (isSinglePngOut) {
-      await this.safeOutput(dirname(outResolved), false);
+      await this.safeOutput(dirname(outResolved));
       if ((await lstat(outResolved).catch(() => null))?.isSymbolicLink()) {
         throw new Error('Output cannot be a symlink');
       }
@@ -355,7 +371,7 @@ export class DesignWorkbench {
       if (extname(outResolved) !== '') {
         throw new Error('out must be a PNG file path (e.g. shots/desktop.png) or a directory path (e.g. shots)');
       }
-      await this.safeOutput(outResolved, false);
+      await this.safeOutput(outResolved);
     }
 
     const runOutDir = isSinglePngOut
@@ -432,10 +448,10 @@ export class DesignWorkbench {
         if (input.selector) {
           args.push('--steps', `waitfor ${input.selector}`, '--mark', `1=${input.selector}`);
         }
-        if (input.record) args.push('--record');
+        if (record) args.push('--record');
         if (input.entry) args.push('--entry');
         if (input.holdMs !== undefined) args.push('--hold', String(input.holdMs));
-        if (input.motion) args.push('--motion');
+        if (motion) args.push('--motion');
         if (input.frames !== undefined) args.push('--frames', String(input.frames));
         if (input.columns !== undefined) args.push('--columns', String(input.columns));
         if (input.waitMs !== undefined) args.push('--wait', String(input.waitMs));
@@ -521,7 +537,9 @@ export class DesignWorkbench {
     if (!['page', 'reference', 'all'].includes(use)) {
       throw new Error('use must be page, reference or all');
     }
-    const sources = input.sources?.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const sourceList = input.sources === undefined ? [] : (Array.isArray(input.sources) ? input.sources : input.sources.split(',')).map(s => s.trim().toLowerCase()).filter(Boolean);
+    const sources = sourceList.length ? sourceList : undefined;
+    const maps = Array.isArray(input.maps) ? input.maps.join(',') : input.maps;
     if (sources?.some(s => !KNOWN_SOURCES.includes(s))) {
       throw new Error(`sources must use: ${KNOWN_SOURCES.join(', ')}`);
     }
@@ -529,7 +547,11 @@ export class DesignWorkbench {
     const timeoutMs = timeout(input.timeoutMs, 90_000);
     const outputDir = await this.scopedPath(workspace, input.dir ?? 'assets/media');
     await this.safeOutput(outputDir);
-    const cache = join(outputDir, '.curate-cache.json');
+    const cache = await this.scopedPath(workspace, '.curate-cache.json', true);
+    // Validate only the engine's fixed writable paths, not unrelated assets in this directory.
+    for (const name of ['SOURCES.md', 'candidates.html', 'candidates.png', 'sheet.html', 'sheet.png']) {
+      await this.scopedPath(workspace, join(outputDir, name));
+    }
     const script = await this.script('curate-media.mjs', workspace);
     const deadline = Date.now() + timeoutMs;
 
@@ -567,13 +589,13 @@ export class DesignWorkbench {
       let outFile: string | null = null;
       if (input.out) {
         outFile = await this.scopedPath(workspace, input.out);
-        await this.safeOutput(dirname(outFile), false);
-        previewArgs.push('--out', outFile);
+        await this.safeOutput(dirname(outFile));
       }
       const previewed = await run(previewArgs);
       let sheetPath = typeof previewed.data.sheetImage === 'string' ? resolve(outputDir, previewed.data.sheetImage) : null;
+      if (outFile && !sheetPath && previewed.result.ok) throw new Error('Media preview did not produce a sheet to copy');
       if (outFile && sheetPath && sheetPath !== outFile) {
-        await copyFile(sheetPath, outFile).catch(() => {});
+        await copyFile(await this.scopedPath(workspace, sheetPath), outFile);
         sheetPath = outFile;
       }
       return {
@@ -592,13 +614,14 @@ export class DesignWorkbench {
       const fetchArgs = ['fetch', refs];
       if (input.out) {
         const outFile = await this.scopedPath(workspace, input.out);
-        await this.safeOutput(dirname(outFile), false);
+        await this.safeOutput(dirname(outFile));
+        await this.scopedPath(workspace, join(dirname(outFile), 'SOURCES.md'));
         fetchArgs.push('--out', outFile);
       } else {
         fetchArgs.push('--dir', outputDir);
       }
       if (input.sheet !== false && !input.out) fetchArgs.push('--sheet');
-      if (input.maps) fetchArgs.push('--maps', input.maps);
+      if (maps) fetchArgs.push('--maps', maps);
       if (input.resolution) fetchArgs.push('--resolution', input.resolution);
       if (input.videoSize) fetchArgs.push('--video-size', input.videoSize);
       if (input.note) fetchArgs.push('--note', input.note);
@@ -659,7 +682,7 @@ export class DesignWorkbench {
     }
     const fetchArgs = ['fetch', refs.join(','), '--dir', outputDir];
     if (input.sheet !== false) fetchArgs.push('--sheet');
-    if (input.maps) fetchArgs.push('--maps', input.maps);
+    if (maps) fetchArgs.push('--maps', maps);
     if (input.resolution) fetchArgs.push('--resolution', input.resolution);
     if (input.videoSize) fetchArgs.push('--video-size', input.videoSize);
     const fetched = await run(fetchArgs);
@@ -668,7 +691,7 @@ export class DesignWorkbench {
     if (typeof fetched.data.sheetImage === 'string') {
       const rawSheet = resolve(outputDir, fetched.data.sheetImage);
       const targetSheet = await this.scopedPath(workspace, input.out ?? 'shots/media-sheet.png');
-      await this.safeOutput(dirname(targetSheet), false);
+      await this.safeOutput(dirname(targetSheet));
       await copyFile(rawSheet, targetSheet);
       sheetPath = targetSheet;
     }
@@ -711,14 +734,20 @@ export class DesignWorkbench {
     if (input.model !== undefined && !input.model.trim()) throw new Error('model must be nonempty');
 
     const timeoutMs = timeout(input.timeoutMs, 180_000);
-    const out = await this.scopedPath(workspace, input.out ?? 'assets/generated.png');
+    let out = await this.scopedPath(workspace, input.out ?? 'assets/generated.png');
+    if (!input.out && input.force !== true) {
+      let suffix = 1;
+      while (await lstat(out).then(() => true, (e: NodeJS.ErrnoException) => { if (e.code === 'ENOENT') return false; throw e; })) {
+        out = await this.scopedPath(workspace, `assets/generated-${suffix++}.png`);
+      }
+    }
     const extension = extname(out).toLowerCase();
     if (!['.png', '.jpg', '.jpeg', '.webp'].includes(extension)) throw new Error('out must be PNG, JPEG or WebP');
     if (input.background === 'transparent' && ['.jpg', '.jpeg'].includes(extension)) {
       throw new Error('Transparent backgrounds require PNG or WebP');
     }
     if (
-      input.force === false &&
+      input.force !== true &&
       (await lstat(out).then(
         () => true,
         (e: NodeJS.ErrnoException) => {
@@ -741,7 +770,7 @@ export class DesignWorkbench {
     if (!script) {
       throw new Error('Local image-gen script not found. Install image-gen or configure imageGenScript / OIL_UI_IMAGE_GEN_SCRIPT.');
     }
-    await this.safeOutput(dirname(out), false);
+    await this.safeOutput(dirname(out));
     const promptPath = join(dirname(out), `.prompt-${randomUUID()}.txt`);
     let promptCreated = false;
     try {
@@ -755,7 +784,7 @@ export class DesignWorkbench {
       const args = [script, mode, '--prompt-file', promptPath, '--out', out, '--size', size, '--quality', quality, '--json'];
       if (input.background) args.push('--background', input.background);
       if (input.model) args.push('--model', input.model.trim());
-      if (input.force !== false) args.push('--force');
+      if (input.force === true) args.push('--force');
       for (const reference of references) args.push('--image', reference);
       const result = await this.processes.runCommand('python3', args, workspace, timeoutMs, signal);
       let data: Record<string, unknown> | null = null;

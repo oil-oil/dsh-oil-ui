@@ -6,6 +6,8 @@ import { DesignWorkbench } from '../src/workbench.ts';
 import { ManagedProcesses } from '../src/processes.ts';
 import type { ImageRequest } from '../src/tool-requests.ts';
 
+vi.mock('node:fs/promises', { spy: true });
+
 const localHome = vi.hoisted(() => ({ path: '' }));
 vi.mock('node:os', async original => {
   const os = await original<typeof import('node:os')>();
@@ -233,7 +235,7 @@ describe('native explorer and managed scripts in cwd', () => {
     }
   });
 
-  it('serves subdirectory targets from workspace root, forwards full shoot flags, and cleans up .shoot-tmp-* when out is a .png file', async () => {
+  it('serves subdirectory targets from workspace root, forwards full shoot flags to a directory for multi-output captures', async () => {
     const { w, cwd } = await scriptedWorkbench(
       `import{writeFile,mkdir}from'node:fs/promises';import{join}from'node:path';const args=process.argv.slice(2),dir=args[args.indexOf('--out')+1];await mkdir(dir,{recursive:true});await writeFile(join(dir,'idle.png'),'image bytes');console.log(JSON.stringify(args));console.log('idle.png 默认做法提示（不是报错，按设计意图判断）：small text');`,
     );
@@ -242,12 +244,12 @@ describe('native explorer and managed scripts in cwd', () => {
 
     const result = await w.shoot(cwd, {
       target: 'explore/a.html',
-      out: 'shots/candidate-a.png',
+      out: 'shots',
       size: '1440x900,390x844',
       states: 'default,empty',
       param: 'view',
       query: 'tab=settings;tab=billing',
-      zoom: '#hero',
+      zoom: [1, 2],
       fullPage: true,
       mask: true,
       sheet: true,
@@ -256,10 +258,10 @@ describe('native explorer and managed scripts in cwd', () => {
       waitMs: 10,
     });
     expect(result.ok).toBe(true);
-    expect(result.outputFiles).toEqual([join(cwd, 'shots/candidate-a.png')]);
-    expect(await readFile(join(cwd, 'shots/candidate-a.png'), 'utf8')).toBe('image bytes');
+    expect(result.outputFiles).toEqual([join(cwd, 'shots/idle.png')]);
+    expect(await readFile(join(cwd, 'shots/idle.png'), 'utf8')).toBe('image bytes');
     const shotsEntries = await readdir(join(cwd, 'shots'));
-    expect(shotsEntries).toEqual(['candidate-a.png']);
+    expect(shotsEntries).toEqual(['idle.png']);
 
     expect(result.domHints[0]).toContain('默认做法提示');
     const args = JSON.parse(result.stdout.split('\n')[0]!);
@@ -273,7 +275,7 @@ describe('native explorer and managed scripts in cwd', () => {
     expect(args).toContain('--query');
     expect(args).toContain('tab=settings;tab=billing');
     expect(args).toContain('--zoom');
-    expect(args).toContain('#hero');
+    expect(args).toContain('1,2');
     expect(args).toContain('--full');
     expect(args).toContain('--mask');
     expect(args).toContain('--sheet');
@@ -284,7 +286,7 @@ describe('native explorer and managed scripts in cwd', () => {
   });
 
   it('supports search, preview, fetch and search_and_fetch in oil_ui_media', async () => {
-    const script = `import{mkdir,writeFile}from'node:fs/promises';import{join}from'node:path';const a=process.argv.slice(2);if(a[0]==='search'){console.log(JSON.stringify({items:[{ref:'M1',provider:'met',use:'page',license:'CC0'},{ref:'V1',provider:'vam',use:'reference'}]}));}else if(a[0]==='preview'){const out=a[a.indexOf('--out')+1];await mkdir(join(out,'..'),{recursive:true});await writeFile(out,'preview-sheet');console.log(JSON.stringify({ok:true,sheetImage:out,items:[{ref:'M1',provider:'met',license:'CC0'}]}));}else{const dir=a[a.indexOf('--dir')+1];await mkdir(dir,{recursive:true});await writeFile(join(dir,'M1.png'),'asset');if(a.includes('--sheet'))await writeFile(join(dir,'sheet.png'),'sheet');console.log(JSON.stringify({files:[{ref:'M1',saved:join(dir,'M1.png')}],...(a.includes('--sheet')?{sheetImage:join(dir,'sheet.png')}:{})}));}`;
+    const script = `import{mkdir,writeFile}from'node:fs/promises';import{join}from'node:path';const a=process.argv.slice(2);if(a[0]==='search'){console.log(JSON.stringify({items:[{ref:'M1',provider:'met',use:'page',license:'CC0'},{ref:'V1',provider:'vam',use:'reference'}]}));}else if(a[0]==='preview'){if(a.includes('--out'))throw Error('preview does not accept --out');const out=join(a[a.indexOf('--dir')+1],'candidates.png');await mkdir(join(out,'..'),{recursive:true});await writeFile(out,'preview-sheet');console.log(JSON.stringify({ok:true,sheetImage:out,items:[{ref:'M1',provider:'met',license:'CC0'}]}));}else{const dir=a[a.indexOf('--dir')+1];await mkdir(dir,{recursive:true});await writeFile(join(dir,'M1.png'),'asset');if(a.includes('--sheet'))await writeFile(join(dir,'sheet.png'),'sheet');console.log(JSON.stringify({files:[{ref:'M1',saved:join(dir,'M1.png')}],...(a.includes('--sheet')?{sheetImage:join(dir,'sheet.png')}:{})}));}`;
     const { w, cwd } = await scriptedWorkbench('', script);
 
     const searched = await w.media(cwd, { action: 'search', query: 'ceramic', sources: 'met' });
@@ -448,14 +450,18 @@ describe('managed image generation and editing in cwd', () => {
     expect(result.data).toMatchObject({ prompt, mode: 'generate' });
     const args = result.data?.args as string[];
     expect(args).toContain('--json');
-    expect(args).toContain('--force');
+    expect(args).not.toContain('--force');
     expect(args).toContain('--prompt-file');
     expect(args).not.toContain(prompt);
     expect(ManagedProcesses.prototype.runCommand).toHaveBeenCalledWith('python3', expect.any(Array), cwd, 180000, undefined);
     expect(await readFile(result.outputFiles[0]!, 'utf8')).toBe('image fixture');
     expect(await promptsIn(join(cwd, 'assets'))).toEqual([]);
     await expect(readFile(String(result.data?.promptFile))).rejects.toThrow();
-    await expect(w.image(cwd, { prompt: 'Keep existing', force: false })).rejects.toThrow('already exists');
+    const next = await w.image(cwd, { prompt: 'Keep existing', force: false });
+    expect(next.outputFiles).toEqual([join(cwd, 'assets/generated-1.png')]);
+    await expect(w.image(cwd, { prompt: 'Keep existing', out: 'assets/generated.png' })).rejects.toThrow('already exists');
+    const forced = await w.image(cwd, { prompt: 'Replace', force: true });
+    expect(forced.data?.args).toContain('--force');
   });
 
   it('defaults to edit with media/screenshot references and supports explicit edit mode', async () => {
@@ -518,4 +524,136 @@ describe('managed image generation and editing in cwd', () => {
     const { w, cwd } = await setup();
     await expect(w.image(cwd, { prompt: 'An object' })).rejects.toThrow('Local image-gen script not found');
   });
+});
+
+it('streams preview files with HEAD, bounded/open/suffix ranges and unsatisfiable range responses', async () => {
+  const { w, cwd } = await setup();
+  await writeFile(join(cwd, 'video.mp4'), '0123456789');
+  await writeFile(join(cwd, 'empty.txt'), '');
+  const url = `${await w.preview(cwd)}/video.mp4`;
+  const head = await fetch(url, { method: 'HEAD' });
+  expect(head.status).toBe(200);
+  expect(head.headers.get('content-length')).toBe('10');
+  expect(head.headers.get('accept-ranges')).toBe('bytes');
+  expect(await head.text()).toBe('');
+  for (const [range, body, contentRange] of [
+    ['bytes=2-5', '2345', 'bytes 2-5/10'], ['bytes=8-', '89', 'bytes 8-9/10'],
+    ['bytes=-3', '789', 'bytes 7-9/10'], ['bytes=8-999', '89', 'bytes 8-9/10'],
+  ]) {
+    const res = await fetch(url, { headers: { Range: range! } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get('content-range')).toBe(contentRange);
+    expect(await res.text()).toBe(body);
+  }
+  const rangedHead = await fetch(url, { method: 'HEAD', headers: { Range: 'bytes=2-5' } });
+  expect(rangedHead.headers.get('content-length')).toBe('4');
+  expect(await rangedHead.text()).toBe('');
+  for (const range of ['bytes=10-', 'bytes=5-2', 'bytes=-0', 'bytes=abc', 'bytes=1-2,5-6']) {
+    const res = await fetch(url, { headers: { Range: range } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get('content-range')).toBe('bytes */10');
+  }
+  expect(await (await fetch(`${await w.preview(cwd)}/empty.txt`)).text()).toBe('');
+});
+
+it('rejects an external manifest symlink before writing an inferred explorer manifest', async () => {
+  const { w, cwd, root } = await setup();
+  await mkdir(join(cwd, 'explore'));
+  for (const id of ['a', 'b', 'c']) await writeFile(join(cwd, `explore/${id}.html`), `<title>${id}</title>`);
+  const outside = join(root, 'outside.json');
+  await writeFile(outside, 'do not overwrite');
+  await symlink(outside, join(cwd, 'explore/manifest.json'));
+  await expect(w.explorer(cwd, {})).rejects.toThrow('within');
+  expect(await readFile(outside, 'utf8')).toBe('do not overwrite');
+});
+
+it('uses real shoot.mjs dry-run parsing for uppercase presets, dimensions and string booleans', async () => {
+  const { w, cwd } = await setup();
+  await writeFile(join(cwd, 'index.html'), '<title>Native dry-run</title>');
+  for (const size of ['DESKTOP', '1440X900']) {
+    const result = await w.shoot(cwd, { target: 'index.html?state=ready#hero', size, record: 'false', motion: 'false', dryRun: true });
+    expect(result.ok, result.stderr).toBe(true);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.sizes).toEqual([{ w: 1440, h: 900 }]);
+    expect(parsed.flags).not.toContain('record');
+    expect(parsed.flags).not.toContain('motion');
+    expect(result.stdout).toContain('?state=ready#hero');
+  }
+  for (const input of [{ states: ['idle', 'done'] }, { evidence: true }, { size: 'desktop,mobile' }, { record: true }]) {
+    await expect(w.shoot(cwd, { ...input, out: 'shots/single.png' })).rejects.toThrow('directory');
+  }
+  const single = await w.shoot(cwd, { out: 'shots/single.png', record: 'false', motion: 'false', dryRun: true });
+  expect(single.ok, single.stderr).toBe(true);
+  expect((await readdir(join(cwd, 'shots'))).some(name => name.startsWith('.shoot-tmp-'))).toBe(false);
+});
+
+it('maps preview and array options through the real media parser, surfaces failed copies, and ignores unrelated output symlinks', async () => {
+  const { w, cwd, root } = await setup();
+  const modulePath = join(process.cwd(), 'skills/oil-ui/scripts/curate-media.mjs');
+  const { parseArgs } = await import(modulePath);
+  await mkdir(join(cwd, 'candidates'));
+  await symlink(root, join(cwd, 'candidates/unrelated'));
+  const commands: { command: string; opts: Record<string, unknown> }[] = [];
+  vi.spyOn(ManagedProcesses.prototype, 'run').mockImplementation(async (_script, args) => {
+    const parsed = parseArgs(args);
+    commands.push(parsed);
+    if (parsed.command === 'preview') {
+      const sheetImage = join(cwd, 'candidates/sheet.png');
+      await writeFile(sheetImage, 'sheet');
+      return { ok: true, timedOut: false, exitCode: 0, stdout: JSON.stringify({ sheetImage, items: [] }), stderr: '' };
+    }
+    return { ok: true, timedOut: false, exitCode: 0, stdout: JSON.stringify({ items: [], files: [] }), stderr: '' };
+  });
+  expect(await w.media(cwd, { action: 'preview', refs: ['L1'], dir: 'candidates', out: 'shots/preview.png' })).toMatchObject({ ok: true, sheetPath: join(cwd, 'shots/preview.png') });
+  expect(await readFile(join(cwd, 'shots/preview.png'), 'utf8')).toBe('sheet');
+  await w.media(cwd, { action: 'search', query: 'bridge', dir: 'candidates', sources: ['loc'] });
+  await w.media(cwd, { action: 'fetch', refs: ['L1'], dir: 'assets', maps: ['normal', 'roughness'], sheet: false });
+  expect(commands.every(command => command.opts.cache === join(cwd, '.curate-cache.json'))).toBe(true);
+  expect(commands[2]!.opts.maps).toEqual(['normal', 'roughness']);
+  await mkdir(join(cwd, 'shots/is-directory.png'));
+  await expect(w.media(cwd, { action: 'preview', refs: 'L1', dir: 'candidates', out: 'shots/is-directory.png' })).rejects.toThrow();
+});
+
+it('executes real curate-media search in candidates and fetch in assets using one workspace cache', async () => {
+  const realScript = join(process.cwd(), 'skills/oil-ui/scripts/curate-media.mjs');
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9XkAAAAASUVORK5CYII=';
+  // Only network responses are fixtures: parsing, cache allocation, numbering, downloading and SOURCES.md are real.
+  const wrapper = `import{main}from ${JSON.stringify(realScript)};
+    globalThis.fetch=async url=>{
+      if(String(url).includes('/collections/'))return Response.json({results:[{title:'Bridge drawing',id:'https://www.loc.gov/item/bridge/',rights:'Public domain',resources:[{image:'https://fixture.invalid/sheet/bridge.png',url:'https://www.loc.gov/item/bridge/'}]}]});
+      if(String(url).includes('fixture.invalid/sheet/'))return new Response(Buffer.from('${png}','base64'),{headers:{'content-type':'image/png'}});
+      throw Error('Unexpected network request: '+url);
+    };await main();`;
+  const { w, cwd } = await scriptedWorkbench('', wrapper);
+  const search = await w.media(cwd, { action: 'search', query: 'bridge', kind: 'blueprint', dir: 'candidates', sources: ['loc'] });
+  expect(search.ok, search.stderr).toBe(true);
+  expect(search.count).toBe(1);
+  const ref = String((search.items[0] as Record<string, unknown>).ref);
+  const cache = JSON.parse(await readFile(join(cwd, '.curate-cache.json'), 'utf8'));
+  expect(cache.items[ref].title).toBe('Bridge drawing');
+  const fetched = await w.media(cwd, { action: 'fetch', refs: [ref], dir: 'assets', sheet: false });
+  expect(fetched.ok, `${fetched.stderr}\n${JSON.stringify(fetched.errors)}`).toBe(true);
+  expect(fetched.count).toBe(1);
+  expect(await readFile(String((fetched.items[0] as Record<string, unknown>).saved))).toEqual(Buffer.from(png, 'base64'));
+  expect(await readFile(join(cwd, 'assets/SOURCES.md'), 'utf8')).toContain('Bridge drawing');
+}, 20000);
+
+it('reuses candidate bytes across inferred metadata and embedding, and caches the embedder root realpath', async () => {
+  const fs = await import('node:fs/promises');
+  const { Embedder } = await import('../src/explorer.ts');
+  const { w, cwd } = await setup();
+  await mkdir(join(cwd, 'explore'));
+  for (const id of ['a', 'b', 'c']) await writeFile(join(cwd, `explore/${id}.html`), `<title>${id}</title>`);
+  const reads = vi.mocked(fs.readFile);
+  reads.mockClear();
+  await w.explorer(cwd, {});
+  for (const id of ['a', 'b', 'c']) {
+    expect(reads.mock.calls.filter(([path]) => path === join(cwd, `explore/${id}.html`))).toHaveLength(1);
+  }
+  const paths = vi.mocked(fs.realpath);
+  paths.mockClear();
+  const embed = new Embedder(cwd);
+  await embed.path('explore/a.html', cwd);
+  await embed.path('explore/b.html', cwd);
+  expect(paths.mock.calls.filter(([path]) => path === cwd)).toHaveLength(1);
 });

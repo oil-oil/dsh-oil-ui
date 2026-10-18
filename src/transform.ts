@@ -1,6 +1,8 @@
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 
+export const TRANSFORM_VERSION = '3';
+
 const EXCLUDED_NAMES = new Set(['.git', '.DS_Store', '__pycache__']);
 const DOC_ONLY_PATHS = new Set(['assets/readme', 'README.en.md']);
 
@@ -34,7 +36,7 @@ const NATIVE_TOOL_COMMANDS_SECTION = `### 常用调用方式（\`oil_ui_shoot\`�
   2. 用 \`read_image\` 查看返回的联系表 PNG，挑选编号后拉取：\`oil_ui_media({ "action": "fetch", "refs": ["C1", "T2"], "dir": "assets", "sheet": true })\`
   3. 拉取完整 PBR 贴图（Diffuse / Roughness / Normal）：\`oil_ui_media({ "action": "fetch", "refs": ["T2"], "maps": "all", "resolution": "1k", "dir": "assets" })\`
 
-\`kind\` 支持 \`all|texture|design|photo|blueprint|map|plate|science|video\`。每项 \`use\` 说明用途：\`page\` 可放进页面（CC BY/BY-SA 要署名），\`reference\` 只可下载到不上线的目录作为生图参考。所有成功下载自动记入 \`SOURCES.md\`。
+\`kind\` 支持 \`all|texture|design|photo|blueprint|map|plate|science|video\`。每项 \`use\` 说明用途：\`page\` 可放进页面（CC BY/BY-SA 要署名），\`reference\` 只可下载到不上线的目录作为生图参考。单个 URL 下载可用 \`oil_ui_media({ "action": "fetch", "refs": "https://example.org/image.jpg", "out": "assets/image.jpg" })\`；单文件下载不传 \`dir\`，输出路径不可覆盖已有文件。所有成功下载自动记入 \`SOURCES.md\`。
 
 ### 生图与改图（\`oil_ui_image\`）
 
@@ -85,6 +87,7 @@ export function transformSkillMarkdown(relativePath: string, raw: string): strin
 
   if (normalized === 'references/tools.md') {
     let out = raw;
+    out = out.replace(/默认 `390x844`/g, '默认 `1440x900`');
     // Replace the intro CLI note between `# 工具` and `## 截图和录屏`
     out = out.replace(
       /^# 工具\r?\n\r?\n[\s\S]*?(?=\r?\n## 截图和录屏)/,
@@ -92,7 +95,7 @@ export function transformSkillMarkdown(relativePath: string, raw: string): strin
     );
     // Replace CLI command blocks (`### 常用命令` .. `### 检索和下载真实素材`) before `### 看结果`
     out = out.replace(
-      /### 常用命令\r?\n\r?\n[\s\S]*?(?=\r?\n### 看结果)/,
+      /### (?:常用命令|常用调用方式（`oil_ui_shoot`）)\r?\n\r?\n[\s\S]*?(?=\r?\n### 看结果)/,
       NATIVE_TOOL_COMMANDS_SECTION,
     );
     // Replace inline CLI mentions in remaining methodology paragraphs
@@ -106,7 +109,7 @@ export function transformSkillMarkdown(relativePath: string, raw: string): strin
   }
 
   if (normalized === 'references/style-explorer.md') {
-    return raw.replace(
+    return raw.replace(/每个字段的写法和限制见生成器的 `--help`。/g, '字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。').replace(
       /## 生成和打开\r?\n\r?\n```text\r?\npython3 <skill>\/scripts\/build_explorer\.py <manifest 所在目录>\/manifest\.json\r?\n```\r?\n\r?\n[^\r\n]+/,
       `## 生成和打开\n\n调用 \`oil_ui_explorer\` 生成对比页：\n\n\`\`\`json\n{\n  "manifest": "explore/manifest.json",\n  "out": "style-explorer.html"\n}\n\`\`\`\n\n\`manifest\` 可传 \`manifest.json\` 的相对路径，也可直接传 JSON 对象；不传时工具会自动查找工作目录下的 \`manifest.json\` 或 \`explore/a.html\`、\`b.html\`、\`c.html\`。对比页默认生成在工作目录根部的 \`style-explorer.html\`，并返回预览地址 \`explorerUrl\`。`,
     );
@@ -114,8 +117,13 @@ export function transformSkillMarkdown(relativePath: string, raw: string): strin
 
   if (normalized === 'references/media.md') {
     return raw
+      .replace(/`--sheet`/g, '`oil_ui_media` 的 `sheet: true`')
       .replace(/用 `curate-media\.mjs` 从 Poly Haven/g, '用 `oil_ui_media` 从 Poly Haven')
       .replace(/按宿主生成工具自己的输入和编辑规则来。/g, '用 `oil_ui_image` 生成或编辑（支持 `mode: "generate"` 文生图、`mode: "edit"` 传入 1–16 张本地参考图做同模多材质变体、以及 `background: "transparent"` 透明底抠图）。');
+  }
+
+  if (normalized === 'references/layout-and-viewport.md') {
+    return raw.replace(/截图工具的 `--compare`/g, '`oil_ui_shoot` 的 `compare` 参数');
   }
 
   if (normalized === 'references/visual-review.md') {
@@ -134,11 +142,19 @@ export function transformSkillMarkdown(relativePath: string, raw: string): strin
       );
   }
 
+  if (normalized === 'references/review-loop.md') {
+    return raw.replace(
+      /模板里的路径按 \[派发协议\]\(visual-review\.md\) 换成绝对路径。/g,
+      '子 Agent 启动时系统提示词中已自动注入本目录（`references/`）的绝对路径，主 Agent 直接使用上表模板即可，子 Agent 可按该路径读取对应的专项评审与游玩文件。',
+    );
+  }
+
   if (normalized === 'references/reviewer-manual.md') {
     return raw
+      .replace(/能用 `oil_ui_shoot` 时，用它出缩略图（`size: "480x300"` 或 `"180x390"`）和遮字图（`mask: true`），并用 `read_image` 查看截图。/g, '能用 `oil_ui_shoot` 时，保持原始桌面或手机视口截图，再按原比例缩放到 480px 或 180px 宽；遮字图用 `mask: true`，并用 `read_image` 查看。')
       .replace(
         /能用截图工具时，用它出缩略图和遮字图。/g,
-        '能用 `oil_ui_shoot` 时，用它出缩略图（`size: "480x300"` 或 `"180x390"`）和遮字图（`mask: true`），并用 `read_image` 查看截图。',
+        '能用 `oil_ui_shoot` 时，用它出缩略图（保持桌面或手机的原始视口截图，再按原比例缩放到 480px 或 180px 宽，不能改成窄视口重新截图）和遮字图（`mask: true`），并用 `read_image` 查看截图。',
       )
       .replace(/\[游玩\]\(play\.md\)/g, '[游玩](references/play.md)');
   }

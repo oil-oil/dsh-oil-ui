@@ -48,6 +48,7 @@
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "pack:plugin": "node scripts/package-plugin.mjs",
+    "sync:skill": "node scripts/vendor-oil-ui.mjs skills/oil-ui",
     "vendor:skill": "node scripts/vendor-oil-ui.mjs",
     "build:skill": "node scripts/build-dsh-skill.mjs"
   },
