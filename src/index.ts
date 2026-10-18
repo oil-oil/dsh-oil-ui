@@ -195,6 +195,7 @@ export function apply(ctx: Context, config: Config) {
           query: { type: 'string', description: '附加到页面地址的额外查询参数（如 theme=dark&lang=zh）。' },
           zoom: { oneOf: [{ type: 'number' }, { type: 'string' }, { type: 'array', items: { oneOf: [{ type: 'number' }, { type: 'string' }] } }], description: '截图像素倍数，可传数值、逗号分隔字符串或倍数数组。' },
           fullPage: { type: 'boolean', description: '是否截取整个页面。' },
+          thumb: { type: 'boolean', description: '快速缩略图：按 0.5 倍分辨率截视口，缩短等待并跳过默认做法检查。' },
           mask: { type: 'boolean', description: '是否生成遮字图。' },
           sheet: { type: 'boolean', description: '是否生成联系表。' },
           mark: { type: 'string', description: '截图标注规则，如 1=.open。' },

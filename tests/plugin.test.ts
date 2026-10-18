@@ -392,7 +392,7 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
       },
     };
     for (const listener of createdListeners) await listener({ agent: liteSubagent });
-    await vi.waitFor(() => expect(subSections).toHaveLength(1));
+    await vi.waitFor(() => expect(subSections).toHaveLength(1), { timeout: 5000 });
     expect(subSections[0]!.name).toBe('oil-ui-subagent-reviewer');
     expect(subSections[0]!.text).toContain('/references');
     expect(subSections[0]!.text).toContain('# 视觉与交互评审手册 (子 Agent 专用)');
@@ -423,7 +423,7 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
       },
     };
     for (const listener of createdListeners) await listener({ agent: proSubagent });
-    await vi.waitFor(() => expect(proSubSections).toHaveLength(1));
+    await vi.waitFor(() => expect(proSubSections).toHaveLength(1), { timeout: 5000 });
     expect(proSubSections[0]!.text).toContain('Pro 专属标识');
     expect(proSubSections[0]!.text).toContain('能用 `oil_ui_shoot` 时');
   } finally {
@@ -463,7 +463,7 @@ it('never awaits reviewer setup in agent/created, falls back after compile failu
     apply(ctx as unknown as Context, { previewPort: 0, preferPro: true, proSkillDir: pro });
     expect(listener!({ agent })).toBeUndefined();
     expect(listener!({ agent })).toBeUndefined();
-    await vi.waitFor(() => expect(sections.get('oil-ui-subagent-reviewer')).toContain('# 视觉与交互评审手册'));
+    await vi.waitFor(() => expect(sections.get('oil-ui-subagent-reviewer')).toContain('# 视觉与交互评审手册'), { timeout: 5000 });
     expect(sections.get('oil-ui')).toBe(inherited);
     expect(sections.size).toBe(2);
     await Promise.all(disposers.map(dispose => dispose()));

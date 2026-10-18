@@ -37,7 +37,20 @@
         "reason": "Duplicate English README; README.md is retained."
       }
     ],
-    "paths": []
+    "paths": [
+      {
+        "path": ".git",
+        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
+      },
+      {
+        "path": "assets/readme",
+        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
+      },
+      {
+        "path": "README.en.md",
+        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
+      }
+    ]
   },
   "fileCount": 32,
   "files": [
@@ -85,14 +98,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "c2edb29b06c4fc107e79bff595e62df9825758a151d256e80c5bbed306d503a5",
-      "size": 8589,
+      "sha256": "537cbb5c68a646d9620d059b32a122b4b2dee725f13600dcbc1e94e722b7d2d6",
+      "size": 8647,
       "mode": "0644"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "4137636b55c3c5c13005f4c895c65e593b32f3d6c38c6b908ee4d6d3c7ca44eb",
-      "size": 7771,
+      "sha256": "739f0ba66444cce6e763642ae162fbbb5f65d8f6784639eaf93872fc9d5f22dc",
+      "size": 7830,
       "mode": "0644"
     },
     {
@@ -133,8 +146,8 @@
     },
     {
       "path": "references/reviewer-manual.md",
-      "sha256": "c92ffaa147f9ec8c60b8c17e6538d6c7c59a293772d1d6fcfb2e640efaf7f734",
-      "size": 11726,
+      "sha256": "fcda60f505cd58c4625b14237cb0a40158587110c213b9df022569b5d7237608",
+      "size": 11797,
       "mode": "0644"
     },
     {
@@ -151,8 +164,8 @@
     },
     {
       "path": "references/tools.md",
-      "sha256": "f9e55495fa6444ccf3b200c0fcd05260c845e737512a2609a0c0564bdc61d7ed",
-      "size": 8026,
+      "sha256": "17937c343bc596d7fcec7b7691f662d25aa3d0a9634748efaa905a54be8ed278",
+      "size": 8069,
       "mode": "0644"
     },
     {
@@ -187,8 +200,8 @@
     },
     {
       "path": "scripts/curate-media.mjs",
-      "sha256": "cce1aa322f5e7aa09ea6fecd41ebc7980fba16b697b970f34aa739f8ed3f301d",
-      "size": 64713,
+      "sha256": "2bc60a4bd761b7082ac17d0d3e2d4bc1d4630cf763138e9f3bd291d6ceb3bdf4",
+      "size": 65277,
       "mode": "0644"
     },
     {
@@ -199,8 +212,8 @@
     },
     {
       "path": "scripts/shoot.mjs",
-      "sha256": "1349cf6e3f5c54b3478884dff96a9b585c1825e9a0c63ae1777afcfa165116bf",
-      "size": 134707,
+      "sha256": "f439d9731fcd9b2efa1136250d87d7da3cc94341e3603d072d36a36a5271bd4e",
+      "size": 136551,
       "mode": "0644"
     },
     {
@@ -223,14 +236,14 @@
     },
     {
       "path": "tests/test_curate_media.py",
-      "sha256": "7dc34eb0c7009f35cb22ad1be935b267598cd0d163e17f89ef1312be2cffc976",
-      "size": 28059,
+      "sha256": "20244105f024df559569c56caae0977af50d15c4eeee2fc9571e66000fd1981d",
+      "size": 28795,
       "mode": "0644"
     },
     {
       "path": "tests/test_shoot.py",
-      "sha256": "4cdbe2f008c77b7cee7fabe220e1e8d3199c9e02228c1acdfdfbf3004d4f0f35",
-      "size": 137213,
+      "sha256": "a6fbf231d2e640410f5ec99e170d958b163ca39ee50545ecd400a8f8771f2ec7",
+      "size": 138356,
       "mode": "0644"
     }
   ]

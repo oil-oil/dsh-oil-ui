@@ -12,7 +12,7 @@ const NATIVE_TOOL_COMMANDS_SECTION = `### 常用调用方式（\`oil_ui_shoot\`�
 
 | 要什么 | \`oil_ui_shoot\` 参数 |
 | --- | --- |
-| 看一眼桌面效果 | \`{ "target": "index.html", "size": "desktop", "out": "shots/desktop.png" }\`（不传 \`size\` 默认 \`1440x900\`；支持 \`desktop\`、\`mobile\`、\`1440x900,390x844\`） |
+| 看一眼桌面效果 | \`{ "target": "index.html", "size": "desktop", "out": "shots/desktop.png" }\`（不传 \`size\` 默认 \`1440x900\`；支持 \`desktop\`、\`mobile\`、\`1440x900,390x844\`；只看整体版式可加 \`"thumb": true\`） |
 | 操作几步再截 | \`{ "target": "index.html", "size": "desktop", "steps": "click .open; wait 300", "out": "shots/open.png" }\` |
 | 按地址参数切多状态连拍 | \`{ "target": "index.html", "size": "desktop", "states": ["idle", "done"], "out": "shots" }\`（状态参数名默认 \`state\`，可用 \`param\` 修改；额外查询串用 \`query: "a=1&b=2"\`） |
 | 送评审或交付前取证 | \`{ "target": "index.html", "size": "desktop", "evidence": true, "states": ["idle", "done"], "steps": ["send: click .send"], "out": "evidence" }\` |

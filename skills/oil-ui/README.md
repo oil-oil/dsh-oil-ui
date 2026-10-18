@@ -39,7 +39,7 @@ npx skills add oil-oil/oil-ui
 
 It's ready to use right after installation, with nothing to configure. When a new version is out, your agent mentions it at the end of a reply; ask it to update whenever you like. If you already have Oil UI Pro, you don't need the open-source version. Installing both makes them compete for the same requests.
 
-If you use DeepSeek Harness, install the native plugin [dsh-oil-ui](https://github.com/oil-oil/dsh-oil-ui) (it includes the free edition and automatically detects a local Oil UI Pro installation).
+If you use DeepSeek Harness, install the native plugin [dsh-oil-ui](https://github.com/oil-oil/dsh-oil-ui) (`dsh plugin --profile web add github:oil-oil/dsh-oil-ui`; it includes the free edition and automatically detects a local Oil UI Pro installation).
 
 ## Usage
 

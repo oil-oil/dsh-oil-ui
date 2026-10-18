@@ -118,8 +118,10 @@ export function parseArgs(argv) {
   if (opts.maps.includes('all') && opts.maps.length === 1) opts.maps = ['diffuse', 'roughness', 'normal'];
   if (opts.maps.some(k => !['diffuse', 'roughness', 'normal'].includes(k))) usage('--maps 应为 diffuse,roughness,normal 或 all');
   opts.maps = [...new Set(opts.maps)];
-  opts.cache = path.resolve(opts.cache ?? '.curate-cache.json');
   opts.dir = path.resolve(opts.dir ?? (opts.out ? path.dirname(opts.out) : 'assets'));
+  const defaultCache = path.resolve('.curate-cache.json');
+  const fallbackCaches = [path.join(opts.dir, '.curate-cache.json'), path.join(path.dirname(opts.dir), '.curate-cache.json')];
+  opts.cache = opts.cache ? path.resolve(opts.cache) : (!existsSync(defaultCache) && fallbackCaches.find(c => existsSync(c))) || defaultCache;
   return { command, positional, opts };
 }
 
@@ -469,6 +471,11 @@ async function runSearch(input, opts) {
 async function targets(positional, opts) {
   const tokens = positional.flatMap(x => /^https?:\/\//i.test(x) ? [x] : x.split(/[,\s]+/)).filter(Boolean);
   const cache = await readCache(opts.cache);
+  for (const extra of [path.join(opts.dir, '.curate-cache.json'), path.join(path.dirname(opts.dir), '.curate-cache.json')]) {
+    if (extra !== opts.cache && existsSync(extra)) {
+      try { const other = await readCache(extra); cache.items = { ...other.items, ...cache.items }; } catch {}
+    }
+  }
   return [...new Set(tokens)].map(token => {
     if (/^[A-Z]\d+$/i.test(token) && Object.values(PREFIX).includes(token[0].toUpperCase())) {
       const item = cache.items[token.toUpperCase()];

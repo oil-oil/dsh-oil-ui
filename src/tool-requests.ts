@@ -23,6 +23,7 @@ export interface ShootRequest {
   query?: string;
   zoom?: number | string | (number | string)[];
   fullPage?: boolean;
+  thumb?: boolean;
   mask?: boolean;
   sheet?: boolean;
   mark?: string;

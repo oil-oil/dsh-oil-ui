@@ -234,7 +234,9 @@ process.stdout.write(eval(writer+'; screencastList(frames,finished)'));'''
         self.assertEqual(self.dry("--size", "mobile")["sizes"], [{"w": 390, "h": 844}])
         self.assertTrue(any("尺寸 已去重" in n for n in parsed["notices"]))
         self.assertEqual(self.dry()["sizes"], [{"w": 390, "h": 844}])
-        for flag in ("--full", "--mask", "--sheet", "--record", "--motion", "--entry", "--evidence"):
+        self.assertEqual(self.dry("--thumb")["options"]["wait"], "150")
+        self.assertIn("--thumb 只用于快速缩略图", self.dry("--thumb", "--full", ok=False))
+        for flag in ("--full", "--thumb", "--mask", "--sheet", "--record", "--motion", "--entry", "--evidence"):
             with self.subTest(flag=flag):
                 error = self.dry(flag, "extra", ok=False)
                 self.assertIn("page.html 和 extra", error)
@@ -531,6 +533,19 @@ document.querySelector('#go').onclick = () => show(document.body.dataset.state =
         (output / "page.png").write_bytes(b"old screenshot")
         self.shoot(output, "--force")
         self.assert_artifacts(output, ("page.png", "report.json"))
+
+    def test_thumb_and_file_url_resolution(self):
+        import struct
+        output = self.folder / "thumb-shots"
+        result = subprocess.run([NODE, str(SCRIPT), self.page.as_uri(), "--size", "desktop", "--thumb", "--out", str(output)],
+                                cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=60, encoding='utf-8')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assert_artifacts(output, ("page.png", "report.json"))
+        report = json.loads((output / "report.json").read_text(encoding="utf-8"))[0]
+        self.assertTrue(report.get("thumb"))
+        self.assertEqual(report["lint"], [])
+        self.assertEqual(struct.unpack(">II", (output / "page.png").read_bytes()[16:24]), (720, 450))
+        self.assert_no_browser_leftovers()
 
     def test_preview_denies_sibling_paths_and_escaping_symlinks(self):
         outside = Path(str(self.folder) + '-private')
@@ -1333,7 +1348,9 @@ document.querySelector('#go').addEventListener('click',()=>{if(document.body.dat
     @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg is needed for complete evidence')
     def test_evidence_all_artifacts_and_partial_failure(self):
         output = self.folder / "evidence"
-        self.shoot(output, "--evidence", "--states=a,b", "--hold=100", "--steps", "toggle: click #go")
+        ev_result = self.shoot(output, "--evidence", "--states=a,b", "--hold=100", "--steps", "toggle: click #go")
+        self.assertIn("评审交接：", ev_result.stdout)
+        self.assertIn("reviewer-manual.md", ev_result.stdout)
         self.assert_artifacts(output, ("a.png", "b.png", "a-masked.png", "b-masked.png", "sheet.png", "sheet-masked.png",
                                       "a-@2x.png", "record-entry.mp4", "motion-entry-start.jpg", "motion-entry-mid.jpg", "motion-entry-end.jpg",
                                       "record-toggle.mp4", "motion-toggle-start.jpg", "motion-toggle-mid.jpg", "motion-toggle-end.jpg"))

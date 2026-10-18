@@ -407,6 +407,17 @@ assert.deepEqual([paper.paper, paper.tone, paper.mono, paper.edge, paper.calm.le
         self.assertEqual(cjk['items'][0]['provider'], 'japan')
         self.assertGreater(cjk['count'], 1)
 
+    def test_fetch_resolves_cache_in_target_dir_or_parent_when_cwd_changes(self):
+        sub = self.cwd / 'subproject'
+        sub.mkdir()
+        search = subprocess.run(self.cli_command('search', 'wood', '--kind', 'design', '--dir', 'candidates', fixture=True),
+                                cwd=sub, capture_output=True, text=True, timeout=40, encoding='utf-8')
+        self.assertEqual(search.returncode, 0, search.stderr + search.stdout)
+        self.assertTrue((sub / '.curate-cache.json').is_file())
+        fetched = json.loads(self.run_cli('fetch', 'V1', '--dir', str(sub / 'assets'), fixture=True).stdout)
+        self.assertEqual(fetched['count'], 1)
+        self.assertTrue(Path(fetched['files'][0]['saved']).is_file())
+
 
 if __name__ == '__main__':
     unittest.main()

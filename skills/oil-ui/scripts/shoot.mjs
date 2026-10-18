@@ -6,7 +6,8 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HELP = `常用命令：
   node scripts/shoot.mjs page.html --size desktop --out shots
@@ -22,6 +23,7 @@ const HELP = `常用命令：
   --query <查询参数>    给地址加参数，例如 --query "a=1&b=2"；可和 --states 一起用
   --zoom <倍数,...>     默认 1；例如 --zoom 1,2，每个倍数各出一套；配 --evidence 时覆盖默认截图倍数
   --full                截整页，默认只截视口
+  --thumb               快速缩略图：按 0.5 倍分辨率截视口，缩短等待并跳过默认做法检查
   --mask                另截一份遮掉全部文字的版本
   --sheet               把状态拼成并排图，配合 --mask 再拼遮字版
   --mark "1=<选择器>;..." 给匹配的元素画框和编号，另出标注版；不写编号时按顺序编号
@@ -204,7 +206,7 @@ if (!args.length || args.includes("--help") || args.includes("-h")) { console.lo
 const opt = { out: "shots", size: "390x844", param: "state", zoom: "1", hold: "1200", wait: "400" };
 const options = [...HELP.matchAll(/^  (--\S+)/gm)].map((m) => m[1]);
 options.push("--label", "--columns", "--frames");
-const booleanOptions = new Set(["full", "mask", "sheet", "record", "motion", "entry", "evidence", "dry-run", "force"]);
+const booleanOptions = new Set(["full", "thumb", "mask", "sheet", "record", "motion", "entry", "evidence", "dry-run", "force"]);
 const flags = new Set(), stepsInputs = [], positional = [], suppliedOptions = new Set(), stitchInputs = [];
 let lastFlag = null;
 for (let i = 0; i < args.length; i++) {
@@ -266,6 +268,11 @@ if (opt.frames !== undefined && (!/^\d+$/.test(opt.frames) || !Number.isSafeInte
 if (opt.frames !== undefined && !flags.has("record") && !flags.has("evidence")) fail(`--frames 需要配合录屏，收到 --frames ${opt.frames}；例如 page.html --record --frames 8`);
 if (opt.columns !== undefined && (!/^\d+$/.test(opt.columns) || !Number.isSafeInteger(+opt.columns) || +opt.columns < 1)) fail(`--columns 需要正整数，收到 ${opt.columns}；例如 --stitch before.png --stitch after.png --columns 2`);
 if (opt.columns !== undefined && !stitching && opt.frames === undefined) fail(`--columns 需要配合 --stitch 或 --frames，收到 --columns ${opt.columns}；例如 page.html --record --frames 8 --columns 4`);
+if (flags.has("thumb")) {
+  const badThumb = [...["full", "mask", "record", "motion", "entry", "evidence"].filter((k) => flags.has(k)).map((k) => "--" + k), ...(opt.mark ? ["--mark"] : []), ...(opt.compare ? ["--compare"] : [])];
+  if (badThumb.length) fail(`--thumb 只用于快速缩略图，不和 ${badThumb.join("、")} 一起用，收到 ${badThumb.join("、")}；例如 page.html --size desktop --thumb --out shots`);
+  if (!suppliedOptions.has("wait")) opt.wait = "150";
+}
 const notices = [];
 function deduplicate(values, key, label) {
   const seen = new Set(), removed = [];
@@ -361,10 +368,26 @@ const privatePath = (path) => path.split(/[\\/]/).some((part) => part.startsWith
 let server = null;
 async function resolveTarget(t) {
   if (/^https?:\/\//.test(t)) return t;
-  const file = resolve(t);
+  let localTarget = t;
+  if (/^file:\/\//i.test(t)) {
+    try { localTarget = fileURLToPath(t); } catch { fail(`找不到文件：${t}`); }
+  }
+  const file = resolve(localTarget);
   if (!existsSync(file)) fail(`找不到文件：${t}`);
-  const root = realpathSync(statSync(file).isDirectory() ? file : dirname(file));
-  const page = statSync(file).isDirectory() ? "index.html" : basename(file);
+  const isDir = statSync(file).isDirectory();
+  const fileDir = realpathSync(isDir ? file : dirname(file));
+  let root = fileDir;
+  try {
+    const cwdReal = realpathSync(process.cwd());
+    const tmpReal = realpathSync(tmpdir());
+    const relDir = relative(cwdReal, fileDir);
+    if (relDir && relDir !== ".." && !relDir.startsWith(`..${sep}`) && !isAbsolute(relDir)
+      && relDir.split(sep).length <= 3 && cwdReal !== parse(cwdReal).root && cwdReal !== tmpReal && !fileDir.startsWith(tmpReal + sep)) {
+      root = cwdReal;
+    }
+  } catch {}
+  const targetFile = isDir ? join(fileDir, "index.html") : realpathSync(file);
+  const pagePath = relative(root, targetFile).split(sep).map(encodeURIComponent).join("/");
   server = createServer((req, res) => {
     try {
       const origin = `http://127.0.0.1:${server.address().port}`;
@@ -389,7 +412,7 @@ async function resolveTarget(t) {
     }
   });
   await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
-  return `http://127.0.0.1:${server.address().port}/${encodeURIComponent(page)}`;
+  return `http://127.0.0.1:${server.address().port}/${pagePath}`;
 }
 
 // ---------- 启动一个独立的临时浏览器，不碰用户自己的浏览器数据 ----------
@@ -1005,8 +1028,8 @@ async function settleAnimations(limit) {
   })()`));
 }
 
-async function screenshot(file, full) {
-  let clip;
+async function screenshot(file, full, clipOverride = null) {
+  let clip = clipOverride;
   if (full) {
     const { contentSize } = await cdp("Page.getLayoutMetrics");
     clip = { x: 0, y: 0, width: Math.ceil(contentSize.width), height: Math.ceil(contentSize.height), scale: 1 };
@@ -1922,20 +1945,22 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
       const preferred = [stateIds[stateIndex], suffix].filter(Boolean).join("-");
       const name = reserveFamily(preferred, (stem) => [`${stem}.png`, ...(useMask ? [`${stem}-masked.png`] : []), ...(marks.length ? [`${stem}-marked.png`] : []), ...(refImage ? [`${stem}-compare.png`] : [])]);
       const meta = { state, size: `${w}x${h}`, zoom, ...(group.id ? { group: group.id } : {}) };
+      const thumb = flags.has("thumb");
+      const settleBudget = thumb ? 300 : 2000;
       const prepare = async () => {
         problems = [];
         await setViewport(w, h, zoom); await open(withState(state));
-        let waited = await settleAnimations(2000);
+        let waited = await settleAnimations(settleBudget);
         await runSteps(group.steps);
-        waited += await settleAnimations(2000 - waited); return waited;
+        waited += await settleAnimations(settleBudget - waited); return waited;
       };
       let entry;
       const file = join(out, `${name}.png`);
       await item(`${name}.png`, meta, async () => {
         const animationWaitMs = await prepare();
-        await screenshot(file, flags.has("full"));
-        const issues = await check(), hints = await lint();
-        entry = { file: basename(file), ...meta, animationWaitMs, issues, lint: hints };
+        await screenshot(file, flags.has("full"), thumb ? { x: 0, y: 0, width: w, height: h, scale: 0.5 } : null);
+        const issues = await check(), hints = thumb ? [] : await lint();
+        entry = { file: basename(file), ...meta, ...(thumb ? { thumb: true } : {}), animationWaitMs, issues, lint: hints };
         lines.push(`${basename(file)}${issues.length ? "  ⚠ " + issues.join("；") : ""}${hints.length ? "  ◇ 默认做法提示：" + lintLine(hints) : ""}`);
         report.push(entry); shots.push({ path: file, label: state || "page" });
       });
@@ -2048,6 +2073,8 @@ const total = report.reduce((n, r) => n + r.issues.length, 0);
 if (report.length) console.log(total ? `发现 ${total} 个问题，详见 report.json` : `检查通过：没有控制台错误、横向溢出或加载失败的图片${flags.has("motion") ? "，三段动效都检测到了" : ""}`);
 const hinted = [...new Set(report.flatMap((r) => (r.lint || []).map((i) => i.label)))];
 if (hinted.length) console.log(`默认做法提示 ${hinted.length} 类：${hinted.join("、")}。可读性几项（对比度不达标、正文小于 13px、行高过紧、停在透明）要改；其余改掉，或在交付说明里写出它怎样服务方向，误报也写一句。详见 report.json 的 lint`);
+const reviewerManual = resolve(dirname(process.argv[1]), "../references/reviewer-manual.md");
+if (evidence && existsSync(reviewerManual)) console.log(`评审交接：将 ${reviewerManual} 与证据目录 ${out} 传给独立评审子 Agent`);
 finishing = true;
 await cleanup();
 process.exit(process.exitCode || 0);

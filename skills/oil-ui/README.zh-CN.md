@@ -39,7 +39,7 @@ npx skills add oil-oil/oil-ui
 
 装好就能用，不需要额外配置。有新版本时，Agent 会在回复末尾提醒你，想更新直接让它更新就行。已经装了 Oil UI Pro 的话，就不用再装开源版，两个同时装会抢着接同一类请求。
 
-如果使用 DeepSeek Harness，可以安装原生插件 [dsh-oil-ui](https://github.com/oil-oil/dsh-oil-ui)（内置免费版，并会自动识别本机已装的 Oil UI Pro）。
+如果使用 DeepSeek Harness，可以安装原生插件 [dsh-oil-ui](https://github.com/oil-oil/dsh-oil-ui)（`dsh plugin --profile web add github:oil-oil/dsh-oil-ui`，内置免费版，并会自动识别本机已装的 Oil UI Pro）。
 
 ## 使用
 

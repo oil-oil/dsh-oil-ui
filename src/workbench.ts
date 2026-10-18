@@ -436,6 +436,7 @@ export class DesignWorkbench {
           if (zoom.trim()) args.push('--zoom', zoom.trim());
         }
         if (input.fullPage) args.push('--full');
+        if (input.thumb) args.push('--thumb');
         if (input.mask) args.push('--mask');
         if (input.sheet) args.push('--sheet');
         if (input.mark) args.push('--mark', input.mark);
