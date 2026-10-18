@@ -119,11 +119,11 @@ export function apply(ctx: Context, config: Config) {
   ctx.effect(() => () => workbench.dispose());
   let invalidateSkills: (() => void) | undefined;
   let provider: ReturnType<typeof createSkillProvider> | undefined;
-  const reportStatus = async (scope: Agent | undefined, update: boolean) => {
+  const reportStatus = async (skillsCtx: Context, scope: Agent | undefined, update: boolean) => {
     const cwd = scope?.session.header.cwd;
     const discovered = provider ? await provider.refresh(cwd) : { snapshot: await discoverSkill({ ...config, cwd }), changed: false };
     if (discovered.changed) invalidateSkills?.();
-    const visible = await ctx.skills.get(discovered.snapshot.active.name, { scope, cwd });
+    const visible = await skillsCtx.skills.get(discovered.snapshot.active.name, { scope, cwd });
     const status = await skillStatus(visible, { ...config, cwd, update }, discovered.snapshot);
     if (update) invalidateSkills?.();
     return status;
@@ -141,7 +141,7 @@ export function apply(ctx: Context, config: Config) {
         },
         output: nativeOutput,
         execute: async (args, exec) => {
-          return json(await reportStatus(exec.agent, Boolean(args?.update)));
+          return json(await reportStatus(ctx, exec.agent, Boolean(args?.update)));
         },
       }),
     );
@@ -297,7 +297,7 @@ export function apply(ctx: Context, config: Config) {
               text: '用法：/oil-ui-status [update]',
             };
           }
-          const status = await reportStatus(invocation.agent, arg === 'update');
+          const status = await reportStatus(ctx, invocation.agent, arg === 'update');
           const lines = [
             `当前生效 Skill：${status.activeSkillName}（${status.edition === 'pro' ? 'Pro' : 'Lite'}）v${status.activeVersion}`,
             ...(status.visibleMatchesOriginal === false && status.detected
