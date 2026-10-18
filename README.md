@@ -109,42 +109,48 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ## 安装
 
-### 1. 构建并打包插件
+### 1. 一行命令安装到 DeepSeek Harness
+
+如果你使用 DeepSeek Harness 的默认 Web 界面（`dsh web`），直接在终端运行：
+
+```bash
+dsh plugin --profile web add github:oil-oil/dsh-oil-ui
+```
+
+（若使用命令行无头模式，将 `--profile web` 换成 `--profile headless` 即可。）
+
+仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需任何额外构建授权，直接启动 `dsh web` 即可使用。
+
+<details>
+<summary>从本地源码打包安装</summary>
 
 ```bash
 git clone https://github.com/oil-oil/dsh-oil-ui.git
 cd dsh-oil-ui
 pnpm install
 pnpm pack:plugin
+dsh plugin --profile web add ./.work/dsh-oil-ui-0.3.1.tgz
 ```
 
-打包完成后会在 `.work/` 下生成 `dsh-oil-ui-<version>.tgz`。
+</details>
 
-### 2. 安装到 DeepSeek Harness
+### 2. 可选配置与运行依赖
 
-```bash
-dsh plugin install ./.work/dsh-oil-ui-0.3.1.tgz
-```
-
-### 3. 可选配置与运行依赖
-
-插件开箱即用，默认会自动扫描本机的 `oil-ui-pro` 和 `image-gen` Skill。如需自定义路径或端口，可在 DeepSeek Harness 配置中设置（对应 [`src/config.ts`](src/config.ts)）：
+插件开箱即用，默认会自动扫描本机的 `oil-ui-pro` 和 `image-gen` Skill。如需自定义路径或端口，可在 `~/.dsh/cordis.patch.yml`（全局）或 `~/.dsh/profiles/web/cordis.patch.yml`（当前 profile）中按行覆盖配置（对应 [`src/config.ts`](src/config.ts)）：
 
 ```yaml
-plugins:
-  entries:
-    dsh-oil-ui:
-      enabled: true
-      config:
-        # 是否优先启用本机已安装的 oil-ui-pro（默认 true）
-        preferPro: true
-        # 可选：指定自定义的 oil-ui-pro 目录（默认自动扫描 .dsh/skills 与 .agents/skills）
-        # proSkillDir: /Users/you/.agents/skills/oil-ui-pro
-        # 可选：指定 image-gen 脚本路径（默认自动扫描 ~/.dsh/skills/image-gen 与 ~/.agents/skills/image-gen）
-        # imageGenScript: /Users/you/.agents/skills/image-gen/scripts/image_gen.py
-        # 可选：覆盖默认工作目录与本地截图预览服务端口（0 为自动分配空闲端口）
-        # workspaceRoot: /path/to/workspace
-        # previewPort: 0
+- id: dsh-oil-ui
+  name: dsh-oil-ui
+  config:
+    # 是否优先启用本机已安装的 oil-ui-pro（默认 true）
+    preferPro: true
+    # 可选：指定自定义的 oil-ui-pro 目录（默认自动扫描 .dsh/skills 与 .agents/skills）
+    # proSkillDir: /Users/you/.agents/skills/oil-ui-pro
+    # 可选：指定 image-gen 脚本路径（默认自动扫描 ~/.dsh/skills/image-gen 与 ~/.agents/skills/image-gen）
+    # imageGenScript: /Users/you/.agents/skills/image-gen/scripts/image_gen.py
+    # 可选：覆盖默认工作目录与本地截图预览服务端口（0 为自动分配空闲端口）
+    # workspaceRoot: /path/to/workspace
+    # previewPort: 0
 ```
 
 - **浏览器截图（`oil_ui_shoot`）**：使用本机安装的 Chrome / Chromium（或 Playwright Chromium）；若使用录屏抽帧（`record` / `motion`），需本机装有 `ffmpeg`。

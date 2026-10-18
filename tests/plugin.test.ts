@@ -18,6 +18,65 @@ vi.mock('node:os', async original => {
 beforeEach(() => { vi.stubEnv('OIL_NO_UPDATE_CHECK', '1'); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
+it('presents all five tools with native call views and declares explorer/image deliverable paths', async () => {
+  const tools = new Map<string, ToolDefinition>();
+  const disposers: (() => void | Promise<void>)[] = [];
+  const ctx = {
+    effect(fn: () => () => void | Promise<void>) { disposers.push(fn()); },
+    inject(services: string[], fn: (value: unknown) => unknown) {
+      if (services.includes('tools')) fn(ctx);
+    },
+    tools: { register(tool: ToolDefinition) { tools.set(tool.name, tool); } },
+  };
+  try {
+    apply(ctx as unknown as Context, { previewPort: 0, preferPro: false });
+    expect(tools.size).toBe(5);
+    for (const tool of tools.values()) expect(tool.presentCall).toBeTypeOf('function');
+    const present = (name: string, args: Record<string, unknown> = {}) => tools.get(name)!.presentCall!(args);
+
+    // Generic edit locations are the host's producedPaths contract for deliverable links.
+    expect(present('oil_ui_explorer')).toEqual({
+      card: 'generic', title: '生成风格对比页', kind: 'edit', locations: [{ path: 'style-explorer.html' }],
+    });
+    expect(present('oil_ui_explorer', { out: 'review/comparison.html' })).toMatchObject({
+      card: 'generic', kind: 'edit', locations: [{ path: 'review/comparison.html' }],
+    });
+    expect(present('oil_ui_image', { prompt: 'A ceramic vase' })).toEqual({
+      card: 'generic', title: '生成图片', kind: 'edit', locations: [{ path: 'assets/generated.png' }],
+    });
+    expect(present('oil_ui_image', { prompt: 'Change the color', images: ['assets/source.png'], out: 'assets/variant.webp' })).toEqual({
+      card: 'generic', title: '编辑图片', kind: 'edit', locations: [{ path: 'assets/variant.webp' }],
+    });
+    expect(present('oil_ui_image', { prompt: 'Generate', mode: 'generate', images: ['source.png'] })?.title).toBe('生成图片');
+    expect(present('oil_ui_shoot')).toEqual({
+      card: 'generic', title: '截图与交互取证', kind: 'execute', locations: [{ path: 'index.html' }],
+    });
+    expect(present('oil_ui_shoot', { target: 'explore/a.html', out: 'shots/a.png' })).toMatchObject({
+      card: 'generic', kind: 'execute', locations: [{ path: 'explore/a.html' }, { path: 'shots/a.png' }],
+    });
+    expect(present('oil_ui_media', { query: 'wood' })).toEqual({
+      card: 'generic', title: '搜索并下载素材', kind: 'fetch', locations: [{ path: 'assets/media' }],
+    });
+    expect(present('oil_ui_media', { action: 'search', query: 'wood', dir: 'candidates' })).toEqual({
+      card: 'generic', title: '搜索素材', kind: 'search', locations: [{ path: 'candidates' }],
+    });
+    expect(present('oil_ui_media', { action: 'preview', refs: ['T1'], out: 'shots/candidates.png' })).toEqual({
+      card: 'generic', title: '预览素材候选', kind: 'read', locations: [{ path: 'shots/candidates.png' }],
+    });
+    expect(present('oil_ui_media', { refs: ['T1'], dir: 'assets', out: 'assets/wood.jpg' })).toEqual({
+      card: 'generic', title: '下载素材', kind: 'fetch', locations: [{ path: 'assets/wood.jpg' }],
+    });
+    expect(present('oil_ui_skill_status')).toEqual({ card: 'generic', title: '查看 Oil UI Skill 状态', kind: 'read' });
+    expect(present('oil_ui_skill_status', { update: true })).toEqual({ card: 'generic', title: '更新 Oil UI Skill', kind: 'read' });
+
+    // Replay may contain malformed/older arguments; defineTool must degrade safely.
+    expect(present('oil_ui_explorer', { out: 123 })).toBeUndefined();
+    expect(present('oil_ui_image', {})).toBeUndefined();
+  } finally {
+    await Promise.all(disposers.map(dispose => dispose()));
+  }
+});
+
 it('registers 5 native Harness tools, validates their schemas and operates directly in session cwd', async () => {
   const root = await mkdtemp(join(tmpdir(), 'oil-plugin-'));
   const tools = new Map<string, ToolDefinition>();

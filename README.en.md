@@ -109,42 +109,48 @@ The update check and one-time Pro prompt from upstream `oil-ui` are built direct
 
 ## Installation
 
-### 1. Build and pack the plugin
+### 1. One-line install into DeepSeek Harness
+
+For the default DeepSeek Harness Web UI (`dsh web`), run:
+
+```bash
+dsh plugin --profile web add github:oil-oil/dsh-oil-ui
+```
+
+(For headless CLI runs, replace `--profile web` with `--profile headless`.)
+
+Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed directly to the repository, no build allowance is required—just launch `dsh web` after installing.
+
+<details>
+<summary>Build and install from a local checkout</summary>
 
 ```bash
 git clone https://github.com/oil-oil/dsh-oil-ui.git
 cd dsh-oil-ui
 pnpm install
 pnpm pack:plugin
+dsh plugin --profile web add ./.work/dsh-oil-ui-0.3.1.tgz
 ```
 
-This outputs `.work/dsh-oil-ui-<version>.tgz`.
+</details>
 
-### 2. Install into DeepSeek Harness
+### 2. Optional configuration & runtime dependencies
 
-```bash
-dsh plugin install ./.work/dsh-oil-ui-0.3.1.tgz
-```
-
-### 3. Optional configuration & runtime dependencies
-
-The plugin works out of the box and automatically discovers local `oil-ui-pro` and `image-gen` installations. To override paths or ports, configure `dsh-oil-ui` in your DeepSeek Harness settings (matching [`src/config.ts`](src/config.ts)):
+The plugin works out of the box and automatically discovers local `oil-ui-pro` and `image-gen` installations. To override paths or ports, add an entry override to `~/.dsh/cordis.patch.yml` (global) or `~/.dsh/profiles/web/cordis.patch.yml` (per-profile), matching [`src/config.ts`](src/config.ts):
 
 ```yaml
-plugins:
-  entries:
-    dsh-oil-ui:
-      enabled: true
-      config:
-        # Prefer locally installed oil-ui-pro when available (default: true)
-        preferPro: true
-        # Optional: custom path to oil-ui-pro (auto-discovered in .dsh/skills and .agents/skills)
-        # proSkillDir: /Users/you/.agents/skills/oil-ui-pro
-        # Optional: custom path to image_gen.py (auto-discovered in ~/.dsh/skills/image-gen and ~/.agents/skills/image-gen)
-        # imageGenScript: /Users/you/.agents/skills/image-gen/scripts/image_gen.py
-        # Optional: override workspace root and local preview server port (0 = random available port)
-        # workspaceRoot: /path/to/workspace
-        # previewPort: 0
+- id: dsh-oil-ui
+  name: dsh-oil-ui
+  config:
+    # Prefer locally installed oil-ui-pro when available (default: true)
+    preferPro: true
+    # Optional: custom path to oil-ui-pro (auto-discovered in .dsh/skills and .agents/skills)
+    # proSkillDir: /Users/you/.agents/skills/oil-ui-pro
+    # Optional: custom path to image_gen.py (auto-discovered in ~/.dsh/skills/image-gen and ~/.agents/skills/image-gen)
+    # imageGenScript: /Users/you/.agents/skills/image-gen/scripts/image_gen.py
+    # Optional: override workspace root and local preview server port (0 = random available port)
+    # workspaceRoot: /path/to/workspace
+    # previewPort: 0
 ```
 
 - **Browser captures (`oil_ui_shoot`)**: Uses locally installed Chrome / Chromium (or Playwright Chromium). Motion frame strips (`record` / `motion`) require `ffmpeg`.

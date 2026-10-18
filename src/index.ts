@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { createUserMessage, type FileBlock, type ImageBlock } from '@deepseek-ai/dsh-llm';
-import { defineTool, type ToolRunContext, type InferValue } from '@deepseek-ai/dsh-tools';
+import { defineTool, type ToolRunContext, type InferValue, type GenericCallView } from '@deepseek-ai/dsh-tools';
 import '@deepseek-ai/dsh-skill';
 import '@deepseek-ai/dsh-system-prompt';
 import { loadUpstreamSkill, skillStatus, resolveActiveSkill, createSkillProvider, loadReviewerManual, discoverSkill, bundledSkillDirectory } from './upstream.ts';
@@ -139,6 +139,11 @@ export function apply(ctx: Context, config: Config) {
         parameters: {
           update: { type: 'boolean', description: '仅在用户明确要求时检查并更新 Skill。' },
         },
+        presentCall: (args): GenericCallView => ({
+          card: 'generic',
+          title: args.update ? '更新 Oil UI Skill' : '查看 Oil UI Skill 状态',
+          kind: 'read',
+        }),
         output: nativeOutput,
         execute: async (args, exec) => {
           return json(await reportStatus(exec.agent, Boolean(args?.update)));
@@ -158,6 +163,13 @@ export function apply(ctx: Context, config: Config) {
           brief: { type: 'string', description: '设计需求摘要。' },
           request: { type: 'string', description: '设计需求，作为 brief 的别名。' },
         },
+        // Deliverables collects successful generic edit calls through their output locations.
+        presentCall: (args): GenericCallView => ({
+          card: 'generic',
+          title: '生成风格对比页',
+          kind: 'edit',
+          locations: [{ path: args.out || 'style-explorer.html' }],
+        }),
         output: nativeOutput,
         execute: async (args, exec) => json(await workbench.explorer(sessionCwd(exec, config.workspaceRoot), args)),
       }),
@@ -201,6 +213,15 @@ export function apply(ctx: Context, config: Config) {
           dryRun: { type: 'boolean', description: '仅验证截图参数，不启动截图。' },
           timeoutMs: { type: 'integer', description: '工具总超时时长，单位毫秒，最大 900000。' },
         },
+        presentCall: (args): GenericCallView => ({
+          card: 'generic',
+          title: '截图与交互取证',
+          kind: 'execute',
+          locations: [
+            { path: args.target || 'index.html' },
+            ...(args.out ? [{ path: args.out }] : []),
+          ],
+        }),
         output: nativeOutput,
         execute: async (args, exec) =>
           json(await workbench.shoot(sessionCwd(exec, config.workspaceRoot), args as Record<string, unknown>, exec.signal)),
@@ -238,6 +259,15 @@ export function apply(ctx: Context, config: Config) {
           refresh: { type: 'boolean', description: '是否忽略搜索缓存重新搜索。' },
           timeoutMs: { type: 'integer', description: '工具总超时时长，单位毫秒，最大 900000。' },
         },
+        presentCall: (args): GenericCallView => {
+          const action = args.action ?? (args.refs ? 'fetch' : 'search_and_fetch');
+          return {
+            card: 'generic',
+            title: { search: '搜索素材', preview: '预览素材候选', fetch: '下载素材', search_and_fetch: '搜索并下载素材' }[action],
+            kind: action === 'search' ? 'search' : action === 'preview' ? 'read' : 'fetch',
+            locations: [{ path: args.out || args.dir || 'assets/media' }],
+          };
+        },
         output: nativeOutput,
         execute: async (args, exec) =>
           json(await workbench.media(sessionCwd(exec, config.workspaceRoot), args as Record<string, unknown>, exec.signal)),
@@ -262,6 +292,12 @@ export function apply(ctx: Context, config: Config) {
           force: { type: 'boolean', description: '是否允许覆盖已有输出文件，默认 false（默认路径重名时自动递增文件名避让）。' },
           timeoutMs: { type: 'integer', description: '工具总超时时长，单位毫秒，最大 900000。' },
         },
+        presentCall: (args): GenericCallView => ({
+          card: 'generic',
+          title: (args.mode ?? (args.images?.length ? 'edit' : 'generate')) === 'edit' ? '编辑图片' : '生成图片',
+          kind: 'edit',
+          locations: [{ path: args.out || 'assets/generated.png' }],
+        }),
         output: nativeOutput,
         execute: async (args, exec) =>
           json(await workbench.image(sessionCwd(exec, config.workspaceRoot), args, exec.signal)),
