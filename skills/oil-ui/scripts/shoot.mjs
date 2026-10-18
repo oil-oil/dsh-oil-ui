@@ -3,7 +3,7 @@
 // 用法见 references/tools.md；`node shoot.mjs --help` 打印同样的说明。
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
@@ -14,7 +14,8 @@ const HELP = `常用命令：
   node scripts/shoot.mjs page.html --size desktop --steps "click .nav button; wait 300" --out shots
   node scripts/shoot.mjs page.html --size desktop --states idle,done --evidence --steps "send: click text=Send" --out evidence
 
-用法：node shoot.mjs <页面地址或文件> [选项]
+用法：node shoot.mjs <页面地址、文件、manifest.json 或目录> [...] [选项]
+多个本地 HTML 也可用逗号分隔；多目标共用服务器和浏览器，默认生成带名称的 sheet.png。
 
   --out <目录>          输出目录，默认 ./shots
   --size <尺寸,...>     默认 390x844；desktop=1440x900，phone/mobile=390x844，可混用数字尺寸
@@ -23,9 +24,11 @@ const HELP = `常用命令：
   --query <查询参数>    给地址加参数，例如 --query "a=1&b=2"；可和 --states 一起用
   --zoom <倍数,...>     默认 1；例如 --zoom 1,2，每个倍数各出一套；配 --evidence 时覆盖默认截图倍数
   --full                截整页，默认只截视口
+  --selector <选择器>   只截匹配元素的区域，自动滚入视口；不与 --full、--record、--motion、--entry、--evidence 同用
   --thumb               快速缩略图：按 0.5 倍分辨率截视口，缩短等待并跳过默认做法检查
   --mask                另截一份遮掉全部文字的版本
   --sheet               把状态拼成并排图，配合 --mask 再拼遮字版
+  --no-sheet            多目标截图时不自动生成 sheet.png
   --mark "1=<选择器>;..." 给匹配的元素画框和编号，另出标注版；不写编号时按顺序编号
   --steps "<动作>"      可写多次，每组从重新打开的页面开始；可起名："open: click .open"
   --record              每组录屏并留最后一个变化动作的三帧；无名组沿用 record.mp4、motion-start/mid/end.jpg
@@ -206,7 +209,7 @@ if (!args.length || args.includes("--help") || args.includes("-h")) { console.lo
 const opt = { out: "shots", size: "390x844", param: "state", zoom: "1", hold: "1200", wait: "400" };
 const options = [...HELP.matchAll(/^  (--\S+)/gm)].map((m) => m[1]);
 options.push("--label", "--columns", "--frames");
-const booleanOptions = new Set(["full", "thumb", "mask", "sheet", "record", "motion", "entry", "evidence", "dry-run", "force"]);
+const booleanOptions = new Set(["full", "thumb", "mask", "sheet", "record", "motion", "entry", "evidence", "dry-run", "force", "no-sheet"]);
 const flags = new Set(), stepsInputs = [], positional = [], suppliedOptions = new Set(), stitchInputs = [];
 let lastFlag = null;
 for (let i = 0; i < args.length; i++) {
@@ -244,13 +247,50 @@ for (let i = 0; i < args.length; i++) {
   } else {
     if (stitchInputs.length) fail(`拼图不需要页面，每张图片前都要写 --stitch，收到 ${a}；例如 --stitch before.png --label "修改前" --stitch after.png --label "修改后" --columns 2 --out shots`);
     if (lastFlag === "--motion" && /^(?:[.#\[]|text=)|:has-text\(/.test(a)) fail(`--motion 不带参数，收到 --motion 和 ${a}；要探测的动作写进 --steps，例如 --motion --steps "click ${a}"`);
-    if (positional.length) fail(`页面地址或多余参数冲突，收到 ${positional[0]} 和 ${a}${lastFlag ? `；${lastFlag} 不带参数` : ""}；例如 page.html --steps "click .open"`);
-    // A flag may precede the one valid target; selector-like extras are never targets.
+    if (positional.length && !/^(?:https?:|file:)|\.html?(?:,|$)|(?:^|[\/])manifest\.json$/i.test(a) && !existsSync(a)) fail(`页面地址或多余参数冲突，收到 ${positional[0]} 和 ${a}${lastFlag ? `；${lastFlag} 不带参数` : ""}；例如 page.html --steps "click .open"`);
+    // Selector-like extras after a switch are never page targets.
     if (lastFlag && /^(?:[.#\[]|text=)/.test(a) && !existsSync(a)) fail(`${lastFlag} 不带参数，收到 ${lastFlag} 和 ${a}；例如 page.html ${lastFlag}`);
     positional.push(a); lastFlag = null;
   }
 }
-const target = positional[0];
+// Expand explorer inputs before dry-run, without requiring ordinary page paths to exist.
+let batchMode = positional.length > 1;
+const localPath = (value) => /^file:\/\//i.test(value) ? fileURLToPath(value) : resolve(value);
+function expandTarget(value) {
+  if (/^https?:\/\//i.test(value)) return [{ target: value }];
+  let path;
+  try { path = localPath(value); } catch { fail(`找不到文件：${value}`); }
+  if (!existsSync(path) && value.includes(",") && value.split(",").every((p) => /\.html?$/i.test(p.trim()))) {
+    batchMode = true;
+    return value.split(",").flatMap((p) => expandTarget(p.trim()));
+  }
+  if (existsSync(path) && statSync(path).isDirectory()) {
+    if (existsSync(join(path, "manifest.json"))) return expandTarget(join(path, "manifest.json"));
+    if (existsSync(join(path, "index.html"))) return [{ target: value }];
+    batchMode = true;
+    const pages = readdirSync(path, { withFileTypes: true }).filter((p) => p.isFile() && /\.html$/i.test(p.name) && p.name.toLowerCase() !== "style-explorer.html").map((p) => p.name).sort();
+    if (!pages.length) fail(`目录里找不到候选 HTML：${value}`);
+    return pages.flatMap((page) => expandTarget(join(path, page)));
+  }
+  if (basename(path).toLowerCase() === "manifest.json") {
+    batchMode = true;
+    let manifest;
+    try { manifest = JSON.parse(readFileSync(path, "utf8")); }
+    catch (error) { fail(`无法读取 manifest：${value}（${error.message}）`); }
+    if (!Array.isArray(manifest.candidates)) fail(`manifest 缺少 candidates 数组：${value}`);
+    const candidates = manifest.candidates.filter((c) => c && (!c.kind || c.kind === "html") && typeof c.source === "string" && /\.html?$/i.test(c.source) && !/^[a-z][a-z\d+.-]*:/i.test(c.source));
+    if (!candidates.length) fail(`manifest 里找不到本地 HTML 候选：${value}`);
+    return candidates.map((c) => ({ target: resolve(dirname(path), c.source), id: c.id, name: c.name }));
+  }
+  return [{ target: value }];
+}
+const targets = positional.flatMap(expandTarget);
+const target = targets[0]?.target;
+// IDs become filenames only after removing separators and reserved path components.
+const targetStem = (candidate) => {
+  const source = candidate.id || basename(/^https?:\/\//i.test(candidate.target) ? new URL(candidate.target).pathname : localPath(candidate.target), extname(candidate.target));
+  return String(source).replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").replace(/^[. ]+|[. ]+$/g, "") || "page";
+};
 const stitching = stitchInputs.length > 0;
 if (!target && !stitching) {
   if (opt.frames !== undefined || opt.columns !== undefined) fail(`缺少页面或拼图输入，收到 ${args.join(" ")}；例如 page.html --record --frames 8 --columns 4，或 --stitch before.png --stitch after.png --columns 2`);
@@ -282,8 +322,13 @@ function deduplicate(values, key, label) {
   if (removed.length) notices.push(`${label} 已去重：${[...new Set(removed)].join("、")}`);
   return unique;
 }
-let groups, sizes, zooms, marks;
+let groups, sizes, zooms, marks, selector = null;
+if (opt.selector) {
+  const conflicts = ["full", "record", "motion", "entry", "evidence"].filter((key) => flags.has(key));
+  if (conflicts.length) fail(`--selector 不与 ${conflicts.map((key) => "--" + key).join("、")} 同用`);
+}
 try {
+  selector = opt.selector ? parseSelector(opt.selector) : null;
   groups = stepsInputs.map(parseSteps);
   const names = groups.map((g, i) => g.name || (groups.length > 1 ? String(i + 1) : ""));
   if (new Set(names).size !== names.length) throw new Error(`动作组名字重复，收到 ${names.join("、")}；例如 --steps "open: click .open" --steps "send: click .send"`);
@@ -320,7 +365,7 @@ if (refImage && !existsSync(refImage)) fail(`找不到参考图：${opt.compare}
 if (refImage && !/\.(png|jpe?g|webp)$/i.test(refImage)) fail("--compare 只接受 png、jpg 或 webp");
 if (refImage && (flags.has("record") || flags.has("evidence"))) fail("--compare 用在截图上，不和 --record 或 --evidence 一起用；例如 --compare ref.png");
 if (flags.has("dry-run")) {
-  console.log(JSON.stringify({ target, options: opt, flags: [...flags], sizes, zooms, states, groups, marks, notices, ...(stitching ? { stitch: stitchInputs } : {}) }, null, 2));
+  console.log(JSON.stringify({ target, ...(targets.length > 1 ? { targets: targets.map((t) => t.target) } : {}), selector, options: opt, flags: [...flags], sizes, zooms, states, groups, marks, notices, ...(stitching ? { stitch: stitchInputs } : {}) }, null, 2));
   process.exit(0);
 }
 // A small supervisor preserves the complete invocation and gives every run fresh state.
@@ -366,8 +411,23 @@ const MIME = {
 const privatePath = (path) => path.split(/[\\/]/).some((part) => part.startsWith(".")
   || /^(?:credentials?|secrets?|id_(?:rsa|dsa|ecdsa|ed25519))(?:[._-]|$)/i.test(part));
 let server = null;
+const localFiles = targets.filter((t) => !/^https?:\/\//i.test(t.target)).map(({ target }) => {
+  const path = localPath(target);
+  if (!existsSync(path)) fail(`找不到文件：${target}`);
+  const file = statSync(path).isDirectory() ? join(path, "index.html") : path;
+  if (!existsSync(file) || !statSync(file).isFile()) fail(`找不到文件：${file}`);
+  return realpathSync(file);
+});
+let sharedRoot = localFiles.length ? dirname(localFiles[0]) : null;
+for (const file of localFiles) {
+  while (relative(sharedRoot, file) === ".." || relative(sharedRoot, file).startsWith(`..${sep}`) || isAbsolute(relative(sharedRoot, file))) {
+    const parent = dirname(sharedRoot);
+    if (parent === sharedRoot) fail("本地批量目标必须位于同一个磁盘，才能共用静态服务器");
+    sharedRoot = parent;
+  }
+}
 async function resolveTarget(t) {
-  if (/^https?:\/\//.test(t)) return t;
+  if (/^https?:\/\//i.test(t)) return t;
   let localTarget = t;
   if (/^file:\/\//i.test(t)) {
     try { localTarget = fileURLToPath(t); } catch { fail(`找不到文件：${t}`); }
@@ -376,11 +436,11 @@ async function resolveTarget(t) {
   if (!existsSync(file)) fail(`找不到文件：${t}`);
   const isDir = statSync(file).isDirectory();
   const fileDir = realpathSync(isDir ? file : dirname(file));
-  let root = fileDir;
+  let root = sharedRoot || fileDir;
   try {
     const cwdReal = realpathSync(process.cwd());
     const tmpReal = realpathSync(tmpdir());
-    const relDir = relative(cwdReal, fileDir);
+    const relDir = relative(cwdReal, root);
     if (relDir && relDir !== ".." && !relDir.startsWith(`..${sep}`) && !isAbsolute(relDir)
       && relDir.split(sep).length <= 3 && cwdReal !== parse(cwdReal).root && cwdReal !== tmpReal && !fileDir.startsWith(tmpReal + sep)) {
       root = cwdReal;
@@ -388,6 +448,7 @@ async function resolveTarget(t) {
   } catch {}
   const targetFile = isDir ? join(fileDir, "index.html") : realpathSync(file);
   const pagePath = relative(root, targetFile).split(sep).map(encodeURIComponent).join("/");
+  if (server) return `http://127.0.0.1:${server.address().port}/${pagePath}`;
   server = createServer((req, res) => {
     try {
       const origin = `http://127.0.0.1:${server.address().port}`;
@@ -1028,13 +1089,31 @@ async function settleAnimations(limit) {
   })()`));
 }
 
+async function selectorClip() {
+  try {
+    await locate(selector, "--selector", false, "screenshot");
+    const box = await evaluate(`(async () => {
+      const el = (${findSource})(${JSON.stringify(selector)})[0];
+      if (!el) return null;
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+      await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+      const r = el.getBoundingClientRect();
+      return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height };
+    })()`);
+    if (!box || box.width <= 0 || box.height <= 0) throw new Error(`--selector：找不到元素或元素宽高为 0：${opt.selector}`);
+    return { ...box, scale: flags.has("thumb") ? 0.5 : 1 };
+  } catch (error) {
+    if (transportFailure) throw error;
+    await cleanup(); fail(error.message);
+  }
+}
 async function screenshot(file, full, clipOverride = null) {
   let clip = clipOverride;
   if (full) {
     const { contentSize } = await cdp("Page.getLayoutMetrics");
     clip = { x: 0, y: 0, width: Math.ceil(contentSize.width), height: Math.ceil(contentSize.height), scale: 1 };
   }
-  const { data } = await cdp("Page.captureScreenshot", { format: "png", captureBeyondViewport: !!full, ...(clip ? { clip } : {}) });
+  const { data } = await cdp("Page.captureScreenshot", { format: "png", captureBeyondViewport: !!full || !!clip, ...(clip ? { clip } : {}) });
   writeFileSync(file, Buffer.from(data, "base64"));
   return file;
 }
@@ -1879,7 +1958,9 @@ async function probeMotion(url, w, h, steps = []) {
 }
 
 // ---------- 主流程 ----------
-const base = stitching ? null : await resolveTarget(target);
+const bases = [];
+for (const candidate of targets) bases.push(await resolveTarget(candidate.target));
+let base = bases[0], activeTarget = targets[0];
 const withState = (s) => {
   const u = new URL(base);
   for (const [key, value] of new URLSearchParams(opt.query || "")) u.searchParams.set(key, value);
@@ -1888,6 +1969,10 @@ const withState = (s) => {
 };
 const report = [], lines = [];
 const usedFiles = new Set();
+const targetShots = [];
+const autoSheet = targets.length > 1 && !flags.has("no-sheet") && (!flags.has("record") || flags.has("evidence"));
+if (autoSheet) usedFiles.add("sheet.png");
+const candidatePrefix = () => batchMode ? targetStem(activeTarget) : "";
 function reserveFamily(preferred, files) {
   let name = preferred, n = 2;
   while (files(name).some((file) => usedFiles.has(file))) name = `${preferred ? preferred + "-" : ""}${n++}`;
@@ -1914,9 +1999,12 @@ function retryItem(file, metadata, extra = "") {
   const steps = group?.steps.length ? (group.id ? group.id + ": " : "") + group.steps.map((s) => s.raw).join("; ") : "";
   const variant = file.endsWith("-masked.png") ? " --mask" : file.endsWith("-marked.png") ? ` --mark ${quoteArg(opt.mark)}` : file.endsWith("-compare.png") ? ` --compare ${quoteArg(refImage)}` : "";
   const isSheet = file.endsWith(".png") && metadata.state === undefined && states.length > 1;
-  return retryCommand + ` --out ${quoteArg(out)}${metadata.size ? ` --size ${quoteArg(metadata.size)}` : ""}${metadata.zoom ? ` --zoom ${metadata.zoom}` : ""}` +
+  if (autoSheet && file === "sheet.png") return `node ${quoteArg(resolve(process.argv[1]))} ${args.map(quoteArg).join(" ")} --timeout-scale 2`;
+  const command = stitching ? retryCommand : `node ${quoteArg(resolve(process.argv[1]))} ${quoteArg(activeTarget.target)} --timeout-scale 2`;
+  return command + ` --out ${quoteArg(out)}${metadata.size ? ` --size ${quoteArg(metadata.size)}` : ""}${metadata.zoom ? ` --zoom ${metadata.zoom}` : ""}` +
     (metadata.state !== null && metadata.state !== undefined ? ` --states ${quoteArg(metadata.state)} --param ${quoteArg(opt.param)}` : "") +
     (isSheet ? ` --states ${quoteArg(states.join(","))} --param ${quoteArg(opt.param)} --sheet` : "") + variant +
+    (opt.selector ? ` --selector ${quoteArg(opt.selector)}` : "") + (flags.has("thumb") ? " --thumb" : "") +
     (opt.query ? ` --query ${quoteArg(opt.query)}` : "") + (steps ? ` --steps ${quoteArg(steps)}` : "") +
     (file.startsWith("motion-probe") ? " --motion" : extra) + (flags.has("full") && file.endsWith(".png") ? " --full" : "");
 }
@@ -1942,9 +2030,9 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
     const suffix = [group.id, sizes.length > 1 ? `${w}x${h}` : "", zoom !== 1 ? `@${zoom}x` : ""].filter(Boolean).join("-");
     for (const stateIndex of selectedStates) {
       const state = states[stateIndex];
-      const preferred = [stateIds[stateIndex], suffix].filter(Boolean).join("-");
+      const preferred = [candidatePrefix(), batchMode && state === null ? "" : stateIds[stateIndex], suffix].filter(Boolean).join("-");
       const name = reserveFamily(preferred, (stem) => [`${stem}.png`, ...(useMask ? [`${stem}-masked.png`] : []), ...(marks.length ? [`${stem}-marked.png`] : []), ...(refImage ? [`${stem}-compare.png`] : [])]);
-      const meta = { state, size: `${w}x${h}`, zoom, ...(group.id ? { group: group.id } : {}) };
+      const meta = { ...(batchMode ? { target: activeTarget.target, name: activeTarget.name || targetStem(activeTarget) } : {}), state, size: `${w}x${h}`, zoom, ...(group.id ? { group: group.id } : {}) };
       const thumb = flags.has("thumb");
       const settleBudget = thumb ? 300 : 2000;
       const prepare = async () => {
@@ -1958,11 +2046,12 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
       const file = join(out, `${name}.png`);
       await item(`${name}.png`, meta, async () => {
         const animationWaitMs = await prepare();
-        await screenshot(file, flags.has("full"), thumb ? { x: 0, y: 0, width: w, height: h, scale: 0.5 } : null);
+        await screenshot(file, flags.has("full"), selector ? await selectorClip() : thumb ? { x: 0, y: 0, width: w, height: h, scale: 0.5 } : null);
         const issues = await check(), hints = thumb ? [] : await lint();
         entry = { file: basename(file), ...meta, ...(thumb ? { thumb: true } : {}), animationWaitMs, issues, lint: hints };
         lines.push(`${basename(file)}${issues.length ? "  ⚠ " + issues.join("；") : ""}${hints.length ? "  ◇ 默认做法提示：" + lintLine(hints) : ""}`);
         report.push(entry); shots.push({ path: file, label: state || "page" });
+        if (batchMode) targetShots.push({ path: file, label: [meta.name, state, suffix].filter(Boolean).join(" · ") });
       });
       if (!shots.some((shot) => basename(shot.path) === `${name}.png`)) {
         for (const extra of [marks.length && "marked", useMask && "masked", refImage && "compare"].filter(Boolean)) {
@@ -1972,14 +2061,14 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
       }
       if (marks.length) await item(`${name}-marked.png`, meta, async (retried) => {
         if (retried) await prepare();
-        try { await mark(); lines.push(basename(await screenshot(join(out, `${name}-marked.png`), flags.has("full")))); }
+        try { await mark(); lines.push(basename(await screenshot(join(out, `${name}-marked.png`), flags.has("full"), selector ? await selectorClip() : null))); }
         finally { if (!browserNeedsRestart) await unmark(); }
       });
       if (useMask) await item(`${name}-masked.png`, meta, async (retried) => {
         if (retried) await prepare();
         try {
           await mask(); await sleep(60);
-          masked.push({ path: await screenshot(join(out, `${name}-masked.png`), flags.has("full")), label: state || "page" });
+          masked.push({ path: await screenshot(join(out, `${name}-masked.png`), flags.has("full"), selector ? await selectorClip() : null), label: state || "page" });
           lines.push(`${name}-masked.png`);
         } finally { if (!browserNeedsRestart) await evaluate(`(document.getElementById("oil-mask")?.remove(), true)`); }
       });
@@ -1988,9 +2077,9 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
         entry.compare = { file: result.file, overall: result.overall, cells: result.cells }; lines.push(result.message);
       });
     }
-    if (useSheet && selectedStates.length > 1) {
+    if (useSheet && !flags.has("no-sheet") && selectedStates.length > 1) {
       const sheetSuffixParts = [group.id, sizes.length > 1 ? `${w}x${h}` : "", selectedZooms.length > 1 && zoom !== 1 ? `@${zoom}x` : ""].filter(Boolean);
-      const preferred = `sheet${sheetSuffixParts.length ? "-" + sheetSuffixParts.join("-") : ""}`;
+      const preferred = `${candidatePrefix() ? candidatePrefix() + "-" : ""}sheet${sheetSuffixParts.length ? "-" + sheetSuffixParts.join("-") : ""}`;
       const sheetName = reserveFamily(preferred, (stem) => [`${stem}.png`, ...(useMask ? [`${stem}-masked.png`] : [])]);
       const meta = { size: `${w}x${h}`, zoom, ...(group.id ? { group: group.id } : {}) };
       if (shots.length > 1) await item(`${sheetName}.png`, meta, async () => {
@@ -2008,7 +2097,7 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
 }
 async function motionBatch() {
   for (const group of groups.length ? groups : [{ id: "", steps: [] }]) {
-    const file = `motion-probe${group.id ? "-" + group.id : ""}`;
+    const file = `${candidatePrefix() ? candidatePrefix() + "-" : ""}motion-probe${group.id ? "-" + group.id : ""}`;
     const meta = { state: states[0], size: `${sizes[0].w}x${sizes[0].h}`, zoom: 1, ...(group.id ? { group: group.id } : {}) };
     await item(file, meta, async () => {
       const result = await probeMotion(withState(states[0]), sizes[0].w, sizes[0].h, group.steps);
@@ -2018,7 +2107,7 @@ async function motionBatch() {
   }
 }
 async function recording(group, entry, zoom, multipleZooms = false) {
-  const preferred = [group.id, multipleZooms && zoom !== 1 ? `@${zoom}x` : ""].filter(Boolean).join("-");
+  const preferred = [candidatePrefix(), group.id, multipleZooms && zoom !== 1 ? `@${zoom}x` : ""].filter(Boolean).join("-");
   const name = reserveFamily(preferred, (stem) => [`record${stem ? "-" + stem : ""}.mp4`, ...["start", "mid", "end"].map((frame) => `motion${stem ? "-" + stem : ""}-${frame}.jpg`), ...(opt.frames !== undefined ? [`motion${stem ? "-" + stem : ""}-sequence.png`] : [])]);
   const file = `motion${name ? "-" + name : ""}-end.jpg`;
   const meta = { state: states[0], size: `${sizes[0].w}x${sizes[0].h}`, zoom, ...(group.id ? { group: group.id } : {}) };
@@ -2031,11 +2120,12 @@ async function recording(group, entry, zoom, multipleZooms = false) {
     if (evidence && result.failed) { report.at(-1).issues.push(result.message); process.exitCode = 1; }
   }, ` --record${entry ? " --entry" : ""}`);
 }
-const shotCount = (n, z, g, mask, sheet) => sizes.length * z * g * (n * (1 + Number(mask) + Number(marks.length > 0) + Number(!!refImage)) + (sheet && n > 1 ? 1 + Number(mask) : 0));
+const shotCount = (n, z, g, mask, sheet) => sizes.length * z * g * (n * (1 + Number(mask) + Number(marks.length > 0) + Number(!!refImage)) + (sheet && !flags.has("no-sheet") && n > 1 ? 1 + Number(mask) : 0));
 const batchMask = states.length > 1 || flags.has("mask");
 progressTotal = evidence
   ? (suppliedOptions.has("zoom") ? shotCount(states.length, zooms.length, 1, batchMask, states.length > 1) : shotCount(states.length, 1, 1, batchMask, states.length > 1) + shotCount(1, 1, 1, flags.has("mask"), false)) + Math.max(1, groups.length) + 1 + groups.length
   : (flags.has("motion") ? Math.max(1, groups.length) : 0) + (flags.has("record") ? zooms.length * Math.max(1, groups.length) : shotCount(states.length, zooms.length, Math.max(1, groups.length), flags.has("mask"), flags.has("sheet")));
+progressTotal = progressTotal * Math.max(1, targets.length) + Number(autoSheet);
 try {
   if (stitching) {
     progressTotal = 1;
@@ -2044,25 +2134,37 @@ try {
       report.push({ ...result, issues: [] });
       lines.push(`拼图：${result.file}（${result.width}×${result.height}，${result.columns} 列）`);
     });
-  } else if (evidence) {
-    const plain = [{ id: "", steps: [] }];
-    if (suppliedOptions.has("zoom")) {
-      await captureBatch(states.map((_, i) => i), zooms, plain, states.length > 1 || flags.has("mask"), states.length > 1);
-    } else {
-      await captureBatch(states.map((_, i) => i), [1], plain, states.length > 1 || flags.has("mask"), states.length > 1);
-      await captureBatch([0], [2], plain, flags.has("mask"), false);
-    }
-    await motionBatch();
-    // Avoid collisions with a user group named entry.
-    let entryId = "entry";
-    while (groups.some((g) => g.id === entryId)) entryId += "-appearance";
-    await recording({ id: entryId, steps: [] }, true, 1);
-    for (const group of groups) await recording(group, false, 1);
   } else {
-    if (flags.has("motion")) await motionBatch();
-    if (flags.has("record")) {
-      for (const zoom of zooms) for (const group of groups.length ? groups : [{ id: "", steps: [] }]) await recording(group, flags.has("entry"), zoom, zooms.length > 1);
-    } else await captureBatch(states.map((_, i) => i), zooms, groups.length ? groups : [{ id: "", steps: [] }], flags.has("mask"), flags.has("sheet"));
+    for (const [index, candidate] of targets.entries()) {
+      base = bases[index]; activeTarget = candidate;
+      if (evidence) {
+        const plain = [{ id: "", steps: [] }];
+        if (suppliedOptions.has("zoom")) {
+          await captureBatch(states.map((_, i) => i), zooms, plain, states.length > 1 || flags.has("mask"), states.length > 1);
+        } else {
+          await captureBatch(states.map((_, i) => i), [1], plain, states.length > 1 || flags.has("mask"), states.length > 1);
+          await captureBatch([0], [2], plain, flags.has("mask"), false);
+        }
+        await motionBatch();
+        // Avoid collisions with a user group named entry.
+        let entryId = "entry";
+        while (groups.some((g) => g.id === entryId)) entryId += "-appearance";
+        await recording({ id: entryId, steps: [] }, true, 1);
+        for (const group of groups) await recording(group, false, 1);
+      } else {
+        if (flags.has("motion")) await motionBatch();
+        if (flags.has("record")) {
+          for (const zoom of zooms) for (const group of groups.length ? groups : [{ id: "", steps: [] }]) await recording(group, flags.has("entry"), zoom, zooms.length > 1);
+        } else await captureBatch(states.map((_, i) => i), zooms, groups.length ? groups : [{ id: "", steps: [] }], flags.has("mask"), flags.has("sheet"));
+      }
+    }
+    if (autoSheet) {
+      if (targetShots.length > 1) await item("sheet.png", {}, async () => {
+        const result = await composeImages(targetShots, join(out, "sheet.png"), targetShots.length);
+        report.push({ ...result, issues: [] }); lines.push("sheet.png");
+      });
+      else skipped("sheet.png", {}, `只收到 ${targetShots.length} 张成功截图，并排图至少需要 2 张`);
+    }
   }
 } catch (error) { if (!transportFailure) console.error(`shoot：${error.message}`); process.exitCode = 1; }
 writeFileSync(join(out, "report.json"), JSON.stringify(report, null, 2));

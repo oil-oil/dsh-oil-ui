@@ -567,6 +567,97 @@ it('rejects an external manifest symlink before writing an inferred explorer man
   expect(await readFile(outside, 'utf8')).toBe('do not overwrite');
 });
 
+it('forwards selector as a native element crop without adding steps or marks', async () => {
+  const { w, cwd } = await scriptedWorkbench(
+    `import{writeFile}from'node:fs/promises';import{join}from'node:path';const args=process.argv.slice(2);await writeFile(join(args[args.indexOf('--out')+1],'crop.png'),'crop');console.log(JSON.stringify(args));`,
+  );
+  const result = await w.shoot(cwd, { selector: '  #hero > .card  ' });
+  expect(result).toMatchObject({ ok: true, selectorMode: 'crop', outputFiles: [join(cwd, 'shots/desktop.png')] });
+  const args = JSON.parse(result.stdout);
+  expect(args.slice(args.indexOf('--selector'), args.indexOf('--selector') + 2)).toEqual(['--selector', '#hero > .card']);
+  expect(args).not.toContain('--steps');
+  expect(args).not.toContain('--mark');
+});
+
+it.each([
+  { target: 'explore', manifest: false, index: false },
+  { target: ['explore/a.html', 'explore/b.html'], manifest: false, index: false },
+  { target: 'explore/a.html, explore/b.html', manifest: false, index: false },
+  { target: 'explore/manifest.json', manifest: true, index: false },
+  { target: 'explore', manifest: true, index: true },
+  { target: ['explore/a.html'], manifest: false, index: false },
+])('forwards batch target $target to the real shoot.mjs dry-run parser', async ({ target, manifest, index }) => {
+  const { w, cwd } = await setup();
+  await mkdir(join(cwd, 'explore'));
+  for (const id of ['a', 'b', 'style-explorer']) await writeFile(join(cwd, `explore/${id}.html`), `<title>${id}</title>`);
+  if (index) await writeFile(join(cwd, 'explore/index.html'), '<title>Index</title>');
+  if (manifest) await writeFile(join(cwd, 'explore/manifest.json'), JSON.stringify({
+    candidates: [{ id: 'b', source: 'b.html' }, { id: 'a', source: 'a.html' }],
+  }));
+  const run = vi.spyOn(ManagedProcesses.prototype, 'run');
+  const preview = vi.spyOn(w, 'preview');
+  const result = await w.shoot(cwd, { target, noSheet: true, dryRun: true });
+  expect(result.ok, result.stderr).toBe(true);
+  expect(result.outputFiles).toEqual([]);
+  const localTargets = Array.isArray(target) ? target : target.split(',').map(p => p.trim());
+  expect(run.mock.calls[0]?.[1]).toEqual([
+    ...localTargets.map(p => join(cwd, p)), '--size', '1440x900', '--no-sheet', '--dry-run', '--out', join(cwd, 'shots'),
+  ]);
+  expect(preview).not.toHaveBeenCalled();
+  const parsed = JSON.parse(result.stdout);
+  const expectedTargets = (manifest ? ['b', 'a'] : Array.isArray(target) && target.length === 1 ? ['a'] : ['a', 'b'])
+    .map(id => join(cwd, `explore/${id}.html`));
+  expect(parsed.targets ?? [parsed.target]).toEqual(expectedTargets);
+  expect(parsed.flags).toContain('no-sheet');
+  expect(parsed.options.out).toBe(join(cwd, 'shots'));
+  await expect(w.shoot(cwd, { target, out: 'shots/single.png', dryRun: true })).rejects.toThrow('directory');
+});
+
+it('validates every local batch target before starting the screenshot engine', async () => {
+  const { w, cwd, root } = await setup();
+  await writeFile(join(cwd, 'index.html'), '<title>Home</title>');
+  await writeFile(join(root, 'outside.html'), 'private');
+  await symlink(root, join(cwd, 'linked'));
+  const run = vi.spyOn(ManagedProcesses.prototype, 'run');
+  for (const target of [
+    [], ['index.html', ''], ['index.html', 'missing.html'], ['index.html', '../outside.html'],
+    ['index.html', 'linked/outside.html'], 'index.html, ../outside.html',
+  ]) {
+    await expect(w.shoot(cwd, { target, dryRun: true })).rejects.toThrow();
+  }
+  expect(run).not.toHaveBeenCalled();
+});
+
+it('keeps preview URLs for index directories and preserves HTTP targets containing commas', async () => {
+  const { w, cwd } = await setup();
+  await mkdir(join(cwd, 'site'));
+  await writeFile(join(cwd, 'site/index.html'), '<title>Site</title>');
+  for (const target of ['site?state=ready#hero', 'https://example.com/page?tags=a,b#hero']) {
+    const result = await w.shoot(cwd, { target, dryRun: true, noSheet: false });
+    expect(result.ok, result.stderr).toBe(true);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.target).toMatch(target.startsWith('https:') ? /^https:\/\/example\.com\/page\?tags=a,b#hero$/ :
+      /^http:\/\/127\.0\.0\.1:\d+\/site\/index\.html\?state=ready#hero$/);
+    expect(parsed.options.out).toContain('.shoot-tmp-');
+    expect(parsed.flags).not.toContain('no-sheet');
+  }
+});
+
+it('parses native selector crops and rejects incompatible modes in the real shoot.mjs dry-run', async () => {
+  const { w, cwd } = await setup();
+  await writeFile(join(cwd, 'index.html'), '<main id="hero">Hero</main>');
+  const result = await w.shoot(cwd, { selector: '  #hero  ', dryRun: true });
+  expect(result.ok, result.stderr).toBe(true);
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    selector: { kind: 'css', value: '#hero' }, options: { selector: '#hero' }, groups: [], marks: [],
+  });
+  for (const input of [{ fullPage: true }, { record: true }, { motion: true }, { entry: true }, { evidence: true }]) {
+    const conflict = await w.shoot(cwd, { ...input, selector: '#hero', dryRun: true });
+    expect(conflict.ok).toBe(false);
+    expect(conflict.stderr).toContain('--selector');
+  }
+});
+
 it('uses real shoot.mjs dry-run parsing for uppercase presets, dimensions and string booleans', async () => {
   const { w, cwd } = await setup();
   await writeFile(join(cwd, 'index.html'), '<title>Native dry-run</title>');

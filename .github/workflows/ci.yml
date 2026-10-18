@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *"
+
+jobs:
+  check:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  sync-oil-ui:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: oil-oil/oil-ui
+          path: upstream-oil-ui
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pnpm install --frozen-lockfile
+      - name: Sync bundled oil-ui and rebuild
+        run: |
+          node scripts/vendor-oil-ui.mjs upstream-oil-ui
+          rm -rf upstream-oil-ui
+          pnpm check
+      - name: Commit and push if updated
+        run: |
+          if [ -n "$(git status --porcelain skills/ lib/)" ]; then
+            VERSION=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("skills/oil-ui.manifest.json","utf8")).version)')
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add skills/ lib/
+            git commit -m "chore(skill): 自动同步内置 oil-ui 至 ${VERSION}"
+            git push
+          fi

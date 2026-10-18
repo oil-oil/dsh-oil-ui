@@ -12,7 +12,7 @@ export interface StitchItem {
 }
 
 export interface ShootRequest {
-  target?: string;
+  target?: string | string[];
   out?: string;
   mode?: 'shot' | 'compare' | 'evidence';
   evidence?: boolean;
@@ -26,6 +26,7 @@ export interface ShootRequest {
   thumb?: boolean;
   mask?: boolean;
   sheet?: boolean;
+  noSheet?: boolean;
   mark?: string;
   selector?: string;
   steps?: string | string[];

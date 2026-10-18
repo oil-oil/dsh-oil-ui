@@ -352,7 +352,45 @@ export class DesignWorkbench {
 
     const bool = (value: boolean | string | undefined) => value !== undefined && value !== false && value !== 'false' && value !== '0' && value !== '';
     const record = bool(input.record), motion = bool(input.motion);
-    const multiOutput = mode === 'evidence' || input.evidence || sizeStr.includes(',') ||
+    let batchTargets = false;
+    const targets: string[] = [];
+    let previewTarget: string | undefined;
+    if (!input.stitch?.length && !(mode === 'compare' && compareRef && input.after)) {
+      batchTargets = Array.isArray(input.target);
+      const rawTarget = Array.isArray(input.target) ? input.target : (input.target ?? 'index.html').trim();
+      const rawTargets = Array.isArray(rawTarget) ? rawTarget :
+        !/^https?:\/\//i.test(rawTarget) && rawTarget.split(',').every(p => /\.html?$/i.test(p.trim()))
+          ? rawTarget.split(',') : [rawTarget];
+      if (!rawTargets.length) throw new Error('Provide target HTML file or URL');
+      batchTargets ||= rawTargets.length > 1;
+      for (const target of rawTargets) {
+        const trimmed = target.trim();
+        if (!trimmed) throw new Error('Provide target HTML file or URL');
+        if (/^https?:\/\//i.test(trimmed)) {
+          const url = new URL(trimmed);
+          if (url.username || url.password) throw new Error('Target URL cannot contain credentials');
+          targets.push(trimmed);
+          continue;
+        }
+        const match = /^([^?#]*)(.*)$/.exec(trimmed);
+        const filePart = match?.[1] || 'index.html';
+        const suffix = match?.[2] || '';
+        const resolvedTarget = await this.scopedPath(workspace, filePart);
+        const targetStat = await stat(resolvedTarget).catch(() => null);
+        if (!targetStat) throw new Error(`Target file not found: ${filePart}`);
+        if (targetStat.isDirectory()) {
+          const hasManifest = await stat(join(resolvedTarget, 'manifest.json')).then(() => true, () => false);
+          const hasIndex = await stat(join(resolvedTarget, 'index.html')).then(info => info.isFile(), () => false);
+          batchTargets ||= hasManifest || !hasIndex;
+        } else {
+          batchTargets ||= basename(resolvedTarget).toLowerCase() === 'manifest.json';
+        }
+        targets.push(`${resolvedTarget}${suffix}`);
+        previewTarget = relative(workspace, targetStat.isDirectory() ? join(resolvedTarget, 'index.html') : resolvedTarget)
+          .split(sep).map(encodeURIComponent).join('/') + suffix;
+      }
+    }
+    const multiOutput = batchTargets || mode === 'evidence' || input.evidence || sizeStr.includes(',') ||
       Boolean(Array.isArray(input.states) ? input.states.length : input.states?.trim()) || record || motion ||
       Boolean(input.zoom !== undefined && String(input.zoom).includes(','));
     const defaultOut = mode === 'evidence' ? 'evidence' : multiOutput ? 'shots' : 'shots/desktop.png';
@@ -401,25 +439,10 @@ export class DesignWorkbench {
         args.push('--stitch', await localFile(compareRef), '--label', 'Before', '--stitch', await localFile(input.after), '--label', 'After');
         if (input.columns !== undefined) args.push('--columns', String(input.columns));
       } else {
-        const rawTarget = (input.target ?? 'index.html').trim();
-        if (!rawTarget) throw new Error('Provide target HTML file or URL');
-        if (/^https?:\/\//i.test(rawTarget)) {
-          const url = new URL(rawTarget);
-          if (url.username || url.password) throw new Error('Target URL cannot contain credentials');
-          args.push(rawTarget);
+        if (!batchTargets && previewTarget !== undefined) {
+          args.push(`${await this.preview(workspace)}/${previewTarget}`);
         } else {
-          const match = /^([^?#]*)(.*)$/.exec(rawTarget);
-          const filePart = match?.[1] || 'index.html';
-          const suffix = match?.[2] || '';
-          const resolvedTarget = await this.scopedPath(workspace, filePart);
-          const targetStat = await stat(resolvedTarget).catch(() => null);
-          if (!targetStat) throw new Error(`Target file not found: ${filePart}`);
-          const relTarget = relative(workspace, targetStat.isDirectory() ? join(resolvedTarget, 'index.html') : resolvedTarget)
-            .split(sep)
-            .map(encodeURIComponent)
-            .join('/');
-          const baseUrl = await this.preview(workspace);
-          args.push(`${baseUrl}/${relTarget}${suffix}`);
+          args.push(...targets);
         }
 
         args.push('--size', sizeStr);
@@ -439,6 +462,7 @@ export class DesignWorkbench {
         if (input.thumb) args.push('--thumb');
         if (input.mask) args.push('--mask');
         if (input.sheet) args.push('--sheet');
+        if (input.noSheet) args.push('--no-sheet');
         if (input.mark) args.push('--mark', input.mark);
         if (input.steps !== undefined) {
           const stepsList = Array.isArray(input.steps) ? input.steps : [input.steps];
@@ -447,7 +471,7 @@ export class DesignWorkbench {
           }
         }
         if (input.selector) {
-          args.push('--steps', `waitfor ${input.selector}`, '--mark', `1=${input.selector}`);
+          args.push('--selector', input.selector.trim());
         }
         if (record) args.push('--record');
         if (input.entry) args.push('--entry');
@@ -508,7 +532,7 @@ export class DesignWorkbench {
         stdout: result.stdout,
         stderr: result.stderr,
         ...(input.selector
-          ? { selectorMode: 'wait-and-mark', message: '已等待并标注 selector 对应元素，截图保留完整视口。' }
+          ? { selectorMode: 'crop', message: '已截取 selector 对应元素的区域。' }
           : {}),
         ...((mode === 'compare' && input.after) || input.stitch?.length ? { comparison: 'side-by-side' } : {}),
       };

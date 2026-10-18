@@ -128,7 +128,7 @@ process.stdout.write(eval(writer+'; screencastList(frames,finished)'));'''
                 self.assertEqual(result.stdout, "")
 
     def test_missing_option_value(self):
-        for option in ("--out", "--size", "--states", "--param", "--zoom", "--steps", "--hold", "--wait", "--compare", "--timeout-scale"):
+        for option in ("--out", "--size", "--states", "--param", "--zoom", "--steps", "--hold", "--wait", "--compare", "--timeout-scale", "--selector"):
             for following in ((), ("--force",)):
                 with self.subTest(option=option, following=following):
                     result = subprocess.run([NODE, str(SCRIPT), option, *following], cwd=ROOT,
@@ -141,6 +141,61 @@ process.stdout.write(eval(writer+'; screencastList(frames,finished)'));'''
                                 cwd=ROOT, capture_output=True, text=True, timeout=10, encoding='utf-8')
         self.assertEqual(result.returncode, 0 if ok else 1, result.stdout + result.stderr)
         return json.loads(result.stdout) if ok else result.stderr
+
+    def test_selector_parsing_and_incompatible_modes(self):
+        for raw, expected in [('.card', {'kind': 'css', 'value': '.card'}),
+                              ('text="Save"', {'kind': 'text', 'value': 'Save'}),
+                              ('button:has-text("Save")', {'kind': 'has-text', 'css': 'button', 'value': 'Save'})]:
+            with self.subTest(selector=raw):
+                self.assertEqual(self.dry('--selector', raw)['selector'], expected)
+        self.assertEqual(self.dry('--selector=.card', '--thumb')['selector']['value'], '.card')
+        for flag in ('--full', '--record', '--motion', '--entry', '--evidence'):
+            with self.subTest(flag=flag):
+                message = self.dry('--selector', '.card', flag, ok=False)
+                self.assertIn('--selector', message)
+                self.assertIn(flag, message)
+        self.assertIn('缺少选择器', self.dry('--selector', '   ', ok=False))
+
+    def test_multiple_targets_dry_run(self):
+        for args in [('a.html', 'b.html', 'c.html'), ('a.html,b.html,c.html',)]:
+            result = subprocess.run([NODE, str(SCRIPT), *args, '--dry-run'], cwd=ROOT,
+                                    capture_output=True, text=True, timeout=10, encoding='utf-8')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plan = json.loads(result.stdout)
+            self.assertEqual(plan['target'], 'a.html')
+            self.assertEqual(plan['targets'], ['a.html', 'b.html', 'c.html'])
+        self.assertNotIn('targets', self.dry())
+        self.assertIn('no-sheet', self.dry('other.html', '--no-sheet')['flags'])
+
+    def test_explorer_directory_and_manifest_dry_run(self):
+        with tempfile.TemporaryDirectory(prefix='oil-explore-cli-') as temp:
+            folder = Path(temp)
+            def plan(target, ok=True):
+                result = subprocess.run([NODE, str(SCRIPT), str(target), '--dry-run'], cwd=ROOT,
+                                        capture_output=True, text=True, timeout=10, encoding='utf-8')
+                self.assertEqual(result.returncode, 0 if ok else 1, result.stdout + result.stderr)
+                return json.loads(result.stdout) if ok else result.stderr
+            self.assertIn('找不到候选 HTML', plan(folder, ok=False))
+            for name in ('b.html', 'a.html', 'style-explorer.html'):
+                (folder / name).write_text('<div>Candidate</div>', encoding='utf-8')
+            expected = [str(folder / name) for name in ('a.html', 'b.html')]
+            self.assertEqual(plan(folder)['targets'], expected)
+            (folder / 'index.html').write_text('<div>Index</div>', encoding='utf-8')
+            self.assertEqual(plan(folder)['target'], str(folder))
+            self.assertNotIn('targets', plan(folder))
+            manifest = folder / 'manifest.json'
+            manifest.write_text(json.dumps({'candidates': [
+                {'kind': 'html', 'source': 'b.html', 'id': 'beta', 'name': '方向乙'},
+                {'source': 'a.html', 'id': 'alpha', 'name': '方向甲'},
+                {'kind': 'image', 'source': 'sample.png'},
+                {'kind': 'html', 'source': 'https://example.test/page.html'},
+            ]}), encoding='utf-8')
+            for target in (folder, manifest):
+                parsed = plan(target)
+                self.assertEqual(parsed['target'], expected[1])
+                self.assertEqual(parsed['targets'], list(reversed(expected)))
+            manifest.write_text('{bad json', encoding='utf-8')
+            self.assertIn('无法读取 manifest', plan(folder, ok=False))
 
     def test_dry_run_corpus_regressions(self):
         # Twenty corpus patterns; project-specific classes, labels and text are neutralized.
@@ -244,7 +299,6 @@ process.stdout.write(eval(writer+'; screencastList(frames,finished)'));'''
         for args, expected in [
             (("--zoon", "2"), "--zoom"),
             (("--motion", ".respond"), '--motion 不带参数'),
-            (("other.html",), "page.html 和 other.html"),
             (("--full", "extra"), "page.html 和 extra"),
             (("--record=true",), "不带参数"), (("--zoom=0",), "--zoom 1,2"),
             (("--size=0x900",), "--size desktop"), (("--wait=abc",), "--wait 1000"),
@@ -420,6 +474,113 @@ document.querySelector('#go').onclick = () => show(document.body.dataset.state =
                     self.assertTrue(artifact.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"), name)
                 elif artifact.suffix == ".jpg":
                     self.assertTrue(artifact.read_bytes().startswith(b"\xff\xd8"), name)
+
+    def shoot_targets(self, output, targets, *args):
+        result = subprocess.run([NODE, str(SCRIPT), *map(str, targets), '--out', str(output), *args],
+                                cwd=ROOT, env=self.env, capture_output=True, text=True, timeout=90, encoding='utf-8')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def test_selector_crops_first_visible_element_and_scrolls(self):
+        import struct
+        self.page.write_text('''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><style>
+body{margin:0;min-height:2600px;background:#f00;scroll-behavior:smooth}
+.card{position:absolute;top:1800px;left:30px;width:160px;height:100px;background:#00ff00}
+</style><div class="card" hidden></div><div class="card">Save</div>
+<div class="card" style="top:2100px;background:blue">Later</div>
+<script>Object.defineProperty(document,'images',{get(){
+if(scrollY<1)console.error('selector-did-not-scroll');return [];}})</script>''', encoding='utf-8')
+        for selector, extra, size in [('.card', (), (160, 100)), ('text=Save', ('--thumb',), (80, 50)),
+                                      ('div:text-is("Save")', ('--mask', '--mark', '.card'), (160, 100))]:
+            with self.subTest(selector=selector):
+                output = self.folder / ('crop-' + str(size[0]) + '-' + str(len(extra)))
+                self.shoot(output, '--selector', selector, *extra)
+                report = json.loads((output / 'report.json').read_text(encoding='utf-8'))
+                self.assertEqual(report[0]['issues'], [])
+                self.assertEqual(struct.unpack('>II', (output / 'page.png').read_bytes()[16:24]), size)
+                if shutil.which('ffmpeg'):
+                    self.assertEqual(self.frame_pixel(output / 'page.png', 10, 80 if size[1] == 100 else 40), (0, 255, 0))
+                if '--mask' in extra:
+                    for file in ('page-masked.png', 'page-marked.png'):
+                        self.assertEqual(struct.unpack('>II', (output / file).read_bytes()[16:24]), size)
+        self.assert_no_browser_leftovers()
+
+    def test_selector_missing_hidden_and_zero_size_fail(self):
+        self.page.write_text('<!doctype html><div hidden id="hidden">Hidden</div>'
+                             '<div id="zero" style="width:0;height:0"></div>', encoding='utf-8')
+        for selector, diagnostic in [('.missing', '找不到元素'), ('#hidden', '不可见'), ('#zero', '尺寸为 0')]:
+            with self.subTest(selector=selector):
+                result = self.run_failure(self.folder / 'bad-crop', '--selector', selector)
+                self.assertIn('--selector', result.stderr)
+                self.assertIn(diagnostic, result.stderr)
+        self.assert_no_browser_leftovers()
+
+    def test_multi_target_shared_server_browser_and_auto_sheet(self):
+        # Local storage survives navigation only when both the browser profile and
+        # server origin stay the same. The next page requires its predecessor's count.
+        import struct
+        pages = []
+        for index, (name, color) in enumerate([('a', '#ff0000'), ('b', '#00ff00'), ('c', '#0000ff')]):
+            page = self.folder / name / (name + '.html')
+            page.parent.mkdir()
+            page.write_text(f'''<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><style>body{{margin:0;background:{color}}}</style><div>候选 {name}</div>
+<script>
+const count=Number(localStorage.getItem('count') || 0);
+if(count!=={index}) console.error('browser-or-server-restarted');
+localStorage.setItem('count',String(count+1));
+fetch('../shared.txt').then(r=>r.text()).then(t=>{{if(t!=='shared')console.error('shared-root-missing')}});
+</script>''', encoding='utf-8')
+            pages.append(page)
+        (self.folder / 'shared.txt').write_text('shared', encoding='utf-8')
+        output = self.folder / 'batch'
+        result = self.shoot_targets(output, pages, '--thumb')
+        self.assert_artifacts(output, ('a.png', 'b.png', 'c.png', 'sheet.png'))
+        report = json.loads((output / 'report.json').read_text(encoding='utf-8'))
+        self.assertEqual([r['file'] for r in report], ['a.png', 'b.png', 'c.png', 'sheet.png'])
+        self.assertTrue(all(not r['issues'] for r in report), report)
+        overview = report[-1]
+        self.assertEqual(overview['columns'], 3)
+        self.assertEqual([item['label'] for item in overview['items']], ['a', 'b', 'c'])
+        self.assertEqual(struct.unpack('>II', (output / 'sheet.png').read_bytes()[16:24]),
+                         (overview['width'], overview['height']))
+        if shutil.which('ffmpeg'):
+            for tile, color in zip(overview['items'], [(255, 0, 0), (0, 255, 0), (0, 0, 255)]):
+                self.assertEqual(self.frame_pixel(output / 'sheet.png', tile['x'] + 10, tile['y'] + 100), color)
+        self.assertIn('[4/4] sheet.png', result.stderr)
+        output = self.folder / 'comma'
+        self.shoot_targets(output, [','.join(map(str, pages[:2]))], '--thumb', '--no-sheet')
+        self.assert_artifacts(output, ('a.png', 'b.png'))
+        self.assertFalse((output / 'sheet.png').exists())
+        self.assert_no_browser_leftovers()
+
+    def test_explore_directory_manifest_and_index_browser(self):
+        folder = self.folder / 'explore'
+        folder.mkdir()
+        for file in ('a.html', 'b.html', 'style-explorer.html'):
+            (folder / file).write_bytes(self.page.read_bytes())
+        output = self.folder / 'scanned'
+        self.shoot_targets(output, [folder], '--thumb')
+        self.assert_artifacts(output, ('a.png', 'b.png', 'sheet.png'))
+        self.assertFalse((output / 'style-explorer.png').exists())
+        (folder / 'index.html').write_bytes(self.page.read_bytes())
+        output = self.folder / 'index'
+        self.shoot_targets(output, [folder], '--thumb')
+        self.assert_artifacts(output, ('page.png',))
+        self.assertFalse((output / 'sheet.png').exists())
+        manifest = folder / 'manifest.json'
+        manifest.write_text(json.dumps({'candidates': [
+            {'kind': 'html', 'source': 'a.html', 'id': 'sheet', 'name': '方向甲'},
+            {'kind': 'html', 'source': 'b.html', 'id': 'sheet', 'name': '方向乙'},
+        ]}), encoding='utf-8')
+        for i, target in enumerate((folder, manifest)):
+            output = self.folder / f'manifest-{i}'
+            self.shoot_targets(output, [target], '--thumb', '--selector', '#go')
+            self.assert_artifacts(output, ('sheet-2.png', 'sheet-3.png', 'sheet.png'))
+            report = json.loads((output / 'report.json').read_text(encoding='utf-8'))
+            self.assertEqual([tile['label'] for tile in report[-1]['items']], ['方向甲', '方向乙'])
+        self.assert_no_browser_leftovers()
 
     def test_states_masks_and_sheets(self):
         output = self.folder / "shots"

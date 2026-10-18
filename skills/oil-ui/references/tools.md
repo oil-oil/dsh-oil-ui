@@ -19,6 +19,8 @@
 | 要什么 | `oil_ui_shoot` 参数 |
 | --- | --- |
 | 看一眼桌面效果 | `{ "target": "index.html", "size": "desktop", "out": "shots/desktop.png" }`（不传 `size` 默认 `1440x900`；支持 `desktop`、`mobile`、`1440x900,390x844`；只看整体版式可加 `"thumb": true`） |
+| 一次截完多个候选并出并排图 | `{ "target": "explore", "size": "desktop", "thumb": true, "out": "shots/explore" }`（也可传 `["explore/a.html", "explore/b.html", "explore/c.html"]`，同一次浏览器会话截完并自动出 `sheet.png`） |
+| 只看改过的局部组件或区域 | `{ "target": "index.html", "size": "desktop", "selector": ".card", "out": "shots/card.png" }`（自动滚入视口并只截该元素区域） |
 | 操作几步再截 | `{ "target": "index.html", "size": "desktop", "steps": "click .open; wait 300", "out": "shots/open.png" }` |
 | 按地址参数切多状态连拍 | `{ "target": "index.html", "size": "desktop", "states": ["idle", "done"], "out": "shots" }`（状态参数名默认 `state`，可用 `param` 修改；额外查询串用 `query: "a=1&b=2"`） |
 | 送评审或交付前取证 | `{ "target": "index.html", "size": "desktop", "evidence": true, "states": ["idle", "done"], "steps": ["send: click .send"], "out": "evidence" }` |

@@ -37,6 +37,7 @@ async function pro(path: string, name = 'oil-ui-pro', rawBody = 'Local instructi
 
 describe('bundled open-source Skill and local Pro activation', () => {
   it('registers the compiled native Harness open-source body and resource directory', async () => {
+    const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8'));
     const registered = await loadUpstreamSkill({ preferPro: false });
     const raw = await readFile(join(skillDirectory, 'SKILL.md'), 'utf8');
     expect(isHarnessNativeSkillMarkdown(raw)).toBe(true);
@@ -44,7 +45,7 @@ describe('bundled open-source Skill and local Pro activation', () => {
     expect(raw).toContain('oil_ui_shoot');
     expect(registered.content).toBe(raw.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, ''));
     expect(registered.name).toBe('oil-ui');
-    expect(registered.metadata?.version).toBe('0.23.6');
+    expect(registered.metadata?.version).toBe(manifest.version);
     expect(registered.resourceBase).toEqual({ kind: 'directory', path: skillDirectory });
     expect(registered.invocation).toEqual({ modelInvocable: true, userInvocable: true });
 
@@ -56,7 +57,7 @@ describe('bundled open-source Skill and local Pro activation', () => {
   it('bundles[32] public files with matching offline manifest evidence and no Pro tree', async () => {
     const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8'));
     expect(manifest.name).toBe('oil-ui');
-    expect(manifest.version).toBe('0.23.6');
+    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(manifest.fileCount).toBe(32);
     const walk = async (directory: string): Promise<string[]> => {
       const paths: string[] = [];
@@ -83,6 +84,7 @@ describe('bundled open-source Skill and local Pro activation', () => {
   });
 
   it('detects explicit Pro, compiles raw Pro Markdown into native Harness tools, and reports both versions', async () => {
+    const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8'));
     const rawProBody = '启动时后台静默运行更新检查（`bash "<skill-dir>/scripts/check_update.sh" >/dev/null 2>&1 &`）\n用 `scripts/shoot.mjs` 截图\n';
     const dir = await pro(join(root, 'explicit'), 'oil-ui-pro', rawProBody);
     await mkdir(join(dir, 'references'), { recursive: true });
@@ -113,7 +115,7 @@ describe('bundled open-source Skill and local Pro activation', () => {
       edition: 'pro',
       activeSkillName: 'oil-ui-pro',
       activeVersion: '9.8.7',
-      bundledVersion: '0.23.6',
+      bundledVersion: manifest.version,
       proInstalled: true,
       proSourcePath: dir,
       activeResourceBase: resolved.directory,
@@ -266,7 +268,7 @@ describe('discovery snapshots, arbitration and update backoff', () => {
     const visible = { ...lite, provider: 'scope-override', invocation: lite.invocation! };
     const status = await skillStatus(visible, { proSkillDir: dir });
     expect(status.detected).toMatchObject({ name: 'oil-ui-pro', version: '9.8.7' });
-    expect(status.effective).toMatchObject({ name: 'oil-ui', provider: 'scope-override', version: '0.23.6' });
+    expect(status.effective).toMatchObject({ name: 'oil-ui', provider: 'scope-override', version: lite.metadata?.version });
     expect(status.activeSkillName).toBe('oil-ui');
     expect(status.visibleMatchesOriginal).toBe(false);
   });

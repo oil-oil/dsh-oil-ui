@@ -1,8 +1,8 @@
 ---
 name: oil-ui
-description: "Design, improve, and review interfaces for websites, apps, dashboards, and components: explore distinct design directions, compare styles side by side, and refine visual hierarchy against real screenshots. Delivers comparison pages, design notes, mockups, or working interfaces. Use for new interface design, style comparison, visual polish, screenshot recreation, or interface review. Not for business logic, APIs, builds, code cleanup without visible UI changes, or routine edits where the exact change is already specified (changing copy or counts, removing named elements, reusing existing styles), even if phrased as 'optimize'. If oil-ui-pro is installed, use oil-ui-pro instead. 设计、改进和评审网站、App、后台与组件的界面，完成设计方向探索、多风格同屏比较、视觉层级和基于实际画面的迭代；按请求交付对比页、设计说明、设计稿或可运行界面。当用户需要新界面设计、比较不同设计风格、视觉精修、截图还原或界面评审时使用。只负责设计判断，组件归属、数据流、状态正确性和测试等代码实现质量不在范围内。不用于纯业务逻辑、接口、构建部署、无界面行为变化的代码整理、单独绘制普通插画、操作现有网站，以及改文案、调数量、删指定元素、复用现有样式这类已经说清怎么改的日常修改（哪怕带有“优化”字样）。已安装 oil-ui-pro 时交给 oil-ui-pro。"
+description: "设计、改进和评审网站、App、后台与组件的界面：探索设计方向、生成多风格同屏对比页，并基于真实截图打磨视觉层级；按请求交付对比页、设计说明、设计稿或可运行界面。只负责设计判断，不用于纯业务逻辑、接口构建、无界面变化的代码整理，或改法已完全明确的日常修改（如改文案、调数量、删指定元素、复用现有样式，哪怕带有“优化”字样）。已安装 oil-ui-pro 时交给 oil-ui-pro。"
 metadata:
-  version: "0.23.7"
+  version: "0.23.8"
   compatibility: "通过 oil_ui_shoot、oil_ui_media、oil_ui_image、oil_ui_explorer、oil_ui_skill_status 与 read_image、subagent 完成截图取证、真实素材检索、AI 生图修图、对比页组装和独立视觉评审。"
 ---
 
@@ -47,10 +47,10 @@ metadata:
 
 **用户要看实际画面时，做三个首屏。** 每个方向都是一张真实的首屏，骨架、字体、色彩和主视觉都拉开，放进对比页发给用户挑，这一轮到此结束。只做看得出风格所需的东西：
 
-- 每个方向一个 HTML 文件、一个视口、只有主状态；不写交互，不做响应式和动效，不取证，不派评审。
+- 每个方向一个 HTML 文件、一个视口、只做首屏（不往下铺整页区块）、只有主状态；不写交互，不做响应式和动效，不取证，不派评审。宿主支持并行写文件或子 Agent 时，三个方向并行写。
 - 三个方向共用同一份示例文字和数据，只写一次。结构和样式各写各的：不用同一个模板换几组样式来生成，那样三个方向的骨架天生是同一个。
 - 主视觉靠图的方向，生成一张，至多重新生成一次；其余图位先用从页面取色的色块占着。
-- 每个方向截一张图自己看过，改掉重叠、裁切和明显的粗糙就交。
+- 对候选目录跑一次截图（一次出齐各方向缩略图与并排总览图 `sheet.png`）自己看过，改掉重叠、裁切和明显的粗糙就交。
 
 **版式也先用文字问。** 交对比页时附上推荐理由，请用户选一个方向、说出具体喜欢和不喜欢哪里，并说明：选定后直接做完整页面，想比较不同的版式也可以说。用户要比版式，先用文字写出两三种骨架的差别；从文字里定得下来就按选中的做，要看实际画面再做成首屏，连同选中的那一版放进对比页再选一次。版式之间保持选定方向的字体、色彩和控件语法，只在骨架、主视觉的摆法和页面结构上拉开。用户只回了选哪个，就把意见并进去，直接做完整页面；想把两个方向拼在一起的，先做出拼合后的首屏给用户确认。
 

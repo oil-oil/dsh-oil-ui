@@ -13,6 +13,8 @@ const NATIVE_TOOL_COMMANDS_SECTION = `### 常用调用方式（\`oil_ui_shoot\`�
 | 要什么 | \`oil_ui_shoot\` 参数 |
 | --- | --- |
 | 看一眼桌面效果 | \`{ "target": "index.html", "size": "desktop", "out": "shots/desktop.png" }\`（不传 \`size\` 默认 \`1440x900\`；支持 \`desktop\`、\`mobile\`、\`1440x900,390x844\`；只看整体版式可加 \`"thumb": true\`） |
+| 一次截完多个候选并出并排图 | \`{ "target": "explore", "size": "desktop", "thumb": true, "out": "shots/explore" }\`（也可传 \`["explore/a.html", "explore/b.html", "explore/c.html"]\`，同一次浏览器会话截完并自动出 \`sheet.png\`） |
+| 只看改过的局部组件或区域 | \`{ "target": "index.html", "size": "desktop", "selector": ".card", "out": "shots/card.png" }\`（自动滚入视口并只截该元素区域） |
 | 操作几步再截 | \`{ "target": "index.html", "size": "desktop", "steps": "click .open; wait 300", "out": "shots/open.png" }\` |
 | 按地址参数切多状态连拍 | \`{ "target": "index.html", "size": "desktop", "states": ["idle", "done"], "out": "shots" }\`（状态参数名默认 \`state\`，可用 \`param\` 修改；额外查询串用 \`query: "a=1&b=2"\`） |
 | 送评审或交付前取证 | \`{ "target": "index.html", "size": "desktop", "evidence": true, "states": ["idle", "done"], "steps": ["send: click .send"], "out": "evidence" }\` |
@@ -109,10 +111,16 @@ export function transformSkillMarkdown(relativePath: string, raw: string): strin
   }
 
   if (normalized === 'references/style-explorer.md') {
-    return raw.replace(/每个字段的写法和限制见生成器的 `--help`。/g, '字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。').replace(
-      /## 生成和打开\r?\n\r?\n```text\r?\npython3 <skill>\/scripts\/build_explorer\.py <manifest 所在目录>\/manifest\.json\r?\n```\r?\n\r?\n[^\r\n]+/,
-      `## 生成和打开\n\n调用 \`oil_ui_explorer\` 生成对比页：\n\n\`\`\`json\n{\n  "manifest": "explore/manifest.json",\n  "out": "style-explorer.html"\n}\n\`\`\`\n\n\`manifest\` 可传 \`manifest.json\` 的相对路径，也可直接传 JSON 对象；不传时工具会自动查找工作目录下的 \`manifest.json\` 或 \`explore/a.html\`、\`b.html\`、\`c.html\`。对比页默认生成在工作目录根部的 \`style-explorer.html\`，并返回预览地址 \`explorerUrl\`。`,
-    );
+    return raw
+      .replace(/每个字段的写法和限制见生成器的 `--help`。/g, '字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。')
+      .replace(
+        /## 生成和打开\r?\n\r?\n```text\r?\npython3 <skill>\/scripts\/build_explorer\.py <manifest 所在目录>\/manifest\.json\r?\n```\r?\n\r?\n[^\r\n]+/,
+        `## 生成和打开\n\n调用 \`oil_ui_explorer\` 生成对比页：\n\n\`\`\`json\n{\n  "manifest": "explore/manifest.json",\n  "out": "style-explorer.html"\n}\n\`\`\`\n\n\`manifest\` 可传 \`manifest.json\` 的相对路径，也可直接传 JSON 对象；不传时工具会自动查找工作目录下的 \`manifest.json\` 或 \`explore/a.html\`、\`b.html\`、\`c.html\`。对比页默认生成在工作目录根部的 \`style-explorer.html\`，并返回预览地址 \`explorerUrl\`。`,
+      )
+      .replace(
+        /`node <skill>\/scripts\/shoot\.mjs <manifest 所在目录> --size desktop --thumb --out shots\/explore`/g,
+        '`oil_ui_shoot({ "target": "explore", "size": "desktop", "thumb": true, "out": "shots/explore" })`',
+      );
   }
 
   if (normalized === 'references/media.md') {

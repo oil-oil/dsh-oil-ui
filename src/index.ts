@@ -135,7 +135,7 @@ export function apply(ctx: Context, config: Config) {
         name: 'oil_ui_skill_status',
         isConcurrencySafe: args => !Boolean(args && typeof args === 'object' && (args as { update?: unknown }).update),
         description:
-          'Report the active oil-ui edition, local Pro installation, versions, update check status, one-time Pro recommendation, local image-gen availability and scoped Skill registration. Pass update=true only when the user explicitly confirms updating.',
+          '查看当前生效的 Oil UI 版本（oil-ui 或本地安装的 oil-ui-pro）、更新状态、升级提示、本地生图可用性与子 Agent 评审手册注入状态。仅在用户明确要求更新时传入 update=true。',
         parameters: {
           update: { type: 'boolean', description: '仅在用户明确要求时检查并更新 Skill。' },
         },
@@ -155,7 +155,7 @@ export function apply(ctx: Context, config: Config) {
       defineTool({
         name: 'oil_ui_explorer',
         description:
-          'Generate a portable single-file style-explorer.html comparison page in the current working directory from a manifest or explore/a.html, b.html, c.html (or directions/a.html, b.html, c.html). Inlines local assets and stylesheets and returns the preview URL.',
+          '从 manifest.json 或 explore/a.html、b.html、c.html 生成内嵌全部本地资源的独立单文件风格对比页 style-explorer.html，并返回预览地址。',
         parameters: {
           manifest: { ...manifestSchema, description: '对比页清单 JSON 对象、JSON 字符串或工作区内的清单文件路径（如 explore/manifest.json）。' },
           out: { type: 'string', description: '对比页 HTML 输出路径，默认 style-explorer.html。' },
@@ -180,9 +180,9 @@ export function apply(ctx: Context, config: Config) {
         name: 'oil_ui_shoot',
         timeoutMs: 905_000,
         description:
-          'Capture screenshots, interactive state sequences, multi-viewport responsive checks, element crops, motion recordings, pixel comparisons, or stitched sheets using the active Skill screenshot engine in the current working directory. Local HTML files are served over a workspace-rooted HTTP server so relative paths like ../assets/ resolve cleanly.',
+          '对本地 HTML、候选目录（如 explore）或页面地址执行截图、半尺寸快速缩略图、多目标批量截图与自动并排图（sheet.png）、局部元素裁剪（selector）、交互状态序列、录屏取证或像素比对。本地 HTML 自动以工作区根目录启动静态服务，支持 ../assets/ 等相对路径。',
         parameters: {
-          target: { type: 'string', description: '本地 HTML 文件或 HTTP(S) 地址，支持查询串和锚点。' },
+          target: { ...stringOrStrings, description: '本地 HTML 文件、候选目录（如 explore）、manifest.json、HTTP(S) 地址，或多目标数组/逗号分隔路径。' },
           out: { type: 'string', description: '工作区内输出 PNG 文件或目录路径；多状态连拍、多尺寸、证据集与录屏须传目录。' },
           mode: { type: 'string', enum: ['shot', 'compare', 'evidence'], description: '执行模式：shot（单图/多图）、compare（像素比对）、evidence（交付证据集）。' },
           before: { type: 'string', description: '比较前的本地图像路径，作为 compare 的别名。' },
@@ -198,8 +198,9 @@ export function apply(ctx: Context, config: Config) {
           thumb: { type: 'boolean', description: '快速缩略图：按 0.5 倍分辨率截视口，缩短等待并跳过默认做法检查。' },
           mask: { type: 'boolean', description: '是否生成遮字图。' },
           sheet: { type: 'boolean', description: '是否生成联系表。' },
+          noSheet: { type: 'boolean', description: '多目标批量截图时不自动生成 sheet.png。' },
           mark: { type: 'string', description: '截图标注规则，如 1=.open。' },
-          selector: { type: 'string', description: '等待并标注的单个 CSS 选择器。' },
+          selector: { type: 'string', description: '只截取匹配元素的区域，自动滚入视口；不与 fullPage、record、motion、entry、evidence 同用。' },
           steps: { ...stringOrStrings, description: '交互动作字符串或动作组数组，组内用分号分隔。' },
           record: { ...boolOrString, description: '是否录屏，兼容字符串 true/false。' },
           entry: { type: 'boolean', description: '是否在打开页面前开始录屏。' },
@@ -219,7 +220,7 @@ export function apply(ctx: Context, config: Config) {
           title: '截图与交互取证',
           kind: 'execute',
           locations: [
-            { path: args.target || 'index.html' },
+            { path: (Array.isArray(args.target) ? args.target[0] : args.target) || 'index.html' },
             ...(args.out ? [{ path: args.out }] : []),
           ],
         }),
@@ -241,7 +242,7 @@ export function apply(ctx: Context, config: Config) {
               !(args as { out?: unknown }).out,
           ),
         description:
-          'Search museum, open-access, photo, video and 3D/PBR asset providers, preview candidates on a numbered contact sheet, and download selected assets into the current working directory using the active Skill media engine. Inspect each item license and attribution.',
+          '从博物馆馆藏、开放版权图库、科学版画、NASA 视频和 3D/PBR 材质库检索真实素材，生成带编号的候选联系表预览，并将选中的素材下载到当前工作目录（自动记录 SOURCES.md 署名与许可信息）。',
         parameters: {
           action: { type: 'string', enum: ['search', 'preview', 'fetch', 'search_and_fetch'], description: '素材操作，默认搜索并下载；传 refs 时默认下载。' },
           query: { type: 'string', description: '搜索关键词；支持用 | 分隔多个备选词（如 "oak planks | belgian oak"）。' },
@@ -280,7 +281,7 @@ export function apply(ctx: Context, config: Config) {
         name: 'oil_ui_image',
         timeoutMs: 905_000,
         description:
-          'Generate images or edit 1–16 local reference images in the current working directory using the locally installed image-gen Skill and python3. Defaults to edit when images are provided. Use background=transparent for cutout assets; the local service credentials and model apply.',
+          '调用本机已安装的 image-gen Skill 在当前工作目录中生成图片（mode=generate）或基于 1–16 张本地参考图编辑派生变体（mode=edit，传入 images 时默认 edit）；透明底抠图素材设 background=transparent。',
         parameters: {
           prompt: { type: 'string', required: true, description: '生成或编辑图片的提示词描述。' },
           mode: { type: 'string', enum: ['generate', 'edit'], description: '生图模式：generate（文生图）或 edit（基于参考图改图/派生变体，传入 images 时默认 edit）。' },
