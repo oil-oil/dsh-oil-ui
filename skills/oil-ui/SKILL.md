@@ -2,7 +2,7 @@
 name: oil-ui
 description: "Design, improve, and review interfaces for websites, apps, dashboards, and components: explore distinct design directions, compare styles side by side, and refine visual hierarchy against real screenshots. Delivers comparison pages, design notes, mockups, or working interfaces. Use for new interface design, style comparison, visual polish, screenshot recreation, or interface review. Not for business logic, APIs, builds, code cleanup without visible UI changes, or routine edits where the exact change is already specified (changing copy or counts, removing named elements, reusing existing styles), even if phrased as 'optimize'. If oil-ui-pro is installed, use oil-ui-pro instead. 设计、改进和评审网站、App、后台与组件的界面，完成设计方向探索、多风格同屏比较、视觉层级和基于实际画面的迭代；按请求交付对比页、设计说明、设计稿或可运行界面。当用户需要新界面设计、比较不同设计风格、视觉精修、截图还原或界面评审时使用。只负责设计判断，组件归属、数据流、状态正确性和测试等代码实现质量不在范围内。不用于纯业务逻辑、接口、构建部署、无界面行为变化的代码整理、单独绘制普通插画、操作现有网站，以及改文案、调数量、删指定元素、复用现有样式这类已经说清怎么改的日常修改（哪怕带有“优化”字样）。已安装 oil-ui-pro 时交给 oil-ui-pro。"
 metadata:
-  version: "0.23.6"
+  version: "0.23.7"
   compatibility: "通过 oil_ui_shoot、oil_ui_media、oil_ui_image、oil_ui_explorer、oil_ui_skill_status 与 read_image、subagent 完成截图取证、真实素材检索、AI 生图修图、对比页组装和独立视觉评审。"
 ---
 
