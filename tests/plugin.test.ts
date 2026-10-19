@@ -209,6 +209,58 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
   }
 });
 
+it('reads the Skill registry from the injected context instead of the apply context', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'oil-injected-context-'));
+  const disposers: (() => void | Promise<void>)[] = [];
+  const tools = new Map<string, ToolDefinition>();
+  const pending: Promise<unknown>[] = [];
+  let registration: SkillRegistration | undefined;
+  const ctx: any = {
+    effect(fn: () => () => void | Promise<void>) {
+      disposers.push(fn());
+    },
+    inject(_services: string[], fn: (ctx: unknown) => unknown) {
+      const child = {
+        ...ctx,
+        tools: {
+          register(tool: ToolDefinition) {
+            tools.set(tool.name, tool);
+          },
+        },
+        commands: {
+          register() {
+            return () => {};
+          },
+        },
+        skills: {
+          register(skill: SkillRegistration) {
+            registration = skill;
+          },
+          get: async () => registration,
+        },
+        systemPrompt: { section() { return () => {}; } },
+      };
+      pending.push(Promise.resolve(fn(child)));
+    },
+    // Deliberately no `skills`: Cordis exposes injected services only on the child context.
+  };
+  try {
+    apply(ctx as unknown as Context, { previewPort: 0, preferPro: false });
+    await Promise.all(pending);
+    const exec = {
+      agent: { session: { id: 'alice', header: { cwd: root } } },
+      signal: new AbortController().signal,
+    } as unknown as ToolRunContext;
+    await expect(tools.get('oil_ui_skill_status')!.execute({}, exec)).resolves.toMatchObject({
+      activeSkillName: 'oil-ui',
+      edition: 'lite',
+    });
+  } finally {
+    await Promise.all(disposers.map(dispose => dispose()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it('refreshes the real Harness Skill registry after a local Pro install without recreating the plugin', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-provider-')));
   const pro = join(root, 'home/.dsh/skills/oil-ui-pro');
