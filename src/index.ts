@@ -119,6 +119,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.effect(() => () => workbench.dispose());
   let invalidateSkills: (() => void) | undefined;
   let provider: ReturnType<typeof createSkillProvider> | undefined;
+  let skillsRegistry: Context['skills'] | undefined;
   const reportStatus = async (skillsCtx: Context, scope: Agent | undefined, update: boolean) => {
     const cwd = scope?.session.header.cwd;
     const discovered = provider ? await provider.refresh(cwd) : { snapshot: await discoverSkill({ ...config, cwd }), changed: false };
@@ -130,6 +131,7 @@ export function apply(ctx: Context, config: Config) {
   };
 
   ctx.inject(['tools', 'skills'], ctx => {
+    skillsRegistry ??= ctx.skills;
     ctx.tools.register(
       defineTool({
         name: 'oil_ui_skill_status',
@@ -308,6 +310,7 @@ export function apply(ctx: Context, config: Config) {
   });
 
   ctx.inject(['skills'], async ctx => {
+    skillsRegistry = ctx.skills;
     if (typeof ctx.skills.registerProvider === 'function') {
       ctx.skills.registerProvider(control => {
         invalidateSkills = () => control.invalidate?.();
@@ -319,6 +322,7 @@ export function apply(ctx: Context, config: Config) {
   });
 
   ctx.inject(['commands', 'skills'], ctx => {
+    skillsRegistry ??= ctx.skills;
     if (!ctx.commands || typeof ctx.commands.register !== 'function') return;
     ctx.effect(() => {
       const disposeStatus = ctx.commands.register({
@@ -441,8 +445,8 @@ export function apply(ctx: Context, config: Config) {
       try {
         const snapshot = await discoverSkill(options);
         referencesPath = join(snapshot.active.directory, 'references');
-        const effective = await ctx.skills?.get(snapshot.active.name, { scope: agent, cwd: options.cwd });
-        active = effective?.resourceBase?.kind === 'directory'
+        const effective = await skillsRegistry?.get(snapshot.active.name, { scope: agent, cwd: options.cwd });
+        active = effective?.resourceBase?.kind === 'directory' && effective.provider && effective.provider !== 'oil-ui-provider'
           ? { ...snapshot.active, directory: effective.resourceBase.path } : await resolveActiveSkill(options, snapshot);
         referencesPath = join(active.directory, 'references');
       } catch { /* Discovery failure still allows the bundled review manual. */

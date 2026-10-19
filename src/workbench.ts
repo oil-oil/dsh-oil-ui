@@ -86,10 +86,10 @@ export class DesignWorkbench {
   }
 
   async scopedPath(workspace: string, inputPath: string, allowDotFile = false): Promise<string> {
-    if (!inputPath || !inputPath.trim() || inputPath.includes('\0') || inputPath.includes('\\')) {
+    if (!inputPath || !inputPath.trim() || inputPath.includes('\0')) {
       throw new Error('A valid workspace path is required');
     }
-    const clean = inputPath.trim();
+    const clean = inputPath.trim().replace(/\\/g, '/');
     const resolved = isAbsolute(clean) ? resolve(clean) : resolve(workspace, clean);
 
     // Resolve the deepest existing ancestor to verify no symlink escapes the workspace
@@ -282,7 +282,7 @@ export class DesignWorkbench {
           request: input.brief?.trim() || input.request?.trim() || 'Compare candidate directions side by side',
           directory: workspace,
         }, embedder);
-        const firstSource = String((manifest as { candidates?: { source?: string }[] }).candidates?.[0]?.source ?? '');
+        const firstSource = String((manifest as { candidates?: { source?: string }[] }).candidates?.[0]?.source ?? '').replace(/\\/g, '/');
         if (firstSource.startsWith('directions/')) manifestDir = join(workspace, 'directions');
         else if (firstSource.startsWith('explore/')) manifestDir = join(workspace, 'explore');
       }

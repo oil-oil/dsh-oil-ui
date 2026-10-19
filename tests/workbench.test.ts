@@ -149,6 +149,18 @@ describe('native explorer and managed scripts in cwd', () => {
 
     const rerun = await w.explorer(cwd, {});
     expect(explorerData(await readFile(join(cwd, rerun.explorerPath), 'utf8')).fingerprint).toBe(data.fingerprint);
+
+    // Windows backslash paths in scopedPath, manifest, and candidate assets normalize cleanly while still blocking traversal.
+    expect(await w.scopedPath(cwd, 'explore\\a.html')).toBe(join(cwd, 'explore/a.html'));
+    expect(await w.scopedPath(cwd, `${cwd}\\explore\\manifest.json`)).toBe(join(cwd, 'explore/manifest.json'));
+    await expect(w.scopedPath(cwd, '..\\outside.html')).rejects.toThrow('within the current workspace');
+    await expect(w.scopedPath(cwd, '.hidden\\secret.txt')).rejects.toThrow('hidden segments');
+    const winResult = await w.explorer(cwd, {
+      manifest: 'explore\\manifest.json',
+      out: 'explore\\win-explorer.html',
+    });
+    expect(winResult.explorerPath).toBe('explore/win-explorer.html');
+    expect(winResult.manifestPath).toBe('explore/manifest.json');
   });
 
   it('accepts JSON manifests, embeds scripts/images, constrains URLs and escapes injected metadata', async () => {

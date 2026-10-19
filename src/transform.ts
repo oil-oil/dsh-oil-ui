@@ -201,7 +201,7 @@ export async function compileHarnessSkillTree(
       if (info.isDirectory()) {
         if (options.symlinkBinaryAssets && (relPath === 'assets' || relPath === 'scripts')) {
           await mkdir(dirname(dstPath), { recursive: true });
-          await symlink(srcPath, dstPath, 'dir');
+          await symlink(srcPath, dstPath, process.platform === 'win32' ? 'junction' : 'dir');
           continue;
         }
         await mkdir(dstPath, { recursive: true });

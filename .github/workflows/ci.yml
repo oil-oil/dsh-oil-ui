@@ -25,6 +25,8 @@ jobs:
           python-version: "3.12"
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Verify committed lib/index.js is up to date
+        run: git diff --exit-code lib/
 
   sync-oil-ui:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

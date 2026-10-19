@@ -210,53 +210,100 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
 });
 
 it('reads the Skill registry from the injected context instead of the apply context', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'oil-injected-context-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-injected-context-')));
+  localHome.path = root;
+  vi.stubEnv('DSH_HOME', join(root, '.dsh'));
+  vi.stubEnv('OIL_UI_PRO_DIR', '');
+  const proDir = join(root, '.dsh/skills/oil-ui-pro');
+  await mkdir(join(proDir, 'references'), { recursive: true });
+  await writeFile(join(proDir, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Pro\nmetadata:\n  version: 9.9.9\n---\nPro');
+  await writeFile(join(proDir, 'references/reviewer-manual.md'), '# 视觉与交互评审手册 (Pro Injected Context)');
   const disposers: (() => void | Promise<void>)[] = [];
   const tools = new Map<string, ToolDefinition>();
+  const commands = new Map<string, { name: string; handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string } }>();
+  const createdListeners: ((payload: { agent: unknown }) => Promise<void> | void)[] = [];
   const pending: Promise<unknown>[] = [];
   let registration: SkillRegistration | undefined;
   const ctx: any = {
     effect(fn: () => () => void | Promise<void>) {
       disposers.push(fn());
     },
-    inject(_services: string[], fn: (ctx: unknown) => unknown) {
-      const child = {
-        ...ctx,
-        tools: {
-          register(tool: ToolDefinition) {
-            tools.set(tool.name, tool);
+    on(event: string, listener: (payload: { agent: unknown }) => Promise<void> | void) {
+      if (event === 'agent/created') createdListeners.push(listener);
+      return () => {};
+    },
+    inject(services: string[], fn: (ctx: unknown) => unknown) {
+      const child = Object.create(ctx);
+      if (services.includes('tools')) {
+        Object.defineProperty(child, 'tools', {
+          value: { register(tool: ToolDefinition) { tools.set(tool.name, tool); } },
+        });
+      }
+      if (services.includes('commands')) {
+        Object.defineProperty(child, 'commands', {
+          value: {
+            register(cmd: { name: string; handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string } }) {
+              commands.set(cmd.name, cmd);
+              return () => {};
+            },
           },
-        },
-        commands: {
-          register() {
-            return () => {};
+        });
+      }
+      if (services.includes('skills')) {
+        Object.defineProperty(child, 'skills', {
+          value: {
+            register(skill: SkillRegistration) { registration = skill; },
+            get: async (name: string) => (registration?.name === name ? registration : undefined),
           },
-        },
-        skills: {
-          register(skill: SkillRegistration) {
-            registration = skill;
-          },
-          get: async () => registration,
-        },
-        systemPrompt: { section() { return () => {}; } },
-      };
+        });
+      }
+      if (services.includes('systemPrompt')) {
+        Object.defineProperty(child, 'systemPrompt', {
+          value: { section() { return () => {}; } },
+        });
+      }
       pending.push(Promise.resolve(fn(child)));
     },
-    // Deliberately no `skills`: Cordis exposes injected services only on the child context.
   };
+  Object.defineProperty(ctx, 'skills', {
+    get() {
+      throw new Error('cannot get property "skills" without inject');
+    },
+  });
   try {
-    apply(ctx as unknown as Context, { previewPort: 0, preferPro: false });
+    apply(ctx as unknown as Context, { previewPort: 0, preferPro: true });
     await Promise.all(pending);
     const exec = {
       agent: { session: { id: 'alice', header: { cwd: root } } },
       signal: new AbortController().signal,
     } as unknown as ToolRunContext;
     await expect(tools.get('oil_ui_skill_status')!.execute({}, exec)).resolves.toMatchObject({
-      activeSkillName: 'oil-ui',
-      edition: 'lite',
+      activeSkillName: 'oil-ui-pro',
+      edition: 'pro',
     });
+    await expect(commands.get('oil-ui-status')!.handler({
+      agent: exec.agent,
+      rawInput: '',
+      attachments: [],
+      signal: exec.signal,
+    })).resolves.toMatchObject({
+      kind: 'success',
+      text: expect.stringContaining('oil-ui-pro（Pro）'),
+    });
+    const subSections: { name: string; text: string }[] = [];
+    for (const listener of createdListeners) {
+      await listener({
+        agent: {
+          session: { id: 'sub-1', header: { cwd: root, origin: 'subagent' } },
+          ctx: { systemPrompt: { section(sec: { name: string; text: string }) { subSections.push(sec); return () => {}; } } },
+        },
+      });
+    }
+    await vi.waitFor(() => expect(subSections).toHaveLength(1), { timeout: 5000 });
+    expect(subSections[0]!.text).toContain('Pro Injected Context');
   } finally {
     await Promise.all(disposers.map(dispose => dispose()));
+    localHome.path = '';
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -66,7 +66,7 @@ export class Embedder {
   constructor(private root: string) { this.realRoot = realpath(root); }
   async path(value: string, base: string): Promise<string> {
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) throw new Error(`Use local assets, received ${value}`);
-    const clean = decodeURIComponent(value.split(/[?#]/,1)[0]!);
+    const clean = decodeURIComponent(value.split(/[?#]/,1)[0]!).replace(/\\/g, '/');
     const path = resolve(base,clean);
     const root = await this.realRoot;
     const actual = await realpath(path);
@@ -279,10 +279,11 @@ export async function buildExplorer(input: unknown, projectDirectory: string, ac
         }
       }
       if (!path) throw lastError ?? new Error(`Missing candidate source: ${source}`);
-      if (path === resolvedOut || relative(projectDirectory,path) === 'directions/explorer.html' || relative(projectDirectory,path) === 'style-explorer.html') {
+      const relPath = relative(projectDirectory,path).split(sep).join('/');
+      if (path === resolvedOut || relPath === 'directions/explorer.html' || relPath === 'style-explorer.html') {
         throw new Error('Explorer cannot overwrite an input candidate');
       }
-      sourceLabel = source.split('/').at(-1)!;
+      sourceLabel = source.split(/[\\/]/).at(-1)!;
       content = kind === 'html' ? await embed.html((await embed.bytes(path)).toString('utf8'),dirname(path),Boolean(c.interactive)) : await embed.uri(path,dirname(path));
       if (kind === 'image' && !/^data:image\//.test(content)) throw new Error('Image candidates require an image file');
     }
