@@ -8,39 +8,28 @@
 
 一轮只生成一个对比页。候选能跑就用真实页面：单独写的 HTML 小样直接嵌入，项目里的方案用本机地址，拿不到可运行的页面时才用截图。每个方案一个画面：存量项目选入口或差别最大的那一步，整站方案只放代表页。
 
-写好 `manifest.json` 和候选文件。`source` 的相对路径以 manifest 所在目录为准；候选引用的图片、字体、视频、CSS 和脚本，以引用它的文件所在目录为准，也可以用绝对路径。目录外的本地文件同样会自动内嵌，无需复制；单文件上限 20 MiB，输入文件总量上限 100 MiB，不引用网络资源。HTML 缺少 `head` 时会自动补上。manifest 最少这样写，尖括号里换成本轮候选的实际内容，方向用方向卡里写的：
+把候选 HTML 放进一个目录后传目录，也可以直接传几个 HTML 文件。显示名取 `<title>`，没有标题时取文件名。同目录有 `manifest.json` 时会读取它补充方向信息；没有 manifest 也能生成。
+
+最小的 `manifest.json`：
 
 ```json
 {
-  "schemaVersion": 1,
-  "project": "<项目名称>",
-  "brief": "<所有候选共同表达的内容与主要任务>",
-  "round": "<轮次，例如 01>",
   "candidates": [
-    {
-      "id": "<小写唯一标识>",
-      "name": "<方向名称>",
-      "concept": "<北极星：一句能指导取舍的体验意图>",
-      "typography": "<实际使用的字族、字重与尺度关系>",
-      "palette": ["<十六进制色值>", "<十六进制色值>", "<十六进制色值>"],
-      "traits": ["<可观察特征>", "<可观察特征>"],
-      "source": "<候选文件的相对路径>"
-    }
+    {"source": "a.html"},
+    {"source": "b.html"}
   ]
 }
 ```
 
-| 情况 | 在 manifest 里加 |
+| 特殊情况 | 在 manifest 里加 |
 | --- | --- |
-| 固定画布的界面，不随宽度重排 | 顶层或候选里写 `"nativeViewport": "<宽>x<高>"`。对比页按这个视口渲染，再整体等比缩放，候选不用自己写缩放 |
+| 固定画布的界面 | 顶层或候选里加 `"nativeViewport": "宽x高"` |
 | 自己写的可操作小样 | 候选加 `"interactive": true` |
-| 项目里要运行起来才能看的页面 | 候选的 `kind` 设为 `"url"`，用 `url` 指向本机开发服务器；顶层用 `serve` 写下启动命令 |
-| 改动已有页面 | 把现状也放进来，加 `"baseline": true` |
-| 只有截图 | 候选的 `kind` 设为 `"image"` |
+| 需要启动服务才能看的页面 | 候选加 `"kind": "url"` 和本机 `url`；顶层可加 `serve` 启动说明 |
+| 改动已有页面 | 把现状也放进来，并加 `"baseline": true` |
+| 只有截图 | 候选加 `"kind": "image"`，`source` 指向截图 |
 
-字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。
-
-`palette` 推荐写成十六进制色值数组；写成带色值的描述文字或对象时，生成器会提取其中的颜色，一个有效色值都没有时才报错。
+HTML 和图片候选只需填写 `source`；本机地址候选按上表填写 `url`。候选来自方向卡时，每个候选再填 `name`、`concept`（北极星那一句）、`typography`、`palette`（色值数组）和 `traits`，对比页把它们和画面一起展示，用户靠这些挑选；省略的项不显示。字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。
 
 ## 生成和打开
 
@@ -48,12 +37,12 @@
 
 ```json
 {
-  "manifest": "explore/manifest.json",
+  "inputs": "explore",
   "out": "style-explorer.html"
 }
 ```
 
-`manifest` 可传 `manifest.json` 的相对路径，也可直接传 JSON 对象；不传时工具会自动查找工作目录下的 `manifest.json` 或 `explore/a.html`、`b.html`、`c.html`。对比页默认生成在工作目录根部的 `style-explorer.html`，并返回预览地址 `explorerUrl`。
+`manifest` 可传 JSON 对象、JSON 字符串或工作区内的清单文件路径；`inputs` 可传候选目录或多个 HTML 文件。目录内有 `manifest.json` 时会优先读取；没有时，目录中的 HTML 会组成候选。两者都不传时，工具会查找工作区中的 `manifest.json`、`directions/manifest.json`、`explore/manifest.json`，再尝试 `a.html`、`b.html`、`c.html`。对比页默认生成在工作区根目录的 `style-explorer.html`；再次调用会覆盖已有输出，改了候选后要重新调用生成。可用 `out` 指定输出路径，并从返回的 `explorerUrl` 打开预览。
 
 有本机地址候选时，交付时让开发服务器开着。用户之后说“打开对比页”：读 manifest 里的 `serve`，在 `cwd` 里后台运行 `command`，等 `url` 能访问了再打开对比页。
 

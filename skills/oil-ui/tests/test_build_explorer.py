@@ -969,7 +969,7 @@ console.log(JSON.stringify(result));
             builder.build(self.manifest, self.output)
         text = str(caught.exception)
         self.assertGreaterEqual(len(caught.exception.problems), 6)
-        for expected in ("schemaVersion", '候选 id "A" 无效', "missing.html", "red", 'kind 只能是', "候选 b：name", "候选 b：traits"):
+        for expected in ("schemaVersion", '候选 id "A" 无效', "missing.html", "red", 'kind 只能是', "候选 b：traits"):
             self.assertIn(expected, text)
         self.assertFalse(self.output.exists())
 
@@ -1007,8 +1007,37 @@ console.log(JSON.stringify(result));
     def test_help_shows_a_complete_example(self):
         run = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_explorer.py"), "--help"], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(run.returncode, 0)
-        for expected in ("manifest.json", '"schemaVersion": 1', "--force", "style-explorer.html"):
+        for expected in ("manifest.json", '"candidates": [{"source": "a.html"}', "--force", "style-explorer.html"):
             self.assertIn(expected, run.stdout)
+
+    def test_minimal_manifest_needs_only_source_and_uses_title(self):
+        self.source.write_text('<!doctype html><html><head><title>  Title   from HTML </title></head><body>Page</body></html>', encoding="utf-8")
+        self.data = {"candidates": [{"source": "sample.html"}]}
+        self.save()
+        builder.build(self.manifest, self.output)
+        candidate = self.payload(self.output.read_text(encoding="utf-8"))["candidates"][0]
+        self.assertEqual(candidate["name"], "Title from HTML")
+        self.assertEqual(candidate["id"], "candidate-1")
+        for optional in ("concept", "typography", "palette", "traits", "nativeViewport"):
+            self.assertNotIn(optional, candidate)
+
+    def test_directory_and_multiple_html_files_build_without_manifest(self):
+        folder = self.folder / "candidates"
+        folder.mkdir()
+        first, second = folder / "first.html", folder / "second.html"
+        first.write_text('<title>First option</title><main>One</main>', encoding="utf-8")
+        second.write_text('<main>Two</main>', encoding="utf-8")
+        output = self.folder / "direct.html"
+        result = builder.build([first, second], output)
+        self.assertEqual(result["candidates"], 2)
+        candidates = self.payload(output.read_text(encoding="utf-8"))["candidates"]
+        self.assertEqual([c["name"] for c in candidates], ["First option", "second"])
+        self.assertEqual([c["concept"] for c in candidates if "concept" in c], [])
+
+        directory_output = self.folder / "directory" / "style-explorer.html"
+        builder.build(folder, directory_output)
+        directory_candidates = self.payload(directory_output.read_text(encoding="utf-8"))["candidates"]
+        self.assertEqual([c["name"] for c in directory_candidates], ["First option", "second"])
 
 
 if __name__ == "__main__":

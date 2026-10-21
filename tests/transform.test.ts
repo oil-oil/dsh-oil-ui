@@ -13,7 +13,6 @@ const project = fileURLToPath(new URL('..', import.meta.url));
 const bundled = join(project, 'skills/oil-ui');
 const liteSource = join(project, '../oil-ui');
 const proSource = join(project, '../oil-ui-pro-dev');
-const explorerFixSource = join(project, '../oil-ui-pro-dev-wt-fix');
 const temporary: string[] = [];
 afterEach(async () => { await Promise.all(temporary.splice(0).map(dir => rm(dir, { recursive: true, force: true }))); });
 
@@ -51,13 +50,6 @@ describe('declarative Markdown rewrite validation', () => {
     expect(report).toMatchObject({ edition: 'pro', input: 'upstream', unmatchedRules: [] });
     expect(report.rules.find(rule => rule.id === 'review-loop.paths')).toMatchObject({ required: true, status: 'matched' });
     expect(report.rules.find(rule => rule.id === 'skill.pro-notice')).toMatchObject({ required: false, status: 'unmatched' });
-  });
-
-  it.skipIf(!existsSync(explorerFixSource))('strictly validates the unmerged style explorer wording when its worktree exists', async () => {
-    const report = await validateSkillTree(explorerFixSource, { mode: 'strict' });
-    expect(report).toMatchObject({ edition: 'pro', input: 'upstream', unmatchedRules: [] });
-    expect(report.rules.find(rule => rule.id === 'explorer.parameter-help')).toMatchObject({ required: true, status: 'matched' });
-    expect(report.rules.find(rule => rule.id === 'explorer.generate')).toMatchObject({ required: true, status: 'matched' });
   });
 
   it.skipIf(!existsSync(liteSource))('strictly validates current Lite source and reproduces the bundled Markdown', async () => {
