@@ -122,10 +122,16 @@ describe('bundled open-source Skill and local Pro activation', () => {
       visibleMatchesOriginal: true,
     });
     expect(status.note).toContain('No hash gate is enforced during loading or execution.');
+    expect(status.transformDiagnostics?.sourceDirectory).toBe(dir);
+    expect(status.transformDiagnostics?.unmatchedRules).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'skill.compatibility', file: 'SKILL.md', required: true }),
+      expect.objectContaining({ id: 'media.sheet', file: 'references/media.md', required: true }),
+    ]));
+    expect(status.transformDiagnostics?.unmatchedRules.some(rule => rule.id === 'skill.pro-notice')).toBe(false);
   });
 
   it('uses already-compiled Pro directory directly without re-caching', async () => {
-    const nativeBody = transformSkillMarkdown('SKILL.md', '---\nname: oil-ui-pro\ndescription: Native Pro\n---\nCall `oil_ui_skill_status` and `oil_ui_shoot`.\n');
+    const nativeBody = transformSkillMarkdown('SKILL.md', '---\nname: oil-ui-pro\ndescription: Native Pro\n---\nCall `oil_ui_skill_status` and `oil_ui_shoot`.\n', { edition: 'pro', mode: 'lenient' }).markdown;
     const dir = join(root, 'native-pro');
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'SKILL.md'), nativeBody);
