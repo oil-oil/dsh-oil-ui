@@ -1,5 +1,5 @@
 import { readFile, realpath } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse, serialize, type DefaultTreeAdapterMap } from 'parse5';
 import postcss from 'postcss';
@@ -226,8 +226,9 @@ export async function defaultManifest(project: {title:string;request:string;dire
 
 export async function buildExplorer(input: unknown, projectDirectory: string, active: ActiveSkill, manifestDir?: string, outputPath?: string, embed = new Embedder(projectDirectory)): Promise<string> {
   const raw = record(typeof input === 'string' ? JSON.parse(input) : input,'manifest');
-  if (raw.schemaVersion !== 1) throw new Error('manifest.schemaVersion must be 1');
-  const data: RecordValue = {schemaVersion:1,project:text(raw.project,'project'),brief:text(raw.brief,'brief'),round:text(raw.round ?? '01','round')};
+  if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1) throw new Error('manifest.schemaVersion must be 1');
+  const data: RecordValue = {schemaVersion:1};
+  for (const key of ['project','brief','round']) if (raw[key] !== undefined) data[key] = text(raw[key],key);
   if (raw.lang !== undefined) { if (!['zh','en'].includes(String(raw.lang))) throw new Error('lang must be zh or en'); data.lang = raw.lang; }
   const sharedViewport = viewport(raw.nativeViewport);
   if (raw.serve !== undefined) {
@@ -238,6 +239,7 @@ export async function buildExplorer(input: unknown, projectDirectory: string, ac
   }
   if (!Array.isArray(raw.candidates) || !raw.candidates.length) throw new Error('candidates must contain at least one candidate');
   const ids = new Set<string>();
+  const reservedIds = new Set(raw.candidates.flatMap(value => value && typeof value === 'object' && !Array.isArray(value) && typeof (value as RecordValue).id === 'string' ? [((value as RecordValue).id as string).trim()] : []));
   const candidates: RecordValue[] = [];
   const origins = new Set<string>();
   const searchBases = [...new Set([
@@ -249,21 +251,40 @@ export async function buildExplorer(input: unknown, projectDirectory: string, ac
   const resolvedOut = outputPath ? await realpath(dirname(outputPath)).then(d => resolve(d, relative(dirname(outputPath), outputPath)), () => resolve(outputPath)) : resolve(projectDirectory, 'directions/explorer.html');
   for (const value of raw.candidates) {
     const c = record(value,'candidate');
-    const id = text(c.id,'candidate.id');
+    let id: string;
+    if (c.id === undefined) {
+      const stem = `candidate-${candidates.length + 1}`;
+      id = stem;
+      let suffix = 2;
+      while (ids.has(id) || reservedIds.has(id)) id = `${stem}-${suffix++}`;
+    } else id = text(c.id,'candidate.id');
     if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id) || ids.has(id)) throw new Error('Invalid or duplicate candidate id');
     ids.add(id);
     const kind = c.kind ?? 'html';
     if (!['html','image','url'].includes(String(kind))) throw new Error('kind must be html, image or url');
     for (const flag of ['interactive','baseline']) if (c[flag] !== undefined && typeof c[flag] !== 'boolean') throw new Error(`${flag} must be boolean`);
     if (c.interactive && kind !== 'html') throw new Error('interactive is only available for html candidates');
-    const palette = JSON.stringify(c.palette ?? '').match(/#(?:[a-f\d]{8}|[a-f\d]{6}|[a-f\d]{4}|[a-f\d]{3})(?![a-z\d_])/gi);
-    if (!palette?.length) throw new Error('palette requires hexadecimal colors');
-    if (!Array.isArray(c.traits) || !c.traits.length) throw new Error('traits must be nonempty');
+    let palette: string[] | undefined;
+    if (c.palette !== undefined) {
+      const colors = JSON.stringify(c.palette).match(/#(?:[a-f\d]{8}|[a-f\d]{6}|[a-f\d]{4}|[a-f\d]{3})(?![a-z\d_])/gi);
+      if (!colors?.length) throw new Error('palette requires hexadecimal colors');
+      palette = colors;
+    }
+    let traits: string[] | undefined;
+    if (c.traits !== undefined) {
+      if (!Array.isArray(c.traits) || !c.traits.length) throw new Error('traits must be nonempty');
+      traits = c.traits.map(v=>text(v,'trait'));
+    }
+    const concept = c.concept === undefined ? undefined : text(c.concept,'concept');
+    const typography = c.typography === undefined ? undefined : text(c.typography,'typography');
+    let name = c.name === undefined ? undefined : text(c.name,'name');
     let content: string;
     let sourceLabel: string;
     if (kind === 'url') {
       const url = loopbackUrl(c.url);
       content = url.href; sourceLabel = content;
+      const urlName = url.pathname.split('/').filter(Boolean).at(-1) ?? '';
+      try { name ??= decodeURIComponent(urlName) || url.hostname; } catch { name ??= urlName || url.hostname; }
       origins.add(url.origin.replace('[::1]','localhost'));
     } else {
       const source = text(c.source,'source');
@@ -284,11 +305,18 @@ export async function buildExplorer(input: unknown, projectDirectory: string, ac
         throw new Error('Explorer cannot overwrite an input candidate');
       }
       sourceLabel = source.split(/[\\/]/).at(-1)!;
+      if (!name && kind === 'html') {
+        const sourceHtml = (await embed.bytes(path)).toString('utf8');
+        const title = elements(parse(sourceHtml)).find(n => n.tagName === 'title');
+        name = title ? nodeText(title).trim() || undefined : undefined;
+      }
+      name ??= basename(sourceLabel,extname(sourceLabel)) || basename(sourceLabel);
       content = kind === 'html' ? await embed.html((await embed.bytes(path)).toString('utf8'),dirname(path),Boolean(c.interactive)) : await embed.uri(path,dirname(path));
       if (kind === 'image' && !/^data:image\//.test(content)) throw new Error('Image candidates require an image file');
     }
+    name ??= `Candidate ${candidates.length + 1}`;
     const size = viewport(c.nativeViewport) ?? sharedViewport;
-    candidates.push({id,name:text(c.name,'name'),concept:text(c.concept,'concept'),typography:text(c.typography,'typography'),palette,traits:c.traits.map(v=>text(v,'trait')),kind,content,sourceLabel,baseline:c.baseline ?? false,interactive:c.interactive ?? false,...(size ? {nativeViewport:size} : {})});
+    candidates.push({id,name,...(concept !== undefined ? {concept} : {}),...(typography !== undefined ? {typography} : {}),...(palette ? {palette} : {}),...(traits ? {traits} : {}),kind,content,sourceLabel,baseline:c.baseline ?? false,interactive:c.interactive ?? false,...(size ? {nativeViewport:size} : {})});
   }
   if (candidates.filter(c=>c.baseline).length > 1) throw new Error('At most one baseline candidate is allowed');
   candidates.sort((a,b)=>Number(b.baseline)-Number(a.baseline));
@@ -298,9 +326,34 @@ export async function buildExplorer(input: unknown, projectDirectory: string, ac
   const templateRoot = active.sourceDirectory ?? active.directory;
   const templateEmbedder = new Embedder(templateRoot);
   const templatePath = await templateEmbedder.path('assets/style-explorer.html',templateRoot);
-  const template = await templateEmbedder.html((await templateEmbedder.bytes(templatePath)).toString('utf8'),dirname(templatePath),true,true);
+  const rawTemplate = await templateEmbedder.html((await templateEmbedder.bytes(templatePath)).toString('utf8'),dirname(templatePath),true,true);
+  const needsOptionalFieldsCompatibility = ['project','brief','round'].some(key => data[key] === undefined)
+    || candidates.some(candidate => ['concept','typography','palette','traits'].some(key => candidate[key] === undefined));
+  const template = needsOptionalFieldsCompatibility ? makeOptionalFieldsTemplateCompatible(rawTemplate) : rawTemplate;
   const marker = '/*__OIL_UI_DATA__*/ null';
   if (template.split(marker).length !== 2 || template.split("connect-src 'none'").length !== 2) throw new Error('Invalid style-explorer template markers');
   const payload = JSON.stringify(data).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
   return template.replace("connect-src 'none'",`connect-src ${origins.size ? [...origins].sort().join(' ') : "'none'"}`).replace(marker,()=>payload);
+}
+
+/** Bring older bundled templates up to the optional-field rendering contract. */
+function makeOptionalFieldsTemplateCompatible(template: string): string {
+  return template
+    .replace("$('#project').textContent=DATA.project;", "$('#project').textContent=DATA.project||'';")
+    .replace(
+      "function stripMini(c){const s=el('span','strip-mini');(c.palette||[]).forEach(h=>{const i=el('i');i.style.background=h;s.append(i);});return s;}",
+      "function stripMini(c){if(!c.palette?.length)return null;const s=el('span','strip-mini');c.palette.forEach(h=>{const i=el('i');i.style.background=h;s.append(i);});return s;}",
+    )
+    .replace(
+      "function specList(c){\n  const dl=el('dl','spec');const row=(k,v)=>{dl.append(el('dt',null,k),el('dd',null,v));};\n  row(t('fonts'),c.typography);row(t('traits'),(c.traits||[]).join(' · '));return dl;\n }",
+      "function specList(c){\n  const dl=el('dl','spec');const row=(k,v)=>{dl.append(el('dt',null,k),el('dd',null,v));};\n  if(c.typography)row(t('fonts'),c.typography);if(c.traits?.length)row(t('traits'),c.traits.join(' · '));return dl.children.length?dl:null;\n }",
+    )
+    .replace(
+      "const cap=el('div','cap');cap.style.viewTransitionName=`cap-${C.indexOf(c)}`;cap.append(el('span',c.baseline?'no base':'no',no(c)),el('h2','name',c.name),stripMini(c),pickButton(c));\n  const lede=el('p','lede',c.concept);lede.title=c.concept;lede.style.viewTransitionName=`lede-${C.indexOf(c)}`;\n  a.append(frame,cap,lede);return a;",
+      "const cap=el('div','cap');cap.style.viewTransitionName=`cap-${C.indexOf(c)}`;cap.append(el('span',c.baseline?'no base':'no',no(c)),el('h2','name',c.name));const mini=stripMini(c);if(mini)cap.append(mini);cap.append(pickButton(c));\n  a.append(frame,cap);if(c.concept){const lede=el('p','lede',c.concept);lede.title=c.concept;lede.style.viewTransitionName=`lede-${C.indexOf(c)}`;a.append(lede);}return a;",
+    )
+    .replace(
+      "blocks.push(el('p','north',c.concept),sw,specList(c));",
+      "if(c.concept)blocks.push(el('p','north',c.concept));if(sw.children.length)blocks.push(sw);const spec=specList(c);if(spec)blocks.push(spec);",
+    );
 }

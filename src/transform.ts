@@ -2,7 +2,7 @@ import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rm, stat, s
 import { dirname, join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
 
-export const TRANSFORM_VERSION = '4';
+export const TRANSFORM_VERSION = '5';
 
 const EXCLUDED_NAMES = new Set(['.git', '.DS_Store', '__pycache__']);
 const DOC_ONLY_PATHS = new Set(['assets/readme', 'README.en.md']);
@@ -157,6 +157,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     requiredIn: ['lite', 'pro'],
     match: /### (?:常用命令|常用调用方式（`oil_ui_shoot`）)\r?\n\r?\n[\s\S]*?(?=\r?\n### 看结果)/,
     replacement: NATIVE_TOOL_COMMANDS_SECTION,
+    nativeSatisfied: markdown => /### 组装风格对比页（`oil_ui_explorer`）[\s\S]*?`oil_ui_explorer\(/.test(markdown),
   },
   {
     id: 'tools.single-shot', file: 'references/tools.md',
@@ -193,14 +194,27 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'explorer.parameter-help', file: 'references/style-explorer.md',
     requiredIn: ['lite', 'pro'],
-    match: /每个字段的写法和限制见生成器的 `--help`。/g,
+    match: /(?:每个字段的写法和限制见生成器的 `--help`。|其他字段写法见生成器的 `--help`。)/g,
     replacement: '字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。',
   },
   {
     id: 'explorer.generate', file: 'references/style-explorer.md',
     requiredIn: ['lite', 'pro'],
-    match: /## 生成和打开\r?\n\r?\n```text\r?\npython3 <skill>\/scripts\/build_explorer\.py <manifest 所在目录>\/manifest\.json\r?\n```\r?\n\r?\n[^\r\n]+/,
-    replacement: `## 生成和打开\n\n调用 \`oil_ui_explorer\` 生成对比页：\n\n\`\`\`json\n{\n  "manifest": "explore/manifest.json",\n  "out": "style-explorer.html"\n}\n\`\`\`\n\n\`manifest\` 可传 \`manifest.json\` 的相对路径，也可直接传 JSON 对象；不传时工具会自动查找工作目录下的 \`manifest.json\` 或 \`explore/a.html\`、\`b.html\`、\`c.html\`。对比页默认生成在工作目录根部的 \`style-explorer.html\`，并返回预览地址 \`explorerUrl\`。`,
+    match: /## 生成和打开\r?\n[\s\S]*?(?=\r?\n(?:有本机地址候选时|## |$))/,
+    nativeSatisfied: markdown => /## 生成和打开\r?\n[\s\S]*?`oil_ui_explorer`/.test(markdown),
+    replacement: `## 生成和打开
+
+调用 \`oil_ui_explorer\` 生成对比页：
+
+\`\`\`json
+{
+  "inputs": "explore",
+  "out": "style-explorer.html"
+}
+\`\`\`
+
+\`manifest\` 可传 JSON 对象、JSON 字符串或工作区内的清单文件路径；\`inputs\` 可传候选目录或多个 HTML 文件。目录内有 \`manifest.json\` 时会优先读取；没有时，目录中的 HTML 会组成候选。两者都不传时，工具会查找工作区中的 \`manifest.json\`、\`directions/manifest.json\`、\`explore/manifest.json\`，再尝试 \`a.html\`、\`b.html\`、\`c.html\`。对比页默认生成在工作区根目录的 \`style-explorer.html\`；再次调用会覆盖已有输出，改了候选后要重新调用生成。可用 \`out\` 指定输出路径，并从返回的 \`explorerUrl\` 打开预览。
+`,
   },
   {
     id: 'explorer.shoot', file: 'references/style-explorer.md',
@@ -312,10 +326,12 @@ export function transformSkillMarkdown(relativePath: string, raw: string, option
     const alreadyTransformed = options.input === 'native' && (rule.nativeSatisfied
       ? rule.nativeSatisfied(nativeEvidence)
       : nativeEvidence.includes(rule.replacement));
-    markdown = markdown.replace(new RegExp(rule.match.source, rule.match.flags), () => {
-      matches++;
-      return rule.replacement;
-    });
+    if (!alreadyTransformed) {
+      markdown = markdown.replace(new RegExp(rule.match.source, rule.match.flags), () => {
+        matches++;
+        return rule.replacement;
+      });
+    }
     rules.push({ id: rule.id, file, required: rule.requiredIn.includes(options.edition), matches,
       status: matches ? 'matched' : alreadyTransformed ? 'already-transformed' : 'unmatched' });
   }

@@ -79,17 +79,17 @@ const manifestSchema = {
   oneOf: [
     { type: 'string' },
     { type: 'object', additionalProperties: false, properties: {
-      schemaVersion: { type: 'integer', const: 1, required: true, description: '清单版本，固定为 1。' },
-      project: { type: 'string', required: true, description: '项目名称。' },
-      brief: { type: 'string', required: true, description: '设计需求。' },
+      schemaVersion: { type: 'integer', const: 1, description: '清单版本，省略时按 1。' },
+      project: { type: 'string', description: '项目名称；省略时不显示。' },
+      brief: { type: 'string', description: '设计需求；省略时不显示。' },
       candidates: { type: 'array', required: true, description: '候选方向数组。', items: {
         type: 'object', additionalProperties: false, properties: {
-          id: { type: 'string', required: true, description: '唯一方向编号。' },
-          name: { type: 'string', required: true, description: '方向名称。' },
-          concept: { type: 'string', required: true, description: '设计概念。' },
-          typography: { type: 'string', required: true, description: '字体方案。' },
-          traits: { type: 'array', items: { type: 'string' }, required: true, description: '方向特征。' },
-          palette: { type: 'array', items: { type: 'string' }, required: true, description: '十六进制配色。' },
+          id: { type: 'string', description: '唯一方向编号；省略时自动生成。' },
+          name: { type: 'string', description: '方向名称；省略时取 HTML 的 title，再取文件名。' },
+          concept: { type: 'string', description: '设计概念；省略时不显示。' },
+          typography: { type: 'string', description: '字体方案；省略时不显示。' },
+          traits: { type: 'array', items: { type: 'string' }, description: '方向特征；省略时不显示。' },
+          palette: { type: 'array', items: { type: 'string' }, description: '十六进制配色；省略时不显示。' },
           kind: { type: 'string', enum: ['html', 'image', 'url'], description: '候选内容类型。' },
           source: { type: 'string', description: '本地候选路径或本地服务 URL。' },
           url: { type: 'string', description: '本地服务 URL，作为 source 的别名。' },
@@ -98,7 +98,7 @@ const manifestSchema = {
           nativeViewport: { ...viewportSchema, description: '候选原始视口。' },
         },
       } },
-      round: { type: 'string', description: '探索轮次。' },
+      round: { type: 'string', description: '探索轮次；省略时选择文案不显示轮次。' },
       lang: { type: 'string', enum: ['zh', 'en'], description: '界面语言。' },
       nativeViewport: { ...viewportSchema, description: '共享原始视口。' },
       serve: { type: 'object', additionalProperties: false, description: '本地服务信息。', properties: {
@@ -157,9 +157,10 @@ export function apply(ctx: Context, config: Config) {
       defineTool({
         name: 'oil_ui_explorer',
         description:
-          '从 manifest.json 或 explore/a.html、b.html、c.html 生成内嵌全部本地资源的独立单文件风格对比页 style-explorer.html，并返回预览地址。',
+          '从 manifest.json、候选目录或多个 HTML 文件生成内嵌全部本地资源的独立单文件风格对比页 style-explorer.html，并返回预览地址。',
         parameters: {
-          manifest: { ...manifestSchema, description: '对比页清单 JSON 对象、JSON 字符串或工作区内的清单文件路径（如 explore/manifest.json）。' },
+          manifest: { ...manifestSchema, description: '可选的对比页清单对象、JSON 字符串或工作区内路径；路径也可指向候选目录或单个 HTML 文件。目录内有 manifest.json 时优先读取。' },
+          inputs: { ...stringOrStrings, description: '可选的候选目录或 HTML 文件路径数组；多个输入必须全部是 HTML。目录内有 manifest.json 时优先读取。' },
           out: { type: 'string', description: '对比页 HTML 输出路径，默认 style-explorer.html。' },
           title: { type: 'string', description: '对比页标题。' },
           brief: { type: 'string', description: '设计需求摘要。' },
@@ -490,4 +491,3 @@ export function apply(ctx: Context, config: Config) {
     });
   });
 }
-
