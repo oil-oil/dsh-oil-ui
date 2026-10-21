@@ -13,7 +13,7 @@ async function main() {
   }
   const sourceDir = path.resolve(sourceArg)
   const targetDir = path.resolve(targetArg)
-  await compileHarnessSkillTree(sourceDir, targetDir)
+  await compileHarnessSkillTree(sourceDir, targetDir, { mode: 'strict' })
   process.stdout.write(`Compiled DeepSeek Harness native Skill from ${sourceDir} -> ${targetDir}\n`)
 }
 

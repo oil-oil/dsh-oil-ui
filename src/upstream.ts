@@ -8,7 +8,7 @@ import { join, resolve, relative, isAbsolute, dirname, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
 import type { SkillRegistration, SkillDefinition, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill';
-import { TRANSFORM_VERSION, compileHarnessSkillTree, isHarnessNativeSkillMarkdown, transformSkillMarkdown } from './transform.ts';
+import { TRANSFORM_VERSION, compileHarnessSkillTree, isHarnessNativeSkillMarkdown, transformSkillMarkdown, validateSkillTree } from './transform.ts';
 
 const execFileAsync = promisify(execFile);
 const VERSIONS_URL = 'https://ui.oiloil.org/api/store/versions';
@@ -183,7 +183,7 @@ export async function checkSkillUpdate(
           const mdPath = join(targetDir, ...rel.split('/'));
           try {
             const raw = await readFile(mdPath, 'utf8');
-            await writeFile(mdPath, transformSkillMarkdown(rel, raw), 'utf8');
+            await writeFile(mdPath, transformSkillMarkdown(rel, raw, { edition: 'lite', mode: 'lenient' }).markdown, 'utf8');
           } catch { /* optional file */ }
         }
       }
@@ -332,7 +332,7 @@ export async function ensureHarnessProDirectory(sourceDir: string): Promise<stri
     await mkdir(cacheRoot, { recursive: true });
     const staging = await mkdtemp(join(cacheRoot, '.oil-ui-pro-'));
     try {
-      await compileHarnessSkillTree(sourceDir, staging, { symlinkBinaryAssets: true });
+      await compileHarnessSkillTree(sourceDir, staging, { symlinkBinaryAssets: true, mode: 'lenient' });
       await writeFile(join(staging, '.complete'), digest);
       if (await ready()) return compiledDir;
       if (incomplete) {
@@ -383,7 +383,7 @@ export async function loadReviewerManual(options: SkillOptions = {}, activeSkill
       const key = `${TRANSFORM_VERSION}:${path}:${info.ino}:${info.mtimeMs}:${info.ctimeMs}:${info.size}`;
       let manual = reviewerManuals.get(key);
       if (!manual) {
-        manual = readFile(path, 'utf8').then(raw => transformSkillMarkdown('references/reviewer-manual.md', raw));
+        manual = readFile(path, 'utf8').then(raw => transformSkillMarkdown('references/reviewer-manual.md', raw, { edition: active?.edition ?? 'lite', mode: 'lenient' }).markdown);
         reviewerManuals.set(key, manual);
       }
       return await manual;
@@ -396,7 +396,7 @@ export async function loadUpstreamSkill(options: SkillOptions = {}, snapshot?: S
   const active = await resolveActiveSkill(options, snapshot);
   const path = join(active.directory, 'SKILL.md');
   const raw = await readFile(path, 'utf8');
-  const compiled = isHarnessNativeSkillMarkdown(raw) ? raw : transformSkillMarkdown('SKILL.md', raw);
+  const compiled = isHarnessNativeSkillMarkdown(raw) ? raw : transformSkillMarkdown('SKILL.md', raw, { edition: active.edition, mode: 'lenient' }).markdown;
   const { data, content } = frontmatter(compiled);
   if (data.name !== active.name) throw new Error('Invalid active Skill identity');
   return {
@@ -471,7 +471,14 @@ export async function skillStatus(visible?: SkillDefinition | null, options: Ski
   activeVersion = String(effective?.metadata?.version ?? activeVersion);
   const recommendInfo = await checkRecommendOnce(effectiveEdition);
   const imageGenScriptPath = await resolveImageGenScript(options);
+  // Read only the rule files; no compilation or extra cache is needed for diagnostics.
+  const transformDiagnostics = active.edition === 'pro'
+    ? await validateSkillTree(active.sourceDirectory ?? active.directory, { mode: 'lenient' })
+      .then(report => ({ sourceDirectory: active.sourceDirectory ?? active.directory, unmatchedRules: report.unmatchedRules }))
+      .catch(() => null)
+    : null;
   return {
+    transformDiagnostics,
     imageGenAvailable: imageGenScriptPath !== null,
     imageGenScriptPath,
     edition: effectiveEdition,

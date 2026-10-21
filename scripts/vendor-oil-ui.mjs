@@ -2,7 +2,7 @@
 
 import { parse } from 'yaml'
 import { publicSkillFiles } from './public-skill-files.mjs'
-import { transformSkillMarkdown } from '../src/transform.ts'
+import { transformSkillMarkdown, validateSkillTree } from '../src/transform.ts'
 import { createHash } from 'node:crypto'
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -161,6 +161,7 @@ async function main() {
   const raw = await readFile(sourceSkill, 'utf8')
   const identity = parse(raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)[1])
   if (identity.name !== 'oil-ui') throw new Error('Only the open-source oil-ui may be bundled.')
+  const transformContext = await validateSkillTree(sourceRoot, { mode: 'strict' })
   const version = versionFromSkill(raw)
   const { entries, exclusions, symlinks } = await collectFiles(sourceRoot)
   if (entries.some(f => /^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/.test(f.path))) throw new Error('Pro-only resources cannot be bundled.')
@@ -178,8 +179,8 @@ async function main() {
       await mkdir(path.dirname(targetPath), { recursive: true })
       if (entry.path.endsWith('.md')) {
         const raw = await readFile(entry.sourcePath, 'utf8')
-        const compiled = transformSkillMarkdown(entry.path, raw)
-        const buf = Buffer.from(compiled, 'utf8')
+        const compiled = transformSkillMarkdown(entry.path, raw, { ...transformContext, mode: 'strict' })
+        const buf = Buffer.from(compiled.markdown, 'utf8')
         await writeFile(targetPath, buf)
         entry.size = buf.length
         entry.sha256 = createHash('sha256').update(buf).digest('hex')
