@@ -13,6 +13,7 @@ const project = fileURLToPath(new URL('..', import.meta.url));
 const bundled = join(project, 'skills/oil-ui');
 const liteSource = join(project, '../oil-ui');
 const proSource = join(project, '../oil-ui-pro-dev');
+const explorerFixSource = join(project, '../oil-ui-pro-dev-wt-fix');
 const temporary: string[] = [];
 afterEach(async () => { await Promise.all(temporary.splice(0).map(dir => rm(dir, { recursive: true, force: true }))); });
 
@@ -52,13 +53,30 @@ describe('declarative Markdown rewrite validation', () => {
     expect(report.rules.find(rule => rule.id === 'skill.pro-notice')).toMatchObject({ required: false, status: 'unmatched' });
   });
 
+  it.skipIf(!existsSync(explorerFixSource))('strictly validates the unmerged style explorer wording when its worktree exists', async () => {
+    const report = await validateSkillTree(explorerFixSource, { mode: 'strict' });
+    expect(report).toMatchObject({ edition: 'pro', input: 'upstream', unmatchedRules: [] });
+    expect(report.rules.find(rule => rule.id === 'explorer.parameter-help')).toMatchObject({ required: true, status: 'matched' });
+    expect(report.rules.find(rule => rule.id === 'explorer.generate')).toMatchObject({ required: true, status: 'matched' });
+  });
+
   it.skipIf(!existsSync(liteSource))('strictly validates current Lite source and reproduces the bundled Markdown', async () => {
     const report = await validateSkillTree(liteSource, { mode: 'strict' });
     expect(report).toMatchObject({ edition: 'lite', input: 'upstream', unmatchedRules: [] });
     for (const file of new Set(MARKDOWN_RULES.map(rule => rule.file))) {
       if (!existsSync(join(liteSource, file))) continue;
       const result = transformSkillMarkdown(file, await readFile(join(liteSource, file), 'utf8'), { ...report, mode: 'strict' });
-      expect(result.markdown, file).toBe(await readFile(join(bundled, file), 'utf8'));
+      const bundledMarkdown = await readFile(join(bundled, file), 'utf8');
+      if (file === 'references/style-explorer.md') {
+        const outsideGeneratedSection = (markdown: string) => markdown.replace(
+          /## 生成和打开\r?\n[\s\S]*?(?=\r?\n(?:有本机地址候选时|## |$))/,
+          '<generated-with-plugin-parameters>',
+        );
+        expect(outsideGeneratedSection(result.markdown), file).toBe(outsideGeneratedSection(bundledMarkdown));
+        expect(result.markdown).toContain('改了候选后要重新调用生成');
+      } else {
+        expect(result.markdown, file).toBe(bundledMarkdown);
+      }
     }
   });
 
@@ -95,6 +113,15 @@ describe('declarative Markdown rewrite validation', () => {
     const result = transformSkillMarkdown('references/tools.md', raw, { edition: 'lite' });
     expect(result.markdown).toBe('默认 `1440x900`');
     expect(result.rules.find(rule => rule.id === 'tools.default-viewport')).toMatchObject({ matches: 1, status: 'matched' });
+  });
+
+  it.each([
+    '每个字段的写法和限制见生成器的 `--help`。',
+    '其他字段写法见生成器的 `--help`。',
+  ])('rewrites old and new explorer parameter help wording: %s', raw => {
+    const result = transformSkillMarkdown('references/style-explorer.md', raw, { edition: 'pro', mode: 'lenient' });
+    expect(result.markdown).toBe('字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。');
+    expect(result.rules.find(rule => rule.id === 'explorer.parameter-help')).toMatchObject({ matches: 1, status: 'matched' });
   });
 
   it.each([

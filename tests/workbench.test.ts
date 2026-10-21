@@ -3,6 +3,8 @@ import { mkdtemp, rm, writeFile, mkdir, symlink, readFile, readdir, realpath } f
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DesignWorkbench } from '../src/workbench.ts';
+import { buildExplorer, Embedder } from '../src/explorer.ts';
+import { bundledSkillDirectory, type ActiveSkill } from '../src/upstream.ts';
 import { ManagedProcesses } from '../src/processes.ts';
 import type { ImageRequest } from '../src/tool-requests.ts';
 
@@ -46,7 +48,7 @@ afterEach(async () => {
 function explorerData(html: string): {
   edition: string;
   fingerprint: string;
-  candidates: { content: string; kind: string; id: string }[];
+  candidates: { content: string; kind: string; id: string; name: string }[];
 } {
   const payload = /const DATA = ([\s\S]*?);\n/.exec(html) ?? /const DATA=([\s\S]*?);\n/.exec(html);
   if (!payload) throw new Error('Explorer data marker not found');
@@ -110,6 +112,45 @@ describe('workspace-rooted preview server and security boundaries', () => {
 });
 
 describe('native explorer and managed scripts in cwd', () => {
+  it('builds from a minimal manifest and omits absent optional metadata in the bundled legacy template', async () => {
+    const { cwd } = await setup();
+    await writeFile(join(cwd, 'titled.html'), '<!doctype html><title>Named from title</title><main>Page</main>');
+    await writeFile(join(cwd, 'untitled.html'), '<!doctype html><main>Untitled page</main>');
+    const active = {
+      edition: 'lite',
+      name: 'oil-ui',
+      directory: bundledSkillDirectory,
+      source: 'bundled-lite',
+    } satisfies ActiveSkill;
+
+    const html = await buildExplorer(
+      { candidates: [{ source: 'titled.html' }, { source: 'untitled.html' }] },
+      cwd,
+      active,
+      cwd,
+      join(cwd, 'style-explorer.html'),
+      new Embedder(cwd),
+    );
+    const data = explorerData(html) as ReturnType<typeof explorerData> & {
+      project?: string;
+      brief?: string;
+      round?: string;
+      candidates: (ReturnType<typeof explorerData>['candidates'][number] & Record<string, unknown>)[];
+    };
+
+    expect(data.project).toBeUndefined();
+    expect(data.brief).toBeUndefined();
+    expect(data.round).toBeUndefined();
+    expect(data.candidates.map(candidate => candidate.id)).toEqual(['candidate-1', 'candidate-2']);
+    expect(data.candidates.map(candidate => candidate.name)).toEqual(['Named from title', 'untitled']);
+    for (const candidate of data.candidates) {
+      for (const key of ['concept', 'typography', 'palette', 'traits']) expect(candidate).not.toHaveProperty(key);
+    }
+    expect(html).toContain("$('#project').textContent=DATA.project||'';");
+    expect(html).toContain("if(c.typography)row(t('fonts'),c.typography)");
+    expect(html).toContain("if(c.concept)blocks.push(el('p','north',c.concept))");
+  });
+
   it('synthesizes a manifest from explore/a.html, b.html, c.html and builds style-explorer.html in Node', async () => {
     const { w, cwd } = await setup();
     await mkdir(join(cwd, 'explore'), { recursive: true });
@@ -163,6 +204,27 @@ describe('native explorer and managed scripts in cwd', () => {
     expect(winResult.manifestPath).toBe('explore/manifest.json');
   });
 
+  it('accepts a candidate directory or several HTML files through oil_ui_explorer inputs', async () => {
+    const { w, cwd } = await setup();
+    const directory = join(cwd, 'directions');
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'a.html'), '<title>Alpha direction</title>');
+    await writeFile(join(directory, 'b.html'), '<main>Beta direction</main>');
+
+    const directoryResult = await w.explorer(cwd, { inputs: 'directions' });
+    expect(directoryResult.manifestPath).toBe('directions/manifest.json');
+    let html = await readFile(join(cwd, directoryResult.explorerPath), 'utf8');
+    let data = explorerData(html);
+    expect(data.candidates.map(candidate => candidate.name)).toEqual(['Alpha direction', 'b']);
+
+    await writeFile(join(directory, 'a.html'), '<title>Updated alpha</title>');
+    const filesResult = await w.explorer(cwd, { inputs: ['directions/a.html', 'directions/b.html'] });
+    expect(filesResult.explorerPath).toBe('style-explorer.html');
+    html = await readFile(join(cwd, filesResult.explorerPath), 'utf8');
+    data = explorerData(html);
+    expect(data.candidates.map(candidate => candidate.name)).toEqual(['Updated alpha', 'b']);
+  });
+
   it('accepts JSON manifests, embeds scripts/images, constrains URLs and escapes injected metadata', async () => {
     const { w, cwd, root } = await setup();
     await mkdir(join(cwd, 'explore'), { recursive: true });
@@ -184,6 +246,7 @@ describe('native explorer and managed scripts in cwd', () => {
       schemaVersion: 1,
       project: 'Mixed',
       brief: 'Test',
+      round: '01',
       candidates: [
         c,
         { ...c, id: 'b', kind: 'image', interactive: false, source: 'assets/pixel.png' },
@@ -195,6 +258,7 @@ describe('native explorer and managed scripts in cwd', () => {
     const data = explorerData(html);
     expect(html).toContain('connect-src http://127.0.0.1:5173');
     expect(html).not.toContain('</script><script>escape');
+    expect(html).toContain("row(t('fonts'),c.typography);row(t('traits'),(c.traits||[]).join(' · '));return dl;");
     expect(data.candidates[0]?.content).toContain('Object.defineProperty(window');
     expect(data.candidates[0]?.content).toContain('localStorage.setItem');
     expect(data.candidates[0]?.content).not.toContain('src="app.js"');

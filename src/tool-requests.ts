@@ -1,5 +1,6 @@
 export interface ExplorerRequest {
   manifest?: unknown;
+  inputs?: string | string[];
   out?: string;
   title?: string;
   brief?: string;

@@ -253,14 +253,78 @@ export class DesignWorkbench {
     let manifestDir = workspace;
     let manifestFilePath: string | null = null;
 
-    if (typeof manifest === 'string') {
+    if (input.manifest !== undefined && input.inputs !== undefined) {
+      throw new Error('Pass either manifest or inputs, not both');
+    }
+
+    const htmlSources = async (files: string[], directory: string) => {
+      if (!files.length) throw new Error('No candidate HTML files found');
+      manifestDir = directory;
+      manifest = {
+        candidates: files.map(file => ({
+          source: relative(directory, file).split(sep).join('/'),
+        })),
+      };
+    };
+
+    const filesInDirectory = async (directory: string) => {
+      const manifestPath = join(directory, 'manifest.json');
+      const hasManifest = await stat(manifestPath).then(info => info.isFile()).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      });
+      if (hasManifest) {
+        manifestFilePath = manifestPath;
+        manifestDir = directory;
+        manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+        return;
+      }
+      const files = (await readdir(directory, { withFileTypes: true }))
+        .filter(entry => entry.isFile() && ['.html', '.htm'].includes(extname(entry.name).toLowerCase()) && entry.name.toLowerCase() !== 'style-explorer.html')
+        .map(entry => join(directory, entry.name))
+        .sort();
+      await htmlSources(files, directory);
+    };
+
+    const onePath = async (path: string) => {
+      const resolved = await this.scopedPath(workspace, path);
+      const info = await stat(resolved);
+      if (info.isDirectory()) {
+        await filesInDirectory(resolved);
+      } else if (['.html', '.htm'].includes(extname(resolved).toLowerCase())) {
+        await htmlSources([resolved], dirname(resolved));
+      } else if (info.isFile()) {
+        manifestFilePath = resolved;
+        manifestDir = dirname(resolved);
+        manifest = JSON.parse(await readFile(resolved, 'utf8'));
+      } else {
+        throw new Error('Explorer input must be a candidate directory, HTML file, or manifest.json');
+      }
+    };
+
+    if (input.inputs !== undefined) {
+      const requested = (Array.isArray(input.inputs) ? input.inputs : [input.inputs]).map(path => typeof path === 'string' ? path.trim() : path);
+      if (!requested.length || requested.some(path => typeof path !== 'string' || !path.trim())) {
+        throw new Error('inputs must contain candidate paths');
+      }
+      if (requested.length === 1) {
+        await onePath(requested[0]!);
+      } else {
+        if (requested.some(path => !['.html', '.htm'].includes(extname(path).toLowerCase()))) {
+          throw new Error('Multiple inputs must all be HTML files');
+        }
+        const files = await Promise.all(requested.map(path => this.scopedPath(workspace, path)));
+        if ((await Promise.all(files.map(file => stat(file)))).some(info => !info.isFile())) {
+          throw new Error('Multiple inputs must all be HTML files');
+        }
+        await htmlSources(files, workspace);
+      }
+    } else if (typeof manifest === 'string') {
       const trimmed = manifest.trim();
       if (trimmed.startsWith('{')) {
         manifest = JSON.parse(trimmed);
       } else {
-        manifestFilePath = await this.scopedPath(workspace, trimmed);
-        manifestDir = dirname(manifestFilePath);
-        manifest = JSON.parse(await readFile(manifestFilePath, 'utf8'));
+        await onePath(trimmed);
       }
     } else if (manifest === undefined) {
       for (const candidate of ['manifest.json', 'directions/manifest.json', 'explore/manifest.json']) {
