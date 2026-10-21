@@ -30,7 +30,7 @@ const HELP = `常用命令：
   --sheet               把状态拼成并排图，配合 --mask 再拼遮字版
   --no-sheet            多目标截图时不自动生成 sheet.png
   --mark "1=<选择器>;..." 给匹配的元素画框和编号，另出标注版；不写编号时按顺序编号
-  --steps "<动作>"      可写多次，每组从重新打开的页面开始；可起名："open: click .open"
+  --steps "<动作>"      可写多次，每组从重新打开的页面开始；组名前可写任意文字和冒号："编辑并保存: click .save"
   --record              每组录屏并留最后一个变化动作的三帧；无名组沿用 record.mp4、motion-start/mid/end.jpg
   --entry               配合 --record，先开录再打开页面，录首次出场
   --hold <毫秒>         动作结束后再录多久，默认 1200
@@ -86,8 +86,9 @@ const HELP = `常用命令：
   <状态>.png，遮字版 <状态>-masked.png，标注版 <状态>-marked.png，并排图 sheet.png 和 sheet-masked.png，
   还原比对 <状态>-compare.png（四格依次是参考、当前、叠加和差异热图）。多个倍数各出一套，2 倍的文件名带 @2x。
   @2x 是同一个视口用 2 倍像素密度截的图，页面布局不变，不是把页面放大到 200% 后的重排。
-  录屏：单个无名组是 record.mp4 和 motion-start/mid/end.jpg；具名或多组是 record-<组名>.mp4
-  和 motion-<组名>-start/mid/end.jpg；首次出场是 record-entry.mp4 和 motion-entry-start/mid/end.jpg。
+  录屏：单个无名组是 record.mp4 和 motion-start/mid/end.jpg；具名或多组是 record-<安全组名>.mp4
+  和 motion-<安全组名>-start/mid/end.jpg；首次出场是 record-entry.mp4 和 motion-entry-start/mid/end.jpg。
+  组名中的文件名非法字符会替换为连字符，空白变为连字符，重名文件名自动加编号；--help 和 report.json 保留原组名。
   report.json 的最外层是数组，每个元素是一张图或一项检查的结果；lint、motion、issues 在各个元素里。结构示意：
   [{"file":"idle.png","lint":[],"issues":[]},
    {"file":"motion-probe","motion":{},"issues":[]}]
@@ -105,8 +106,12 @@ const HELP = `常用命令：
   --compare 先用 --size 设成参考图的逻辑尺寸，例如 2880 宽的 2 倍图用 1440 宽；
   差异占比只用来找先修哪一块、看修改有没有让差异变少，不是还原度的分数。
   --motion 只说明动了没有、动了多少：首次进入没有动画、动作没有反馈、从头滚到底没有变化会记为问题；
+  没有配 --steps 时，如果动效由点击等交互触发，提示会说明需要配 --steps 才能探测；
   页面不能滚动时跳过滚动检查；Canvas 和 WebGL 里的动画可能探测不到，以录屏为准。
   本地文件会用只监听本机的临时服务器打开；地址里带 ? 或 & 时加引号，或改用 --query。
+  本地文件默认做法提示：入口 HTML 或它直接引用的本地 CSS/JS 超过 40 KiB，或有超过 20,000 字符的单行时，建议按功能拆分。
+  40 KiB 略高于画廊入口 HTML 的 34 KiB 第 90 百分位，能提示 84 KiB 和 309 KiB 的大文件；
+  20,000 字符能捕捉 49,000 字符的超长行，也给常见的小样留出余量。跳过 vendor/、node_modules/、*.min.* 和 data: 资源。
   WebGL 页面在没有显卡的机器上改用软件渲染；画布没能创建绘图上下文时会记为问题，这时截图是空的。`;
 
 function fail(message) { console.error(`shoot：${message}`); process.exit(1); }
@@ -166,8 +171,22 @@ function parseSelector(source) {
 }
 function parseSteps(text) {
   let name = null;
-  const named = text.match(/^([A-Za-z0-9_-]+):\s+([\s\S]*)$/);
-  if (named) { name = named[1]; text = named[2]; }
+  let quote = null, stack = [], split = null;
+  const actions = [...ACTIONS, ...Object.keys(ALIASES)];
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\\") { i++; continue; }
+    if (quote) { if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === "[" || c === "(") { stack.push(c); continue; }
+    if (c === "]" || c === ")") { stack.pop(); continue; }
+    if (stack.length || c !== ":" || !/\s/.test(text[i + 1] || "")) continue;
+    const prefix = text.slice(0, i).trim(), rest = text.slice(i + 1).trimStart();
+    const first = rest.match(/^(\S+)/)?.[1] || "";
+    const action = ALIASES[first] || first.replace(/^(wait|sleep)\d[\s\S]*$/, "$1");
+    if (prefix && (ACTIONS.includes(action) || actions.some((item) => distance(first, item) <= 2))) split = { prefix, rest };
+  }
+  if (split) { name = split.prefix; text = split.rest; }
   const steps = splitOutside(text).map((raw, i) => {
     const m = raw.match(/^(\S+)(?:\s+([\s\S]*))?$/);
     let action = ALIASES[m[1]] || m[1], tail = m[2] || "";
@@ -332,7 +351,23 @@ try {
   groups = stepsInputs.map(parseSteps);
   const names = groups.map((g, i) => g.name || (groups.length > 1 ? String(i + 1) : ""));
   if (new Set(names).size !== names.length) throw new Error(`动作组名字重复，收到 ${names.join("、")}；例如 --steps "open: click .open" --steps "send: click .send"`);
-  groups.forEach((g, i) => g.id = names[i]);
+  const usedGroupFiles = new Set();
+  const safeGroupFile = (value) => {
+    let stem = String(value).trim().replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, "-").replace(/\s+/g, "-")
+      .replace(/^[. ]+|[. ]+$/g, "").replace(/[. ]+$/g, "");
+    let bytes = 0;
+    stem = Array.from(stem).filter((character) => {
+      bytes += Buffer.byteLength(character);
+      return bytes <= 120;
+    }).join("");
+    if (!stem) stem = "group";
+    if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(stem)) stem = `_${stem}`;
+    const base = stem; let n = 2;
+    while (usedGroupFiles.has(stem.toLowerCase())) stem = `${base}-${n++}`;
+    usedGroupFiles.add(stem.toLowerCase());
+    return stem;
+  };
+  groups.forEach((g, i) => { g.reportName = names[i]; g.id = names[i] ? safeGroupFile(names[i]) : ""; });
   sizes = opt.size.split(",").map((s) => {
     const value = ({ desktop: "1440x900", phone: "390x844", mobile: "390x844" })[s.trim()] || s.trim();
     const m = value.match(/^(\d+)x(\d+)$/);
@@ -1071,6 +1106,66 @@ async function lint() {
   }
 }
 const lintLine = (items) => items.map((i) => `${i.label} ${i.count} 处（${i.examples.join("，")}）`).join("；");
+
+function localSourceHints(target) {
+  if (/^https?:\/\//i.test(target)) return [];
+  try {
+    let entry = localPath(target);
+    if (statSync(entry).isDirectory()) entry = join(entry, "index.html");
+    if (!statSync(entry).isFile() || !/\.html?$/i.test(entry)) return [];
+    const html = readFileSync(entry, "utf8");
+    const attr = (tag, name) => {
+      const match = tag.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+      return match ? (match[1] ?? match[2] ?? match[3] ?? "") : "";
+    };
+    const refs = [];
+    for (const tag of html.match(/<(?:script|link)\b[^>]*>/gi) || []) {
+      if (/^<script\b/i.test(tag)) {
+        const src = attr(tag, "src");
+        if (src) refs.push(src);
+      } else if (/(?:^|\s)stylesheet(?:\s|$)/i.test(attr(tag, "rel"))) {
+        const href = attr(tag, "href");
+        if (href) refs.push(href);
+      }
+    }
+    const files = new Set([resolve(entry)]);
+    for (const ref of refs) {
+      if (!ref || /^(?:data:|https?:|\/\/|#|javascript:)/i.test(ref)) continue;
+      let local;
+      try {
+        if (/^file:\/\//i.test(ref)) local = fileURLToPath(ref);
+        else {
+          const clean = decodeURIComponent(ref.split(/[?#]/, 1)[0]);
+          local = clean.startsWith("/") ? resolve(sharedRoot || dirname(entry), `.${clean}`) : resolve(dirname(entry), clean);
+        }
+        if (!/\.(?:css|js|mjs)$/i.test(local) || !existsSync(local) || !statSync(local).isFile()) continue;
+        files.add(realpathSync(local));
+      } catch {}
+    }
+    const findings = [];
+    for (const file of files) {
+      const parts = file.split(/[\\/]/);
+      if (parts.some((part) => /^(?:vendor|node_modules)$/i.test(part)) || /\.min\.[^.]+$/i.test(basename(file))) continue;
+      try {
+        const bytes = statSync(file).size;
+        const reasons = [];
+        if (bytes > 40 * 1024) reasons.push(`${Math.ceil(bytes / 1024)} KiB`);
+        if (bytes <= 40 * 1024) {
+          const source = readFileSync(file, "utf8");
+          const longest = Math.max(0, ...source.split(/\r?\n/).map((line) => line.length));
+          if (longest > 20000) reasons.push(`单行 ${longest.toLocaleString()} 字符`);
+        }
+        if (reasons.length) findings.push(`${basename(file)}（${reasons.join("，")}）`);
+      } catch {}
+    }
+    return findings.length ? [{
+      rule: "sourceSplit", label: "本地页面文件较大或有超长行，适合按功能拆分",
+      count: findings.length, examples: findings.slice(0, 3),
+    }] : [];
+  } catch {
+    return [];
+  }
+}
 
 async function settleAnimations(limit) {
   if (limit <= 0) return 0;
@@ -1947,7 +2042,7 @@ async function probeMotion(url, w, h, steps = []) {
         if (!p.elements && scrollable) issues.push("滚动：没有检测到随滚动出现的变化；落地页、品牌页、发布页和展览页需要一段滚动叙事");
         continue;
       }
-      if (!p.elements) issues.push(`${names[k]}：没有检测到动画`);
+      if (!p.elements) issues.push(`${names[k]}：没有检测到动画${k === "load" && !steps.length ? "；交互动效要配 --steps 才能探测到" : ""}`);
       else if (p.loops === p.elements) issues.push(`${names[k]}：只有持续循环的动画，没有一次性的${k === "load" ? "出场" : "反馈"}`);
       else if (weak(p)) issues.push(`${names[k]}：动画幅度太小，看不出来（最大位移 ${p.maxMove}px，尺寸变化 ${(p.maxSize * 100).toFixed(1)}%，透明度变化 ${p.maxOpacity}）`);
     }
@@ -1995,8 +2090,8 @@ function skipped(file, metadata, reason) {
   lines.push(`${file}  ⚠ 跳过：${reason}`); progress(file, "skipped");
 }
 function retryItem(file, metadata, extra = "") {
-  const group = groups.find((g) => g.id === (metadata.group || "") && !(evidence && file.endsWith(".png")));
-  const steps = group?.steps.length ? (group.id ? group.id + ": " : "") + group.steps.map((s) => s.raw).join("; ") : "";
+  const group = groups.find((g) => g.reportName === (metadata.group || "") && !(evidence && file.endsWith(".png")));
+  const steps = group?.steps.length ? (group.reportName ? group.reportName + ": " : "") + group.steps.map((s) => s.raw).join("; ") : "";
   const variant = file.endsWith("-masked.png") ? " --mask" : file.endsWith("-marked.png") ? ` --mark ${quoteArg(opt.mark)}` : file.endsWith("-compare.png") ? ` --compare ${quoteArg(refImage)}` : "";
   const isSheet = file.endsWith(".png") && metadata.state === undefined && states.length > 1;
   if (autoSheet && file === "sheet.png") return `node ${quoteArg(resolve(process.argv[1]))} ${args.map(quoteArg).join(" ")} --timeout-scale 2`;
@@ -2032,7 +2127,7 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
       const state = states[stateIndex];
       const preferred = [candidatePrefix(), batchMode && state === null ? "" : stateIds[stateIndex], suffix].filter(Boolean).join("-");
       const name = reserveFamily(preferred, (stem) => [`${stem}.png`, ...(useMask ? [`${stem}-masked.png`] : []), ...(marks.length ? [`${stem}-marked.png`] : []), ...(refImage ? [`${stem}-compare.png`] : [])]);
-      const meta = { ...(batchMode ? { target: activeTarget.target, name: activeTarget.name || targetStem(activeTarget) } : {}), state, size: `${w}x${h}`, zoom, ...(group.id ? { group: group.id } : {}) };
+      const meta = { ...(batchMode ? { target: activeTarget.target, name: activeTarget.name || targetStem(activeTarget) } : {}), state, size: `${w}x${h}`, zoom, ...(group.reportName ? { group: group.reportName } : {}) };
       const thumb = flags.has("thumb");
       const settleBudget = thumb ? 300 : 2000;
       const prepare = async () => {
@@ -2047,7 +2142,7 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
       await item(`${name}.png`, meta, async () => {
         const animationWaitMs = await prepare();
         await screenshot(file, flags.has("full"), selector ? await selectorClip() : thumb ? { x: 0, y: 0, width: w, height: h, scale: 0.5 } : null);
-        const issues = await check(), hints = thumb ? [] : await lint();
+        const issues = await check(), hints = [...(thumb ? [] : await lint()), ...localSourceHints(activeTarget.target)];
         entry = { file: basename(file), ...meta, ...(thumb ? { thumb: true } : {}), animationWaitMs, issues, lint: hints };
         lines.push(`${basename(file)}${issues.length ? "  ⚠ " + issues.join("；") : ""}${hints.length ? "  ◇ 默认做法提示：" + lintLine(hints) : ""}`);
         report.push(entry); shots.push({ path: file, label: state || "page" });
@@ -2081,7 +2176,7 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
       const sheetSuffixParts = [group.id, sizes.length > 1 ? `${w}x${h}` : "", selectedZooms.length > 1 && zoom !== 1 ? `@${zoom}x` : ""].filter(Boolean);
       const preferred = `${candidatePrefix() ? candidatePrefix() + "-" : ""}sheet${sheetSuffixParts.length ? "-" + sheetSuffixParts.join("-") : ""}`;
       const sheetName = reserveFamily(preferred, (stem) => [`${stem}.png`, ...(useMask ? [`${stem}-masked.png`] : [])]);
-      const meta = { size: `${w}x${h}`, zoom, ...(group.id ? { group: group.id } : {}) };
+      const meta = { size: `${w}x${h}`, zoom, ...(group.reportName ? { group: group.reportName } : {}) };
       if (shots.length > 1) await item(`${sheetName}.png`, meta, async () => {
         lines.push(basename(await sheet(shots, join(out, `${sheetName}.png`), w, h)));
       });
@@ -2096,9 +2191,9 @@ async function captureBatch(selectedStates, selectedZooms, selectedGroups, useMa
   }
 }
 async function motionBatch() {
-  for (const group of groups.length ? groups : [{ id: "", steps: [] }]) {
+  for (const group of groups.length ? groups : [{ id: "", reportName: "", steps: [] }]) {
     const file = `${candidatePrefix() ? candidatePrefix() + "-" : ""}motion-probe${group.id ? "-" + group.id : ""}`;
-    const meta = { state: states[0], size: `${sizes[0].w}x${sizes[0].h}`, zoom: 1, ...(group.id ? { group: group.id } : {}) };
+    const meta = { state: states[0], size: `${sizes[0].w}x${sizes[0].h}`, zoom: 1, ...(group.reportName ? { group: group.reportName } : {}) };
     await item(file, meta, async () => {
       const result = await probeMotion(withState(states[0]), sizes[0].w, sizes[0].h, group.steps);
       lines.push(result.message + (result.issues.length ? "  ⚠ " + result.issues.join("；") : ""));
@@ -2110,7 +2205,8 @@ async function recording(group, entry, zoom, multipleZooms = false) {
   const preferred = [candidatePrefix(), group.id, multipleZooms && zoom !== 1 ? `@${zoom}x` : ""].filter(Boolean).join("-");
   const name = reserveFamily(preferred, (stem) => [`record${stem ? "-" + stem : ""}.mp4`, ...["start", "mid", "end"].map((frame) => `motion${stem ? "-" + stem : ""}-${frame}.jpg`), ...(opt.frames !== undefined ? [`motion${stem ? "-" + stem : ""}-sequence.png`] : [])]);
   const file = `motion${name ? "-" + name : ""}-end.jpg`;
-  const meta = { state: states[0], size: `${sizes[0].w}x${sizes[0].h}`, zoom, ...(group.id ? { group: group.id } : {}) };
+  const meta = { state: states[0], size: `${sizes[0].w}x${sizes[0].h}`, zoom,
+    ...((group.reportName || group.id) ? { group: group.reportName || group.id } : {}) };
   await item(file, meta, async () => {
     problems = [];
     const result = await record(withState(states[0]), sizes[0].w, sizes[0].h, { name, steps: group.steps, entry, zoom });
@@ -2138,7 +2234,7 @@ try {
     for (const [index, candidate] of targets.entries()) {
       base = bases[index]; activeTarget = candidate;
       if (evidence) {
-        const plain = [{ id: "", steps: [] }];
+        const plain = [{ id: "", reportName: "", steps: [] }];
         if (suppliedOptions.has("zoom")) {
           await captureBatch(states.map((_, i) => i), zooms, plain, states.length > 1 || flags.has("mask"), states.length > 1);
         } else {
@@ -2149,13 +2245,13 @@ try {
         // Avoid collisions with a user group named entry.
         let entryId = "entry";
         while (groups.some((g) => g.id === entryId)) entryId += "-appearance";
-        await recording({ id: entryId, steps: [] }, true, 1);
+        await recording({ id: entryId, reportName: entryId, steps: [] }, true, 1);
         for (const group of groups) await recording(group, false, 1);
       } else {
         if (flags.has("motion")) await motionBatch();
         if (flags.has("record")) {
-          for (const zoom of zooms) for (const group of groups.length ? groups : [{ id: "", steps: [] }]) await recording(group, flags.has("entry"), zoom, zooms.length > 1);
-        } else await captureBatch(states.map((_, i) => i), zooms, groups.length ? groups : [{ id: "", steps: [] }], flags.has("mask"), flags.has("sheet"));
+          for (const zoom of zooms) for (const group of groups.length ? groups : [{ id: "", reportName: "", steps: [] }]) await recording(group, flags.has("entry"), zoom, zooms.length > 1);
+        } else await captureBatch(states.map((_, i) => i), zooms, groups.length ? groups : [{ id: "", reportName: "", steps: [] }], flags.has("mask"), flags.has("sheet"));
       }
     }
     if (autoSheet) {

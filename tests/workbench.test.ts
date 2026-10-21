@@ -258,7 +258,7 @@ describe('native explorer and managed scripts in cwd', () => {
     const data = explorerData(html);
     expect(html).toContain('connect-src http://127.0.0.1:5173');
     expect(html).not.toContain('</script><script>escape');
-    expect(html).toContain("row(t('fonts'),c.typography);row(t('traits'),(c.traits||[]).join(' · '));return dl;");
+    expect(html).toContain("if(c.typography)row(t('fonts'),c.typography);if(c.traits?.length)row(t('traits'),c.traits.join(' · '))");
     expect(data.candidates[0]?.content).toContain('Object.defineProperty(window');
     expect(data.candidates[0]?.content).toContain('localStorage.setItem');
     expect(data.candidates[0]?.content).not.toContain('src="app.js"');

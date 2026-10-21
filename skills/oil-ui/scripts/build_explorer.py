@@ -600,12 +600,48 @@ def read_manifest(path: Path) -> dict:
     except json.JSONDecodeError as exc:
         raise ValueError(f"manifest 不是合法的 JSON：第 {exc.lineno} 行第 {exc.colno} 列，{exc.msg}") from None
     if not isinstance(raw, dict):
-        raise ValueError("manifest 的最外层必须是一个对象，里面有 schemaVersion、project、brief 和 candidates")
+        raise ValueError("manifest 的最外层必须是一个对象，里面有 candidates 数组")
     return raw
 
 
-def load_manifest(path: Path) -> tuple[dict, set[Path]]:
-    raw = read_manifest(path)
+class HTMLTitle(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.in_title = False
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        if tag.lower() == "title":
+            self.in_title = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "title":
+            self.in_title = False
+
+    def handle_data(self, data: str) -> None:
+        if self.in_title:
+            self.parts.append(data)
+
+
+def inferred_name(kind: str, source: Path | None, url: str | None, index: int) -> str:
+    if source and kind == "html":
+        try:
+            title = HTMLTitle()
+            title.feed(read_text_asset(source, set()))
+            value = " ".join("".join(title.parts).split())
+            if value:
+                return value
+        except (OSError, UnicodeError, ValueError):
+            pass
+    if source:
+        return source.stem
+    if url:
+        parts = urlsplit(url)
+        return Path(unquote(parts.path)).stem or parts.hostname or f"候选 {index}"
+    return f"候选 {index}"
+
+
+def _load_manifest_data(raw: dict, path: Path, *, include_manifest: bool) -> tuple[dict, set[Path]]:
     problems: list[str] = []
 
     def attempt(check):
@@ -616,11 +652,14 @@ def load_manifest(path: Path) -> tuple[dict, set[Path]]:
             problems.append(str(exc))
             return None
 
-    if raw.get("schemaVersion") != 1:
+    if "schemaVersion" in raw and raw["schemaVersion"] != 1:
         problems.append("manifest.schemaVersion 必须为 1")
     data = {"schemaVersion": 1}
     for name, default in (("project", None), ("brief", None), ("round", "01")):
-        data[name] = attempt(lambda: text_field(raw, name, default=default, where="manifest."))
+        if name in raw or default is not None:
+            value = attempt(lambda: text_field(raw, name, default=default, where="manifest."))
+            if value is not None:
+                data[name] = value
     if "lang" in raw:
         if raw["lang"] not in ("zh", "en"):
             problems.append('manifest.lang 只能是 "zh" 或 "en"')
@@ -645,7 +684,11 @@ def load_manifest(path: Path) -> tuple[dict, set[Path]]:
         problems.append("candidates 至少需要一个候选")
         candidates = []
     seen = set()
-    inputs = {path, TEMPLATE.resolve()}
+    reserved = {c.get("id", "").strip() for c in candidates
+                if isinstance(c, dict) and isinstance(c.get("id"), str) and c.get("id", "").strip()}
+    inputs = {TEMPLATE.resolve()}
+    if include_manifest:
+        inputs.add(path.resolve())
     output = []
     viewport = None
     if "nativeViewport" in raw:
@@ -659,16 +702,23 @@ def load_manifest(path: Path) -> tuple[dict, set[Path]]:
             continue
         before = len(problems)
         identifier = candidate.get("id")
-        if not isinstance(identifier, str) or not identifier.strip():
-            problems.append(f"第 {index} 个候选缺少 id")
-            identifier = None
+        if identifier is None:
+            identifier = f"candidate-{index}"
+            suffix = 2
+            while identifier in reserved or identifier in seen:
+                identifier = f"candidate-{index}-{suffix}"
+                suffix += 1
         else:
-            identifier = identifier.strip()
-            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", identifier):
-                problems.append(f'候选 id "{identifier}" 无效：只用小写字母、数字、连字符和下划线，以字母或数字开头，例如 "a" 或 "dir-2"')
-            elif identifier in seen:
-                problems.append(f'候选 id "{identifier}" 重复了，每个候选要用不同的 id')
-            seen.add(identifier)
+            if not isinstance(identifier, str) or not identifier.strip():
+                problems.append(f"第 {index} 个候选 id 必须是非空字符串")
+                identifier = None
+            else:
+                identifier = identifier.strip()
+                if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", identifier):
+                    problems.append(f'候选 id "{identifier}" 无效：只用小写字母、数字、连字符和下划线，以字母或数字开头，例如 "a" 或 "dir-2"')
+                elif identifier in seen:
+                    problems.append(f'候选 id "{identifier}" 重复了，每个候选要用不同的 id')
+                seen.add(identifier)
         where = f"候选 {identifier}：" if identifier else f"第 {index} 个候选："
         candidate_viewport = (attempt(lambda: native_viewport(candidate["nativeViewport"], where))
                               if "nativeViewport" in candidate else viewport)
@@ -703,9 +753,12 @@ def load_manifest(path: Path) -> tuple[dict, set[Path]]:
                 source = attempt(source_file)
                 if source:
                     inputs.add(source)
-        colors = attempt(lambda: palette(candidate.get("palette"), where))
-        texts = {name: attempt(lambda: text_field(candidate, name, where=where)) for name in ("name", "concept", "typography")}
-        traits = attempt(lambda: text_list(candidate, "traits", where=where))
+        colors = attempt(lambda: palette(candidate.get("palette"), where)) if "palette" in candidate else None
+        texts = {name: attempt(lambda name=name: text_field(candidate, name, where=where))
+                 for name in ("concept", "typography") if name in candidate}
+        candidate_name = (attempt(lambda: text_field(candidate, "name", where=where))
+                          if "name" in candidate else None)
+        traits = attempt(lambda: text_list(candidate, "traits", where=where)) if "traits" in candidate else None
         if len(problems) > before:
             continue
         try:
@@ -716,9 +769,12 @@ def load_manifest(path: Path) -> tuple[dict, set[Path]]:
                 message = message[len(source.name) + 2:]
             problems.append(f"{where}{source.name} {message}" if source else f"{where}{message}")
             continue
+        if candidate_name is None:
+            candidate_name = inferred_name(kind, source, url, index)
         output.append({
-            "id": identifier, **texts,
-            "palette": colors, "traits": traits, "kind": kind,
+            "id": identifier, "name": candidate_name, **texts,
+            **({"palette": colors} if colors is not None else {}),
+            **({"traits": traits} if traits is not None else {}), "kind": kind,
             "content": content,
             "sourceLabel": url if kind == "url" else source.name,
             "baseline": baseline,
@@ -737,9 +793,47 @@ def load_manifest(path: Path) -> tuple[dict, set[Path]]:
     return data, inputs
 
 
-def build(manifest: Path, output: Path, *, force: bool = False) -> dict:
-    manifest, output = manifest.resolve(), output.resolve()
-    data, inputs = load_manifest(manifest)
+def load_manifest(path: Path) -> tuple[dict, set[Path]]:
+    path = path.resolve()
+    return _load_manifest_data(read_manifest(path), path, include_manifest=True)
+
+
+def load_html_files(sources: list[Path]) -> tuple[dict, set[Path]]:
+    if not sources:
+        raise ValueError("目录里找不到候选 HTML")
+    sources = [source.resolve() for source in sources]
+    anchor = sources[0].parent / ".oil-ui-explorer-input.json"
+    raw = {"candidates": [{"source": str(source)} for source in sources]}
+    return _load_manifest_data(raw, anchor, include_manifest=False)
+
+
+def load_input(source: Path | list[Path]) -> tuple[dict, set[Path]]:
+    sources = [source] if isinstance(source, Path) else source
+    if len(sources) > 1:
+        if any(path.suffix.lower() not in (".html", ".htm") for path in sources):
+            raise ValueError("多个输入都必须是 HTML 文件")
+        return load_html_files(sources)
+    path = sources[0].resolve()
+    if path.is_dir():
+        manifest = path / "manifest.json"
+        if manifest.is_file():
+            return load_manifest(manifest)
+        pages = sorted(p for p in path.iterdir()
+                       if p.is_file() and p.suffix.lower() in (".html", ".htm")
+                       and p.name.lower() != "style-explorer.html")
+        return load_html_files(pages)
+    if path.name.lower() == "manifest.json":
+        return load_manifest(path)
+    if path.suffix.lower() == ".json":
+        return load_manifest(path)
+    if path.suffix.lower() in (".html", ".htm"):
+        return load_html_files([path])
+    raise ValueError(f"输入应是候选目录、HTML 文件或 manifest.json：{path}")
+
+
+def build(source: Path | list[Path], output: Path, *, force: bool = False) -> dict:
+    output = output.resolve()
+    data, inputs = load_input(source)
     if output in inputs or output.is_relative_to(SKILL_ROOT):
         raise ValueError("输出不能覆盖输入或写进 Skill 安装目录")
     if output.exists() and not force:
@@ -785,17 +879,19 @@ def build(manifest: Path, output: Path, *, force: bool = False) -> dict:
 
 HELP_EPILOG = """\
 用法示例：
-  python3 build_explorer.py <manifest 所在目录>/manifest.json
-      生成 <manifest 所在目录>/style-explorer.html；已有同名文件时加 --force 覆盖，
-      或用 --output 换一个文件名。
+  python3 build_explorer.py <候选目录>
+  python3 build_explorer.py a.html b.html c.html
+  python3 build_explorer.py <manifest.json>
+      默认在输入旁生成 style-explorer.html；已有同名文件时加 --force 覆盖，
+      或用 --output 指定文件名。
 
-manifest.json 最少要有：
-  {"schemaVersion": 1, "project": "<项目名>", "brief": "<所有候选共同的内容与任务>",
-   "candidates": [{"id": "a", "name": "<方向名>", "concept": "<一句体验意图>",
-     "typography": "<实际使用的字体关系>", "palette": ["#112233", "#f5f5f5"],
-     "traits": ["<看得见的特征>"], "source": "a.html"}]}
+最简单的 manifest.json：
+  {"candidates": [{"source": "a.html"}, {"source": "b.html"}]}
+  source 是唯一必填字段。名称默认取 HTML 的 <title>，没有标题时取文件名。
+  manifest 里的方向字段可补概念、字体、颜色和特征说明；省略的项目不会显示。
 
 可选字段：
+  schemaVersion     顶层 manifest 版本号，省略时按 1。
   lang              顶层。"zh" 或 "en"，只决定对比页外壳的语言；省略时按浏览器语言。
   round             顶层。轮次，例如 "01"，会出现在用户复制的选择里。
   nativeViewport    固定画布的原生视口。写在顶层对所有候选生效，写在候选里只对它生效。
@@ -812,6 +908,7 @@ manifest.json 最少要有：
   baseline          候选。true 表示现状，排在第一位，编号显示为“现状”，每轮最多一个。
 
 候选文件的要求：
+  输入可以是候选目录、一个或多个 HTML 文件，或 manifest.json。目录里有 manifest.json 时会读取它补充方向信息。
   source 按 manifest 所在目录解析；图片、字体、视频、CSS 和脚本按引用它的文件
   所在目录解析，也支持绝对路径和目录外的本地文件，生成器会自动内嵌。
   单文件上限 20 MiB，输入文件总量上限 100 MiB；不引用网络资源。
@@ -840,15 +937,17 @@ def main(argv: list[str] | None = None) -> int:
     if sys.version_info < (3, 10):
         print("需要 Python 3.10 或更新版本", file=sys.stderr)
         return 2
-    parser = argparse.ArgumentParser(description="把 manifest 里列出的候选页面组装成一个可以离线打开的风格对比页",
+    parser = argparse.ArgumentParser(description="把候选页面组装成一个可以离线打开的风格对比页",
                                      epilog=HELP_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("manifest", type=Path, help="manifest.json 的路径，source 的相对路径以此文件所在目录为准")
-    parser.add_argument("--output", type=Path, help="输出的 HTML 路径；不写时是 manifest 旁边的 style-explorer.html")
+    parser.add_argument("inputs", type=Path, nargs="+", help="候选目录、HTML 文件或 manifest.json")
+    parser.add_argument("--output", type=Path, help="输出的 HTML 路径；不写时是输入旁边的 style-explorer.html")
     parser.add_argument("--force", action="store_true", help="输出文件已经存在时覆盖它")
     args = parser.parse_args(argv)
-    output = args.output or args.manifest.resolve().parent / "style-explorer.html"
+    first = args.inputs[0].resolve()
+    output_dir = first if first.is_dir() else first.parent
+    output = args.output or output_dir / "style-explorer.html"
     try:
-        print(json.dumps(build(args.manifest, output, force=args.force), ensure_ascii=False))
+        print(json.dumps(build(args.inputs, output, force=args.force), ensure_ascii=False))
         return 0
     except (OSError, ValueError, TypeError) as exc:
         print(f"未生成对比页：{exc}", file=sys.stderr)

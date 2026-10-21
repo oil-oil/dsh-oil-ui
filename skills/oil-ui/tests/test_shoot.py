@@ -2166,6 +2166,66 @@ div{{animation:slow {duration}}}</style><div>Ready</div>''', encoding='utf-8')
             stop.set()
             thread.join(1)
 
+    def test_unicode_group_names_are_safe_unique_and_report_original_labels(self):
+        dry_run = subprocess.run([NODE, str(SCRIPT), str(self.page), '--dry-run', '--steps', '编辑并保存: click .save'],
+                                 cwd=ROOT, capture_output=True, text=True, timeout=10, encoding='utf-8')
+        self.assertEqual(dry_run.returncode, 0, dry_run.stderr)
+        parsed = json.loads(dry_run.stdout)
+        self.assertEqual(parsed['groups'][0]['name'], '编辑并保存')
+        self.assertEqual(parsed['groups'][0]['reportName'], '编辑并保存')
+        self.assertEqual(parsed['groups'][0]['id'], '编辑并保存')
+
+        output = self.folder / 'unicode-groups'
+        self.shoot(output, '--steps', '甲/乙: click #go', '--steps', '甲:乙: click #go')
+        report = json.loads((output / 'report.json').read_text(encoding='utf-8'))
+        shots = [entry for entry in report if entry.get('group')]
+        self.assertEqual([entry['group'] for entry in shots], ['甲/乙', '甲:乙'])
+        self.assertTrue((output / 'page-甲-乙.png').is_file())
+        self.assertTrue((output / 'page-甲-乙-2.png').is_file())
+        help_text = subprocess.run([NODE, str(SCRIPT), '--help'], capture_output=True, text=True,
+                                   timeout=10, encoding='utf-8').stdout
+        self.assertIn('编辑并保存', help_text)
+
+    def test_motion_no_steps_explains_interaction_probe(self):
+        self.page.write_text('''<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html,body{margin:0;height:100%;overflow:hidden}</style></head><body><button>Open</button></body></html>''', encoding='utf-8')
+        output = self.folder / 'motion-interaction-hint'
+        self.shoot(output, '--motion')
+        probe = json.loads((output / 'report.json').read_text(encoding='utf-8'))[0]
+        self.assertTrue(any('--steps' in issue and '交互动效' in issue for issue in probe['issues']))
+
+    def test_local_source_split_hint_threshold_and_exclusions(self):
+        styles = self.folder / 'large.css'
+        styles.write_text('/*' + 'x' * (41 * 1024) + '*/', encoding='utf-8')
+        self.page.write_text('''<!doctype html><html><head><link rel="stylesheet" href="large.css"></head>
+<body><h1>Small page</h1></body></html>''', encoding='utf-8')
+        output = self.folder / 'source-split-hint'
+        self.shoot(output)
+        report = json.loads((output / 'report.json').read_text(encoding='utf-8'))[0]
+        hint = next(item for item in report['lint'] if item['rule'] == 'sourceSplit')
+        self.assertIn('large.css', hint['examples'][0])
+
+        long_line = self.folder / 'single-line.js'
+        long_line.write_text('/*' + 'x' * 20001 + '*/', encoding='utf-8')
+        self.page.write_text('''<!doctype html><html><head><script src="single-line.js"></script></head>
+<body><h1>Small page</h1></body></html>''', encoding='utf-8')
+        long_output = self.folder / 'source-split-long-line'
+        self.shoot(long_output)
+        long_report = json.loads((long_output / 'report.json').read_text(encoding='utf-8'))[0]
+        long_hint = next(item for item in long_report['lint'] if item['rule'] == 'sourceSplit')
+        self.assertIn('single-line.js', long_hint['examples'][0])
+        self.assertIn('20,005', long_hint['examples'][0])
+
+        vendor = self.folder / 'vendor'
+        vendor.mkdir()
+        (vendor / 'framework.min.js').write_text('x' * (41 * 1024), encoding='utf-8')
+        self.page.write_text('''<!doctype html><html><head><script src="vendor/framework.min.js"></script></head>
+<body><h1>Small page</h1></body></html>''', encoding='utf-8')
+        small_output = self.folder / 'source-split-exclusions'
+        self.shoot(small_output)
+        small_report = json.loads((small_output / 'report.json').read_text(encoding='utf-8'))[0]
+        self.assertFalse(any(item['rule'] == 'sourceSplit' for item in small_report['lint']))
+
 
 
 if __name__ == "__main__":
