@@ -372,6 +372,14 @@ class OiloilImageTests(unittest.TestCase):
         # Read an explicit fake home; never inspect the user's real CLI config.
         self.assertTrue(self.evaluate(f'console.log(JSON.stringify((await cli.readOilToken({{}}, "linux", {json.dumps(str(config.parents[2]))})) === "config-test-token"));'))
 
+    def test_skill_guides_login_before_generation(self):
+        text = (ROOT / 'references/media.md').read_text(encoding='utf-8')
+        self.assertIn('oiloil-image.mjs balance', text)
+        self.assertIn(LOGIN, text)
+        self.assertIn(ACCOUNT, text)
+        self.assertIn('浏览器授权完成后继续当前任务', text)
+        self.assertIn('只提示一次', text)
+
     def test_missing_empty_or_malformed_config_explains_login_without_requests(self):
         self.env.pop('OIL_TOKEN')
         config = self.cwd / 'config/oil/config.json'
