@@ -17,6 +17,8 @@ beforeEach(async () => {
   vi.stubEnv('DSH_AGENTS_HOME', '');
   vi.stubEnv('OIL_UI_PRO_DIR', '');
   vi.stubEnv('OIL_UI_IMAGE_GEN_SCRIPT', '');
+  vi.stubEnv('OIL_TOKEN', '');
+  vi.stubEnv('OIL_API', '');
   vi.stubEnv('OIL_NO_UPDATE_CHECK', '1');
 });
 afterEach(async () => {
@@ -52,13 +54,16 @@ describe('bundled open-source Skill and local Pro activation', () => {
     const toolsMd = await readFile(join(skillDirectory, 'references/tools.md'), 'utf8');
     expect(toolsMd).toContain('oil_ui_shoot');
     expect(toolsMd).not.toContain('node scripts/shoot.mjs');
+    const uxDispatch = await readFile(join(skillDirectory, 'references/ux-review.md'), 'utf8');
+    expect(uxDispatch).toContain('子 Agent 启动时系统提示词中已自动注入本目录');
+    expect(uxDispatch).not.toContain('模板路径换成本 Skill 目录下的绝对路径');
   });
 
-  it('bundles[32] public files with matching offline manifest evidence and no Pro tree', async () => {
+  it('bundles[34] public files with matching offline manifest evidence and no Pro tree', async () => {
     const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8'));
     expect(manifest.name).toBe('oil-ui');
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(manifest.fileCount).toBe(32);
+    expect(manifest.fileCount).toBe(34);
     const walk = async (directory: string): Promise<string[]> => {
       const paths: string[] = [];
       for (const row of await readdir(directory, { withFileTypes: true })) {
@@ -71,7 +76,7 @@ describe('bundled open-source Skill and local Pro activation', () => {
       return paths;
     };
     expect((await walk(skillDirectory)).sort()).toEqual(manifest.files.map((f: { path: string }) => f.path).sort());
-    expect(manifest.files).toHaveLength(32);
+    expect(manifest.files).toHaveLength(34);
     for (const file of manifest.files) {
       expect(file.path).not.toMatch(/^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/);
       const bytes = await readFile(join(skillDirectory, file.path));
@@ -196,7 +201,13 @@ async function imageScript(path: string) {
 describe('local image-gen discovery', () => {
   it('reports missing image-gen and discovers configured/env scripts without caching', async () => {
     expect(await resolveImageGenScript()).toBe(null);
-    expect(await skillStatus(null, { preferPro: false })).toMatchObject({ imageGenAvailable: false, imageGenScriptPath: null });
+    expect(await skillStatus(null, { preferPro: false })).toMatchObject({
+      imageGenAvailable: false,
+      imageGenScriptPath: null,
+      imageSource: 'none',
+      oilLoggedIn: false,
+      oilBalance: null,
+    });
     const env = await imageScript(join(root, 'env/image_gen.py'));
     vi.stubEnv('OIL_UI_IMAGE_GEN_SCRIPT', env);
     expect(await resolveImageGenScript()).toBe(env);
@@ -205,6 +216,7 @@ describe('local image-gen discovery', () => {
     expect(await skillStatus(null, { preferPro: false, imageGenScript: explicit })).toMatchObject({
       imageGenAvailable: true,
       imageGenScriptPath: explicit,
+      imageSource: 'image-gen',
     });
   });
 

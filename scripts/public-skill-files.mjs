@@ -1,4 +1,4 @@
-// Reviewed public runtime distribution for oil-ui 0.23.6.
+// Reviewed public runtime distribution for oil-ui.
 export const publicSkillFiles = Object.freeze([
   ".gitignore",
   "LICENSE",
@@ -20,6 +20,8 @@ export const publicSkillFiles = Object.freeze([
   "references/scroll-narrative.md",
   "references/style-explorer.md",
   "references/tools.md",
+  "references/ux-review.md",
+  "references/ux-reviewer.md",
   "references/visual-language.md",
   "references/visual-review.md",
   "scripts/build_explorer.py",

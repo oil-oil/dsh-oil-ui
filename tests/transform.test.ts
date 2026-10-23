@@ -11,7 +11,7 @@ import { MARKDOWN_RULES, SkillTransformError, transformSkillMarkdown, validateSk
 const execFileAsync = promisify(execFile);
 const project = fileURLToPath(new URL('..', import.meta.url));
 const bundled = join(project, 'skills/oil-ui');
-const liteSource = join(project, '../oil-ui');
+const liteSource = process.env.OIL_UI_LITE_SOURCE ?? join(project, '../oil-ui');
 const proSource = join(project, '../oil-ui-pro-dev');
 const temporary: string[] = [];
 afterEach(async () => { await Promise.all(temporary.splice(0).map(dir => rm(dir, { recursive: true, force: true }))); });
@@ -45,6 +45,13 @@ describe('declarative Markdown rewrite validation', () => {
     }
   });
 
+  it('rewrites lightweight UX dispatch paths without requiring them in older Skills', () => {
+    const raw = '模板路径换成本 Skill 目录下的绝对路径。';
+    const result = transformSkillMarkdown('references/ux-review.md', raw, { edition: 'lite', mode: 'strict' });
+    expect(result.markdown).toContain('子 Agent 启动时系统提示词中已自动注入本目录');
+    expect(result.rules.find(rule => rule.id === 'ux-review.paths')).toMatchObject({ required: false, status: 'matched' });
+  });
+
   it.skipIf(!existsSync(proSource))('strictly validates the current local Pro source when installed', async () => {
     const report = await validateSkillTree(proSource, { mode: 'strict' });
     expect(report).toMatchObject({ edition: 'pro', input: 'upstream', unmatchedRules: [] });
@@ -75,7 +82,7 @@ describe('declarative Markdown rewrite validation', () => {
   it('requires the Pro notice only in Lite and still reports its absence in Pro', async () => {
     const raw = (await readFile(join(bundled, 'SKILL.md'), 'utf8')).split('## 完整版提示')[0]!;
     const options = { input: 'native', mode: 'strict' } as const;
-    const pro = transformSkillMarkdown('SKILL.md', raw, { ...options, edition: 'pro' });
+    const pro = transformSkillMarkdown('SKILL.md', raw, { ...options, edition: 'pro', mode: 'lenient' });
     expect(pro.rules.find(rule => rule.id === 'skill.pro-notice')).toMatchObject({ required: false, status: 'unmatched' });
     expect(() => transformSkillMarkdown('SKILL.md', raw, { ...options, edition: 'lite' }))
       .toThrow('skill.pro-notice (SKILL.md)');
@@ -87,7 +94,7 @@ describe('declarative Markdown rewrite validation', () => {
       const result = transformSkillMarkdown('references\\media.md', raw, { edition: 'pro', mode: 'lenient' });
       expect(result.markdown).toBe('读 `oil_ui_media` 的 `sheet: true`；再读 `oil_ui_media` 的 `sheet: true`。');
       expect(result.rules.find(rule => rule.id === 'media.sheet')).toMatchObject({ matches: 2, status: 'matched' });
-      expect(result.rules.filter(rule => rule.status === 'unmatched').map(rule => rule.id)).toEqual(['media.curate', 'media.image']);
+      expect(result.rules.filter(rule => rule.status === 'unmatched').map(rule => rule.id)).toEqual(['media.direction-source']);
     }
     expect(() => transformSkillMarkdown('references/media.md', raw, { edition: 'pro', mode: 'strict' }))
       .toThrow(SkillTransformError);
@@ -137,7 +144,7 @@ describe('declarative Markdown rewrite validation', () => {
     await rm(join(source, 'references/media.md'));
     await writeFile(join(source, 'references/layout-and-viewport.md'), '# changed upstream wording');
     const report = await validateSkillTree(source);
-    expect(report.unmatchedRules.map(rule => rule.id)).toEqual(['media.sheet', 'media.curate', 'media.image', 'layout.compare']);
+    expect(report.unmatchedRules.map(rule => rule.id)).toEqual(['media.sheet', 'media.direction-source', 'layout.compare']);
     await expect(validateSkillTree(source, { mode: 'strict' })).rejects.toMatchObject({ unmatchedRules: report.unmatchedRules });
 
     // Run vendor in an isolated project so even a regression cannot overwrite the real bundle.

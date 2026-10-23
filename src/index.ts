@@ -12,12 +12,12 @@ export { Config };
 export const name = 'dsh-oil-ui';
 
 export const MAIN_AGENT_SYSTEM_PROMPT =
-  'For UI tasks, call oil_ui_skill_status first to refresh discovery and read activeSkillName (local oil-ui-pro installs unlock without restarting), then load that Skill using the skill tool. Read and write project files directly in the current working directory. Use oil_ui_explorer for style-explorer.html comparison pages, oil_ui_shoot for screenshots/interactions/responsive checks/recordings, oil_ui_media for public-domain and museum media search/preview/fetch, and oil_ui_image for generating or editing visual assets.';
+  'For UI tasks, call oil_ui_skill_status first to refresh discovery and read activeSkillName (local oil-ui-pro installs unlock without restarting), then load that Skill using the skill tool. Read and write project files directly in the current working directory. Use oil_ui_explorer for style-explorer.html comparison pages, oil_ui_shoot for screenshots/interactions/responsive checks/recordings, oil_ui_media for public-domain and museum media search/preview/fetch, and oil_ui_image for generating or editing visual assets. Use subagent for independent visual and lightweight UX walkthroughs, with deeper Pro risk probes and same-path rechecks when active.';
 
 export function buildSubagentSystemPrompt(reviewerManual: string, referencesPath?: string): string {
   return [
     '当主 Agent 委派你执行界面视觉或交互评审（UI/UX Review）时，请直接按下方已内置的《视觉与交互评审手册》（`references/reviewer-manual.md`）执行，无需调用 `read_file`、`skill` 或 `oil_ui_skill_status` 重复读取该手册，评审过程中只提供客观评审意见、不修改项目文件。查看截图请用 `read_image`；需要补充 480px/180px 缩略图、遮字图（`mask: true`）或实际操作验证时请用 `oil_ui_shoot`。（若主 Agent 委派的是非评审类的常规子任务，则直接按主 Agent 的任务指令执行。）',
-    ...(referencesPath ? [`当前生效 Skill 的 references/ 绝对路径：${referencesPath}。Pro 评审按需读取 ${referencesPath}/review-modes.md 与 ${referencesPath}/play-craft.md。`] : []),
+    ...(referencesPath ? [`当前生效 Skill 的 references/ 绝对路径：${referencesPath}。轻量 UX 走查按需读取 ${referencesPath}/ux-reviewer.md；Pro 另读 ${referencesPath}/review-modes.md 与 ${referencesPath}/play-craft.md。`] : []),
     '',
     reviewerManual.trim(),
   ].join('\n');
@@ -137,7 +137,7 @@ export function apply(ctx: Context, config: Config) {
         name: 'oil_ui_skill_status',
         isConcurrencySafe: args => !Boolean(args && typeof args === 'object' && (args as { update?: unknown }).update),
         description:
-          '查看当前生效的 Oil UI 版本（oil-ui 或本地安装的 oil-ui-pro）、更新状态、升级提示、本地生图可用性与子 Agent 评审手册注入状态。仅在用户明确要求更新时传入 update=true。',
+          '查看当前生效的 Oil UI 版本、更新状态、生图来源（image-gen / oiloil / 无）、oiloil 登录余额与子 Agent 评审手册注入状态。仅在用户明确要求更新时传入 update=true。',
         parameters: {
           update: { type: 'boolean', description: '仅在用户明确要求时检查并更新 Skill。' },
         },
@@ -284,14 +284,13 @@ export function apply(ctx: Context, config: Config) {
         name: 'oil_ui_image',
         timeoutMs: 905_000,
         description:
-          '调用本机已安装的 image-gen Skill 在当前工作目录中生成图片（mode=generate）或基于 1–16 张本地参考图编辑派生变体（mode=edit，传入 images 时默认 edit）；透明底抠图素材设 background=transparent。',
+          '优先调用本机 image-gen；不可用时使用 oiloil 生图。可指定分辨率，在当前工作目录生成图片（mode=generate）或基于参考图编辑（mode=edit）。oiloil 返回其他图片格式时会按实际格式保存并返回实际路径。',
         parameters: {
           prompt: { type: 'string', required: true, description: '生成或编辑图片的提示词描述。' },
           mode: { type: 'string', enum: ['generate', 'edit'], description: '生图模式：generate（文生图）或 edit（基于参考图改图/派生变体，传入 images 时默认 edit）。' },
           out: { type: 'string', description: '生成或编辑后的图片输出路径，默认 assets/generated.png。' },
-          images: { type: 'array', items: { type: 'string' }, description: '工作区内的参考图路径数组，编辑支持 1–16 张。' },
-          size: { type: 'string', description: '生成图片尺寸，如 1024x1024、1536x1024、1024x1536 或 auto。' },
-          quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'], description: '图片生成质量。' },
+          images: { type: 'array', items: { type: 'string' }, description: '工作区内的参考图路径；本机 image-gen 支持 1–16 张，oiloil 支持 1 张。' },
+          size: { type: 'string', description: '图片分辨率，可传 1K、2K、4K 或宽x高尺寸；本机 image-gen 也支持 auto。' },
           background: { type: 'string', enum: ['auto', 'opaque', 'transparent'], description: '图片背景类型；透明底抠图素材选 transparent。' },
           model: { type: 'string', description: '可选的图片模型标识。' },
           force: { type: 'boolean', description: '是否允许覆盖已有输出文件，默认 false（默认路径重名时自动递增文件名避让）。' },
@@ -308,6 +307,7 @@ export function apply(ctx: Context, config: Config) {
           json(await workbench.image(sessionCwd(exec, config.workspaceRoot), args, exec.signal)),
       }),
     );
+
   });
 
   ctx.inject(['skills'], async ctx => {
@@ -328,7 +328,7 @@ export function apply(ctx: Context, config: Config) {
     ctx.effect(() => {
       const disposeStatus = ctx.commands.register({
         name: 'oil-ui-status',
-        description: '查看当前生效版本（oil-ui / oil-ui-pro）、更新状态与生图可用性（传入 update 可直接更新）',
+        description: '查看当前生效版本、更新状态、生图来源与 oiloil 余额（传入 update 可直接更新）',
         input: {
           hint: '[update]',
         },
@@ -349,6 +349,8 @@ export function apply(ctx: Context, config: Config) {
             `最新版本：${status.latestVersion ?? status.activeVersion}${status.updateAvailable ? '（有新版本可用，可运行 /oil-ui-status update 更新）' : ''}`,
             `本地 Pro：${status.proInstalled ? `已检测到（${status.proSourcePath}）` : '未安装'}`,
             `本地生图（image-gen）：${status.imageGenAvailable ? `可用（${status.imageGenScriptPath}）` : '未检测到'}`,
+            `生图来源：${status.imageSource === 'image-gen' ? 'image-gen' : status.imageSource === 'oiloil' ? 'oiloil' : '无'}`,
+            ...(status.oilLoggedIn ? [`oiloil 余额：${status.oilBalance === null ? '暂时无法查询' : `${status.oilBalance} 积分`}`] : []),
             ...(status.updateNotice ? [status.updateNotice] : []),
             ...(status.recommendOnceNotice ? [status.recommendOnceNotice] : []),
           ];

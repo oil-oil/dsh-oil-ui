@@ -63,11 +63,11 @@ The plugin registers 5 tools, all resolved relative to the active session's work
 
 | Tool | What it does |
 | --- | --- |
-| `oil_ui_skill_status` | Refreshes local Skill discovery, returns `activeSkillName` (`oil-ui` or `oil-ui-pro`), checks for Skill updates, and handles the one-time Pro recommendation notice |
+| `oil_ui_skill_status` | Refreshes Skill status and returns `activeSkillName`, image source, and oiloil balance; also checks for updates and handles the one-time Pro recommendation notice |
 | `oil_ui_explorer` | Reads `explore/manifest.json` (normalizing common shorthand fields) and bundles candidate HTML files into a single interactive `style-explorer.html` comparison page |
 | `oil_ui_shoot` | Captures real browser screenshots of local files or URLs: supports custom viewports, 2x zoom crops, multi-state captures (`states`), scripted interactions (`steps`), motion recordings (`record` / `motion`), contact sheets (`evidence`), and built-in console/overflow/contrast checks |
 | `oil_ui_media` | Searches, previews, and downloads public-domain images, museum collections (Met, AIC, Cleveland, Wikimedia, Openverse), video clips, and map tiles |
-| `oil_ui_image` | Generates or edits hero visuals, illustrations, textures, and cutout assets via the locally installed `image-gen` Skill |
+| `oil_ui_image` | Uses local `image-gen` first, then oiloil when unavailable; supports a requested resolution and reports the saved path when oiloil returns a different format |
 
 It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoid collisions with other `oil-*` Skills):
 
@@ -91,7 +91,7 @@ It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoi
 | Screenshot-driven multi-round visual refinement & typography/contrast linting | — | ✓ |
 | Multi-state captures (`states`), scripted interactions (`steps`) & motion frame strips | — | ✓ |
 | Museum/public-domain media (`oil_ui_media`) & AI image generation (`oil_ui_image`) playbooks | — | ✓ |
-| Independent visual review subagent (`subagent` auto-injected with `reviewer-manual.md`) | — | ✓ |
+| Independent visual and UX walkthroughs | Lightweight UX walkthrough for key flows | Autonomous risk probes, deeper observations, and same-path rechecks |
 | Full domain playbooks (marketing sites, data consoles, mobile flows, redesigns, font subsetting) | — | ✓ |
 
 ### Automatic Local Pro Detection & Subagent Review Injection
@@ -154,7 +154,7 @@ The plugin works out of the box and automatically discovers local `oil-ui-pro` a
 ```
 
 - **Browser captures (`oil_ui_shoot`)**: Uses locally installed Chrome / Chromium (or Playwright Chromium). Motion frame strips (`record` / `motion`) require `ffmpeg`.
-- **AI image generation (`oil_ui_image`)**: Delegates to your local `image-gen` Skill (`python3`), using `image-gen`'s own environment variables for model and API key configuration.
+- **AI image generation (`oil_ui_image`)**: Uses local `image-gen` first; when unavailable, it reads the oil CLI token from `OIL_TOKEN` or `~/.config/oil/config.json` and calls oiloil. Set `OIL_API` to override the API root; the default is `https://api.oiloil.org`.
 
 ---
 
