@@ -2,7 +2,7 @@ import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rm, stat, s
 import { dirname, join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
 
-export const TRANSFORM_VERSION = '5';
+export const TRANSFORM_VERSION = '7';
 
 const EXCLUDED_NAMES = new Set(['.git', '.DS_Store', '__pycache__']);
 const DOC_ONLY_PATHS = new Set(['assets/readme', 'README.en.md']);
@@ -43,11 +43,10 @@ const NATIVE_TOOL_COMMANDS_SECTION = `### 常用调用方式（\`oil_ui_shoot\`�
 
 ### 生图与改图（\`oil_ui_image\`）
 
-当 \`oil_ui_skill_status\` 显示 \`imageGenAvailable: true\` 时，调用 \`oil_ui_image\` 生成或编辑图片：
+查看 \`oil_ui_skill_status.imageSource\`：有本机 \`image-gen\` 时优先使用；否则使用 oiloil；显示 \`none\` 时按返回说明继续。尺寸可用 \`size\` 指定为 \`1K\`、\`2K\`、\`4K\` 或支持的宽高值。
 
-- **文生图（\`mode: "generate"\`）**：\`oil_ui_image({ "prompt": "...", "out": "assets/hero.png", "size": "1536x1024", "quality": "high" })\`
-- **透明底抠图（\`background: "transparent"\`）**：\`oil_ui_image({ "prompt": "...", "background": "transparent", "out": "assets/cutout.png" })\`
-- **基于参考图的图生图 / 同模多材质变体（\`mode: "edit"\`）**：传入 1–16 张本地参考图（如先生成原色器物，再派生烟熏、绿锈等表面，保持角度与光影一致）：\`oil_ui_image({ "mode": "edit", "images": ["assets/raw.png"], "prompt": "...", "out": "assets/variant.png" })\`
+- **文生图**：\`oil_ui_image({ "prompt": "...", "out": "assets/hero.png", "size": "2K" })\`
+- **参考图改图**：\`oil_ui_image({ "mode": "edit", "images": ["assets/source.png"], "prompt": "...", "out": "assets/edited.png" })\`（oiloil 一次支持一张参考图）
 
 ### 组装风格对比页（\`oil_ui_explorer\`）
 
@@ -86,13 +85,37 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     id: 'skill.compatibility', file: 'SKILL.md',
     requiredIn: ['lite', 'pro'],
     match: /compatibility:\s*"[^"]*"/,
-    replacement: 'compatibility: "通过 oil_ui_shoot、oil_ui_media、oil_ui_image、oil_ui_explorer、oil_ui_skill_status 与 read_image、subagent 完成截图取证、真实素材检索、AI 生图修图、对比页组装和独立视觉评审。"',
+    replacement: 'compatibility: "通过 oil_ui_shoot、oil_ui_media、oil_ui_image、oil_ui_explorer、oil_ui_skill_status 与 read_image、subagent 完成截图取证、真实素材检索、AI 生图修图、对比页组装和独立视觉与 UX 走查。"',
   },
   {
     id: 'skill.startup', file: 'SKILL.md',
     requiredIn: ['lite', 'pro'],
     match: /## 开始前\r?\n\r?\n[\s\S]*?(?=\r?\n## 选择范围)/,
-    replacement: `## 开始前\n\n先调用 \`oil_ui_skill_status\` 查看当前激活版本、版本更新提示（\`updateNotice\`）与生图工具可用状态（\`imageGenAvailable\`）。若 \`updateNotice\` 非空，照常完成任务并在最终回复末尾转述一次；只有用户明确要求更新时才调用 \`oil_ui_skill_status({ "update": true })\`。截图录屏用 \`oil_ui_shoot\`，素材检索与下载用 \`oil_ui_media\`，生图与改图用 \`oil_ui_image\`，风格对比页生成用 \`oil_ui_explorer\`，看图用 \`read_image\`，独立评审用 \`subagent\`。制作大型界面时拆分为 \`index.html\`、\`styles.css\`、\`app.js\` 分步写入。`,
+    replacement: `## 开始前\n\n先调用 \`oil_ui_skill_status\` 查看当前激活版本、更新提示（\`updateNotice\`）与生图来源（\`imageSource\`）。若 \`updateNotice\` 非空，照常完成任务并在最终回复末尾转述一次；只有用户明确要求更新时才调用 \`oil_ui_skill_status({ "update": true })\`。截图录屏用 \`oil_ui_shoot\`，素材检索与下载用 \`oil_ui_media\`，需要图片时用 \`oil_ui_image\`，风格对比页用 \`oil_ui_explorer\`，看图用 \`read_image\`，独立视觉与 UX 走查用 \`subagent\`。`,
+  },
+  {
+    id: 'skill.direction-images.pro', file: 'SKILL.md',
+    requiredIn: ['pro'],
+    match: /把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，用什么字体和色彩，主视觉靠什么；说服型页面再写上标题原文。/,
+    replacement: '把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，用什么字体和色彩，主视觉靠什么；再列出首屏和关键区块需要的图，逐张标注来源（检索、生成、代码绘制）。若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，且 `imageSource` 不是 `none`，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。说服型页面再写上标题原文。',
+  },
+  {
+    id: 'skill.direction-images', file: 'SKILL.md',
+    requiredIn: ['lite'],
+    match: /把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，用什么字体和色彩，主视觉靠什么。/,
+    replacement: '把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，用什么字体和色彩，主视觉靠什么；再列出首屏和关键区块需要的图，逐张标注来源（检索、生成、代码绘制）。若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，且 `imageSource` 不是 `none`，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。',
+  },
+  {
+    id: 'skill.prototype-images.pro', file: 'SKILL.md',
+    requiredIn: ['pro'],
+    match: /主视觉靠图的方向，生成一张，至多重新生成一次；说服型页面里以图为主视觉的方向，按 \[概念\]\(references\/direction-concept\.md\) 各出一批候选再挑。其余图位先用从页面取色的色块占着。/,
+    replacement: '首屏对比图按方向卡中标注的来源准备；已有专项候选流程时按专项，其余图位用代码占位。',
+  },
+  {
+    id: 'skill.prototype-images', file: 'SKILL.md',
+    requiredIn: ['lite'],
+    match: /主视觉靠图的方向，生成一张，至多重新生成一次；其余图位先用从页面取色的色块占着。/,
+    replacement: '首屏对比图按方向卡中标注的来源准备；其余图位用代码占位。',
   },
   {
     id: 'skill.compare', file: 'SKILL.md',
@@ -157,7 +180,6 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     requiredIn: ['lite', 'pro'],
     match: /### (?:常用命令|常用调用方式（`oil_ui_shoot`）)\r?\n\r?\n[\s\S]*?(?=\r?\n### 看结果)/,
     replacement: NATIVE_TOOL_COMMANDS_SECTION,
-    nativeSatisfied: markdown => /### 组装风格对比页（`oil_ui_explorer`）[\s\S]*?`oil_ui_explorer\(/.test(markdown),
   },
   {
     id: 'tools.single-shot', file: 'references/tools.md',
@@ -229,16 +251,10 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     replacement: '`oil_ui_media` 的 `sheet: true`',
   },
   {
-    id: 'media.curate', file: 'references/media.md',
+    id: 'media.direction-source', file: 'references/media.md',
     requiredIn: ['lite', 'pro'],
-    match: /用 `curate-media\.mjs` 从 Poly Haven/g,
-    replacement: '用 `oil_ui_media` 从 Poly Haven',
-  },
-  {
-    id: 'media.image', file: 'references/media.md',
-    requiredIn: ['lite', 'pro'],
-    match: /按宿主生成工具自己的输入和编辑规则来。/g,
-    replacement: '用 `oil_ui_image` 生成或编辑（支持 `mode: "generate"` 文生图、`mode: "edit"` 传入 1–16 张本地参考图做同模多材质变体、以及 `background: "transparent"` 透明底抠图）。',
+    match: /- \*\*没有就做出来。\*\*[\s\S]*?(?=\r?\n- \*\*需要随操作实时变形的实物)/,
+    replacement: '- **先在方向阶段确定来源。** 每个方向列出首屏和关键区块需要的图，并逐张标注来源：检索、生成或代码绘制。`imageSource` 不是 `none` 时，若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。',
   },
   {
     id: 'layout.compare', file: 'references/layout-and-viewport.md',
@@ -269,6 +285,13 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     requiredIn: ['pro'],
     match: /模板里的路径按 \[派发协议\]\(visual-review\.md\) 换成绝对路径。/g,
     replacement: '子 Agent 启动时系统提示词中已自动注入本目录（`references/`）的绝对路径，主 Agent 直接使用上表模板即可，子 Agent 可按该路径读取对应的专项评审与游玩文件。',
+  },
+  {
+    id: 'ux-review.paths', file: 'references/ux-review.md',
+    requiredIn: [],
+    optionalReason: 'Lightweight UX walkthrough dispatch exists only in Skill versions that include references/ux-review.md.',
+    match: /模板路径换成本 Skill 目录下的绝对路径。/g,
+    replacement: '子 Agent 启动时系统提示词中已自动注入本目录（`references/`）的绝对路径，主 Agent 直接使用上述模板即可，子 Agent 可按该路径读取 `ux-reviewer.md`。',
   },
   {
     id: 'reviewer.legacy-thumbnail', file: 'references/reviewer-manual.md',

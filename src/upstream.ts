@@ -8,6 +8,7 @@ import { join, resolve, relative, isAbsolute, dirname, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
 import type { SkillRegistration, SkillDefinition, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill';
+import { OilApiError, readOilCredits, readOilToken } from './oil-api.ts';
 import { TRANSFORM_VERSION, compileHarnessSkillTree, isHarnessNativeSkillMarkdown, transformSkillMarkdown, validateSkillTree } from './transform.ts';
 
 const execFileAsync = promisify(execFile);
@@ -471,6 +472,19 @@ export async function skillStatus(visible?: SkillDefinition | null, options: Ski
   activeVersion = String(effective?.metadata?.version ?? activeVersion);
   const recommendInfo = await checkRecommendOnce(effectiveEdition);
   const imageGenScriptPath = await resolveImageGenScript(options);
+  const oilToken = await readOilToken();
+  let oilLoggedIn = Boolean(oilToken);
+  let oilBalance: number | null = null;
+  let oilBalanceError: string | null = null;
+  if (oilToken) {
+    try {
+      oilBalance = await readOilCredits(oilToken);
+    } catch (error) {
+      if (error instanceof OilApiError && error.status === 401) oilLoggedIn = false;
+      oilBalanceError = '无法查询 oiloil 余额';
+    }
+  }
+  const imageSource = imageGenScriptPath ? 'image-gen' : oilLoggedIn ? 'oiloil' : 'none';
   // Read only the rule files; no compilation or extra cache is needed for diagnostics.
   const transformDiagnostics = active.edition === 'pro'
     ? await validateSkillTree(active.sourceDirectory ?? active.directory, { mode: 'lenient' })
@@ -481,6 +495,10 @@ export async function skillStatus(visible?: SkillDefinition | null, options: Ski
     transformDiagnostics,
     imageGenAvailable: imageGenScriptPath !== null,
     imageGenScriptPath,
+    imageSource,
+    oilLoggedIn,
+    oilBalance,
+    oilBalanceError,
     edition: effectiveEdition,
     activeSkillName: effectiveName,
     detected: { name: active.name, edition: active.edition, version: String((expected.metadata as Record<string, unknown> | undefined)?.version ?? 'unknown'), path: join(active.directory, 'SKILL.md') },
@@ -509,4 +527,3 @@ export async function skillStatus(visible?: SkillDefinition | null, options: Ski
     note: 'Manifest hashes are offline packaging evidence. No hash gate is enforced during loading or execution.',
   };
 }
-

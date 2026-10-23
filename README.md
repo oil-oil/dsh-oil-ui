@@ -63,11 +63,11 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 | 工具 | 作用 |
 | --- | --- |
-| `oil_ui_skill_status` | 刷新本地 Skill 状态，返回当前生效的 `activeSkillName`（`oil-ui` 或 `oil-ui-pro`），同时处理版本更新检查和一次性 Pro 提示 |
+| `oil_ui_skill_status` | 刷新 Skill 状态，返回当前生效的 `activeSkillName`、生图来源与 oiloil 余额，同时处理版本更新检查和一次性 Pro 提示 |
 | `oil_ui_explorer` | 读取 `explore/manifest.json`（兼容常见简写字段），把多个首屏候选内联打包成可交互的 `style-explorer.html` 对比页 |
 | `oil_ui_shoot` | 在真实浏览器里打开本地页面或 URL：支持指定视口尺寸、2x 特写、多状态连拍（`states`）、交互步骤脚本（`steps`）、录屏抽帧（`record` / `motion`）以及证据拼图（`evidence`），并自动检查控制台报错、横向溢出、断图与文字对比度 |
 | `oil_ui_media` | 搜索、预览和下载免版权/公有领域图片、博物馆馆藏（Met、AIC、Cleveland、Wikimedia、Openverse 等）、视频与地图素材 |
-| `oil_ui_image` | 调用本地 `image-gen` Skill 生成或编辑网页主视觉、插画、纹理和透明底抠图素材 |
+| `oil_ui_image` | 优先调用本地 `image-gen`；本机不可用时使用 oiloil 生成或编辑图片，支持指定分辨率；oiloil 返回格式不同时按实际格式保存并返回路径 |
 
 同时向聊天输入框注册 3 个以 `oil-ui-` 为前缀的 Slash 快捷命令（与其他 `oil-*` 系列 Skill 区分）：
 
@@ -91,7 +91,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 | 真实截图驱动的多轮视觉精修与对比度/排版巡检 | — | ✓ |
 | 多状态连拍（`states`）、交互步骤（`steps`）与录屏抽帧 | — | ✓ |
 | 博物馆/公有领域素材检索（`oil_ui_media`）与 AI 生图修图（`oil_ui_image`）完整分册 | — | ✓ |
-| 独立视觉评审子代理（`subagent` 自动注入 `reviewer-manual.md`）逐轮打分与走查 | — | ✓ |
+| 独立视觉与 UX 走查 | 主要流程轻量 UX 走查 | 自主风险探针、深入洞察与同路径复核 |
 | 完整场景分册（营销落地页、数据后台、移动多屏、重绘改版、字体子集化） | — | ✓ |
 
 ### 自动识别本地 Pro 与子代理评审注入
@@ -154,7 +154,7 @@ dsh plugin --profile web add ./.work/dsh-oil-ui-0.3.2.tgz
 ```
 
 - **浏览器截图（`oil_ui_shoot`）**：使用本机安装的 Chrome / Chromium（或 Playwright Chromium）；若使用录屏抽帧（`record` / `motion`），需本机装有 `ffmpeg`。
-- **AI 生图修图（`oil_ui_image`）**：调用本机已安装的 `image-gen` Skill（需 `python3`），模型与 API Key 直接沿用 `image-gen` 自身的环境变量配置。
+- **AI 生图修图（`oil_ui_image`）**：优先使用本机 `image-gen`（需 `python3`）；不可用时读取 `OIL_TOKEN` 或 `~/.config/oil/config.json` 的登录状态调用 oiloil。可用 `OIL_API` 覆盖 API 地址，默认 `https://api.oiloil.org`。
 
 ---
 

@@ -5,6 +5,7 @@ import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, rm, stat, wr
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveActiveSkill, resolveImageGenScript, type ImageGenOptions, type SkillOptions } from './upstream.ts';
+import { OilApiError, readOilToken, requestOilApi, type OilImageResponse } from './oil-api.ts';
 import { buildExplorer, defaultManifest, Embedder } from './explorer.ts';
 import { ManagedProcesses, timeout } from './processes.ts';
 import type { ExplorerRequest, ImageRequest, MediaRequest, ShootRequest } from './tool-requests.ts';
@@ -44,6 +45,32 @@ const MIME: Record<string, string> = {
 
 const KNOWN_KINDS = ['all', 'texture', 'design', 'photo', 'blueprint', 'map', 'plate', 'science', 'video'];
 const KNOWN_SOURCES = ['polyhaven', 'vam', 'loc', 'wellcome', 'nasa', 'commons', 'met', 'aic', 'cleveland', 'japan', 'rijks'];
+const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
+const IMAGE_EXTENSION_BY_MIME: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+};
+interface ImageResult {
+  ok: boolean;
+  mode?: 'generate' | 'edit';
+  outputFiles: string[];
+  source?: 'image-gen' | 'oiloil';
+  model?: string | null;
+  size?: string;
+  background?: unknown;
+  data?: Record<string, unknown> | null;
+  stdout?: string;
+  stderr?: string;
+  usage?: { credits: number; balance: number };
+  reason?: string;
+  agentInstruction?: string;
+}
 
 function isPrivateSegment(relPath: string): boolean {
   return relPath.split(/[\\/]/).some(
@@ -590,6 +617,7 @@ export class DesignWorkbench {
 
       return {
         ok: result.ok && outputFiles.length > 0,
+        source: 'image-gen',
         mode,
         outputFiles,
         domHints,
@@ -797,7 +825,7 @@ export class DesignWorkbench {
     };
   }
 
-  async image(cwd: string, input: ImageRequest, signal?: AbortSignal) {
+  async image(cwd: string, input: ImageRequest, signal?: AbortSignal): Promise<ImageResult> {
     const workspace = await this.resolveWorkspace(cwd);
     if (typeof input.prompt !== 'string' || !input.prompt.trim()) throw new Error('prompt must be nonempty');
     if (input.images !== undefined && (!Array.isArray(input.images) || input.images.some(path => typeof path !== 'string' || !path.trim()))) {
@@ -810,13 +838,14 @@ export class DesignWorkbench {
     if (mode === 'edit' && !images.length) throw new Error('edit requires 1–16 reference images');
     if (mode === 'generate' && images.length) throw new Error('Use edit mode with reference images');
 
+    const script = await resolveImageGenScript({ ...this.skillOptions, cwd: workspace });
+    if (!script) return this.oilImage(workspace, input, mode, images, signal);
+
     const size = input.size ?? '1024x1024';
     const dimensions = /^(\d+)x(\d+)$/.exec(size);
     if (size !== 'auto' && (!dimensions || !dimensions.slice(1).every(n => Number.isSafeInteger(Number(n)) && Number(n) > 0))) {
       throw new Error('size must be auto or positive WIDTHxHEIGHT dimensions');
     }
-    const quality = input.quality ?? 'medium';
-    if (!['auto', 'low', 'medium', 'high'].includes(quality)) throw new Error('Invalid image quality');
     if (input.background !== undefined && !['auto', 'opaque', 'transparent'].includes(input.background)) {
       throw new Error('Invalid image background');
     }
@@ -855,10 +884,6 @@ export class DesignWorkbench {
       references.push(path);
     }
 
-    const script = await resolveImageGenScript({ ...this.skillOptions, cwd: workspace });
-    if (!script) {
-      throw new Error('Local image-gen script not found. Install image-gen or configure imageGenScript / OIL_UI_IMAGE_GEN_SCRIPT.');
-    }
     await this.safeOutput(dirname(out));
     const promptPath = join(dirname(out), `.prompt-${randomUUID()}.txt`);
     let promptCreated = false;
@@ -870,7 +895,7 @@ export class DesignWorkbench {
       } finally {
         await promptFile.close();
       }
-      const args = [script, mode, '--prompt-file', promptPath, '--out', out, '--size', size, '--quality', quality, '--json'];
+      const args = [script, mode, '--prompt-file', promptPath, '--out', out, '--size', size, '--json'];
       if (input.background) args.push('--background', input.background);
       if (input.model) args.push('--model', input.model.trim());
       if (input.force === true) args.push('--force');
@@ -910,7 +935,6 @@ export class DesignWorkbench {
         outputFiles,
         model: typeof data?.model === 'string' ? data.model : input.model ?? null,
         size,
-        quality,
         background: input.background ?? data?.background ?? null,
         data,
         stdout: result.stdout,
@@ -919,6 +943,168 @@ export class DesignWorkbench {
     } finally {
       if (promptCreated) await rm(promptPath, { force: true });
     }
+  }
+
+  private async oilImage(
+    workspace: string,
+    input: ImageRequest,
+    mode: 'generate' | 'edit',
+    images: string[],
+    signal?: AbortSignal,
+  ): Promise<ImageResult> {
+    const token = await readOilToken();
+    if (!token) {
+      return {
+        ok: false,
+        outputFiles: [],
+        reason: 'no_image_tool',
+        agentInstruction: '没有可用的生图工具。合适的时候友好提示用户一次：可运行 `npx github:oil-oil/oil-cli login` 登录 oiloil 并在 https://ui.oiloil.org/account 充值，或自行配置生图工具；任务照常继续。',
+      };
+    }
+    if (images.length > 1) {
+      return {
+        ok: false,
+        outputFiles: [],
+        reason: 'unsupported_reference_count',
+        agentInstruction: 'oiloil 生图一次只支持一张参考图；请选择一张后重试，或调整提示词后继续。',
+      };
+    }
+    if (input.model?.trim()) {
+      return {
+        ok: false,
+        outputFiles: [],
+        reason: 'unsupported_model_option',
+        agentInstruction: 'oiloil 生图不支持指定模型；去掉 model 参数后重试，或继续其他任务。',
+      };
+    }
+
+    const requestedSize = input.size ?? '1K';
+    const size = requestedSize === 'auto' ? '1K' : requestedSize;
+    if (!['1K', '2K', '4K'].includes(size) && !/^\d{3,4}x\d{3,4}$/.test(size)) {
+      throw new Error('size must be 1K, 2K, 4K or supported WIDTHxHEIGHT dimensions');
+    }
+
+    let referenceImage: string | undefined;
+    if (images.length === 1) {
+      const reference = await this.scopedPath(workspace, images[0]!);
+      const info = await stat(reference);
+      if (!info.isFile()) throw new Error('Reference images must be local files');
+      if (info.size > 2 * 1024 * 1024) {
+        return {
+          ok: false,
+          outputFiles: [],
+          reason: 'reference_image_too_large',
+          agentInstruction: 'oiloil 参考图上限为 2 MiB，请缩小图片后重试，或去掉参考图继续。',
+        };
+      }
+      const mimeType = IMAGE_MIME_BY_EXTENSION[extname(reference).toLowerCase()];
+      if (!mimeType) throw new Error('Reference images must be PNG, JPEG or WebP files');
+      referenceImage = `data:${mimeType};base64,${(await readFile(reference)).toString('base64')}`;
+    }
+
+    let out = input.out ?? 'assets/generated.png';
+    let target = await this.scopedPath(workspace, out);
+    const explicitOutput = Boolean(input.out);
+    const requestedExtension = extname(target).toLowerCase();
+    if (explicitOutput && !IMAGE_MIME_BY_EXTENSION[requestedExtension]) {
+      throw new Error('out must be PNG, JPEG or WebP');
+    }
+    if (input.force !== true && explicitOutput && await lstat(target).then(() => true, (e: NodeJS.ErrnoException) => {
+      if (e.code === 'ENOENT') return false;
+      throw e;
+    })) {
+      throw new Error('Output already exists; enable force to overwrite');
+    }
+    const requestedTarget = target;
+    await this.safeOutput(dirname(target));
+
+    const prompt = input.background === 'transparent' && !/transparent|透明/i.test(input.prompt)
+      ? `${input.prompt}\n请使用透明背景。`
+      : input.prompt;
+    let result: OilImageResponse;
+    try {
+      result = await requestOilApi<OilImageResponse>('/images', {
+        method: 'POST',
+        body: {
+          prompt,
+          size,
+          quality: 'medium',
+          ...(input.background && input.background !== 'auto' ? { background: input.background } : {}),
+          ...(referenceImage ? { reference_image: referenceImage } : {}),
+        },
+        idempotencyKey: true,
+        signal,
+        token,
+      });
+    } catch (error) {
+      if (error instanceof OilApiError && error.status === 402 && error.code === 'insufficient_credits') {
+        return {
+          ok: false,
+          outputFiles: [],
+          reason: 'insufficient_credits',
+          agentInstruction: 'oiloil 余额不足，本次生图未开始。合适的时候友好提示用户一次，可在 https://ui.oiloil.org/account 充值；任务照常继续。',
+        };
+      }
+      if (error instanceof OilApiError && error.status === 401) {
+        return {
+          ok: false,
+          outputFiles: [],
+          reason: 'not_logged_in',
+          agentInstruction: 'oiloil 登录状态已失效，暂时没有可用的生图工具。合适的时候友好提示用户一次：可运行 `npx github:oil-oil/oil-cli login` 重新登录，并在 https://ui.oiloil.org/account 充值，或自行配置生图工具；任务照常继续。',
+        };
+      }
+      throw error;
+    }
+
+    const extension = IMAGE_EXTENSION_BY_MIME[result.image?.mime_type];
+    if (!extension || typeof result.image.data !== 'string') {
+      throw new Error('Oil API returned an unsupported image format.');
+    }
+    const bytes = Buffer.from(result.image.data, 'base64');
+    if (!bytes.length || bytes.toString('base64') !== result.image.data) {
+      throw new Error('Oil API returned an empty or malformed image.');
+    }
+    if (explicitOutput) {
+      const outputMime = IMAGE_MIME_BY_EXTENSION[requestedExtension];
+      if (outputMime !== result.image.mime_type) {
+        const stem = basename(requestedTarget, extname(requestedTarget));
+        target = join(dirname(requestedTarget), `${stem}${extension}`);
+      }
+    } else {
+      const base = 'assets/generated';
+      target = await this.scopedPath(workspace, `${base}${extension}`);
+    }
+
+    const canOverwriteRequestedPath = input.force === true && (!explicitOutput || target === requestedTarget);
+    const actualExtension = extname(target);
+    const actualStem = basename(target, actualExtension);
+    let suffix = 1;
+    while (true) {
+      try {
+        const handle = await open(target, canOverwriteRequestedPath ? 'w' : 'wx', 0o644);
+        try {
+          await handle.writeFile(bytes);
+        } finally {
+          await handle.close();
+        }
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || canOverwriteRequestedPath) throw error;
+        target = await this.scopedPath(workspace, join(
+          relative(workspace, dirname(target)),
+          `${actualStem}-${suffix++}${actualExtension}`,
+        ));
+      }
+    }
+    return {
+      ok: true,
+      source: 'oiloil',
+      mode,
+      size: result.size,
+      outputFiles: [target],
+      usage: result.usage,
+      agentInstruction: `本次生图扣除 ${result.usage.credits} 积分，剩余 ${result.usage.balance} 积分。图片已保存到 ${target}。`,
+    };
   }
 
   async dispose(): Promise<void> {

@@ -39,10 +39,6 @@
     ],
     "paths": [
       {
-        "path": ".git",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
         "path": "assets/readme",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       },
@@ -52,7 +48,7 @@
       }
     ]
   },
-  "fileCount": 32,
+  "fileCount": 34,
   "files": [
     {
       "path": ".gitignore",
@@ -98,14 +94,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "537cbb5c68a646d9620d059b32a122b4b2dee725f13600dcbc1e94e722b7d2d6",
-      "size": 8647,
+      "sha256": "a07782a995d210f2e4b3956b5a76ee08f1d7b57205d0055b6a13aff9b9c36edf",
+      "size": 8684,
       "mode": "0644"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "739f0ba66444cce6e763642ae162fbbb5f65d8f6784639eaf93872fc9d5f22dc",
-      "size": 7830,
+      "sha256": "f80881065473122c9d3fca5e83baddcd80f9d347d9f6893527ee70315078003d",
+      "size": 7847,
       "mode": "0644"
     },
     {
@@ -128,8 +124,8 @@
     },
     {
       "path": "references/media.md",
-      "sha256": "2545a2e9899d26bbfc24bc0562691a723c04ccd2582c64b6d86af329ef9d22a4",
-      "size": 17837,
+      "sha256": "21bb19534a9416f41a302296f2b34fe4eb7896f7f9c4f30cbecf4a2d4b786d61",
+      "size": 16943,
       "mode": "0644"
     },
     {
@@ -164,8 +160,20 @@
     },
     {
       "path": "references/tools.md",
-      "sha256": "53a2ac2e94fe87c840e918fcbddf0ec4b776cad30a70262c7d673b91f6ac9f14",
-      "size": 8606,
+      "sha256": "bdbfef287945504a4ce5dd250315e5c10222420a021718a867f9068f58c89fc7",
+      "size": 8369,
+      "mode": "0644"
+    },
+    {
+      "path": "references/ux-review.md",
+      "sha256": "9733d1dccaa161049beb02de0f4e325cfe49d42b3536a5633ae68c16104c74cb",
+      "size": 2412,
+      "mode": "0644"
+    },
+    {
+      "path": "references/ux-reviewer.md",
+      "sha256": "aafc0753939c06591d5078b066a89d8fe15bc539022b82b9778348a600b119fc",
+      "size": 1626,
       "mode": "0644"
     },
     {
@@ -218,8 +226,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "c3b7c11d3fc6f32b95e9ea3616bea0e6e2058997bf811198766d26db0b23893d",
-      "size": 18094,
+      "sha256": "f6921d82a612249fb2121f22a73cdb6548d1c05fe34a879595f98d6247221945",
+      "size": 18604,
       "mode": "0644"
     },
     {

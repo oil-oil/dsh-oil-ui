@@ -15,8 +15,28 @@ vi.mock('node:os', async original => {
   return { ...os, homedir: () => localHome.path || os.homedir() };
 });
 
-beforeEach(() => { vi.stubEnv('OIL_NO_UPDATE_CHECK', '1'); });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+let isolatedHome = '';
+beforeEach(async () => {
+  isolatedHome = await mkdtemp(join(tmpdir(), 'oil-plugin-home-'));
+  localHome.path = isolatedHome;
+  vi.stubEnv('OIL_NO_UPDATE_CHECK', '1');
+  vi.stubEnv('OIL_TOKEN', 'test-oil-token');
+  vi.stubEnv('OIL_UI_IMAGE_GEN_SCRIPT', '');
+  vi.stubEnv('DSH_HOME', join(isolatedHome, '.dsh'));
+  vi.stubEnv('DSH_AGENTS_HOME', '');
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith('/v1/credits')) return Response.json({ balance: 42 });
+    throw new Error(`Unexpected test fetch: ${url}`);
+  }));
+});
+afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  localHome.path = '';
+  await rm(isolatedHome, { recursive: true, force: true });
+});
 
 it('presents all five tools with native call views and declares explorer/image deliverable paths', async () => {
   const tools = new Map<string, ToolDefinition>();
@@ -160,6 +180,8 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
       edition: 'lite',
       activeSkillName: 'oil-ui',
       visibleMatchesOriginal: true,
+      imageSource: 'oiloil',
+      oilBalance: 42,
     });
     expect(tools.get('oil_ui_skill_status')!.isConcurrencySafe?.({})).toBe(true);
     expect(tools.get('oil_ui_media')!.isConcurrencySafe?.({ action: 'search', query: 'ceramic' })).toBe(true);
@@ -176,6 +198,8 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
         expect(field.description).toMatch(/[\u4e00-\u9fff]/);
       }
     }
+    expect(tools.get('oil_ui_image')!.parameters.properties).not.toHaveProperty('quality');
+    expect(tools.get('oil_ui_image')!.description).not.toMatch(/quality|画质|图片生成质量/i);
     for (const [name, args] of [
       ['oil_ui_shoot', { states: { invalid: true } }],
       ['oil_ui_shoot', { stitch: [{ label: 'missing path' }] }],
@@ -494,6 +518,7 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
     await vi.waitFor(() => expect(subSections).toHaveLength(1), { timeout: 5000 });
     expect(subSections[0]!.name).toBe('oil-ui-subagent-reviewer');
     expect(subSections[0]!.text).toContain('/references');
+    expect(subSections[0]!.text).toContain('ux-reviewer.md');
     expect(subSections[0]!.text).toContain('# 视觉与交互评审手册 (子 Agent 专用)');
     expect(subSections[0]!.text).toContain('oil_ui_shoot');
     expect(subSections[0]!.text).toContain('read_image');
