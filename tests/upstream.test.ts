@@ -59,11 +59,11 @@ describe('bundled open-source Skill and local Pro activation', () => {
     expect(uxDispatch).not.toContain('模板路径换成本 Skill 目录下的绝对路径');
   });
 
-  it('bundles[34] public files with matching offline manifest evidence and no Pro tree', async () => {
+  it('bundles[39] public files with matching offline manifest evidence and no Pro tree', async () => {
     const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8'));
     expect(manifest.name).toBe('oil-ui');
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(manifest.fileCount).toBe(34);
+    expect(manifest.fileCount).toBe(39);
     const walk = async (directory: string): Promise<string[]> => {
       const paths: string[] = [];
       for (const row of await readdir(directory, { withFileTypes: true })) {
@@ -76,7 +76,7 @@ describe('bundled open-source Skill and local Pro activation', () => {
       return paths;
     };
     expect((await walk(skillDirectory)).sort()).toEqual(manifest.files.map((f: { path: string }) => f.path).sort());
-    expect(manifest.files).toHaveLength(34);
+    expect(manifest.files).toHaveLength(39);
     for (const file of manifest.files) {
       expect(file.path).not.toMatch(/^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/);
       const bytes = await readFile(join(skillDirectory, file.path));

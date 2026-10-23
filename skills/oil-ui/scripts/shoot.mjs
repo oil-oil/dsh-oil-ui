@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // 给设计小样截图、录屏和做基本检查。只依赖 Node 22+ 和本机的 Chrome / Chromium / Edge。
 // 用法见 references/tools.md；`node shoot.mjs --help` 打印同样的说明。
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { createChrome } from "./chrome.mjs";
 
 const HELP = `常用命令：
   node scripts/shoot.mjs page.html --size desktop --out shots
@@ -512,113 +514,20 @@ async function resolveTarget(t) {
 }
 
 // ---------- 启动一个独立的临时浏览器，不碰用户自己的浏览器数据 ----------
-function findChrome() {
-  const env = process.env.CHROME_PATH;
-  if (env && existsSync(env)) return env;
-  const candidates = {
-    darwin: [
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Chromium.app/Contents/MacOS/Chromium",
-      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    ],
-    win32: [
-      `${process.env["PROGRAMFILES"]}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env["PROGRAMFILES(X86)"]}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env["LOCALAPPDATA"]}\\Google\\Chrome\\Application\\chrome.exe`,
-      `${process.env["PROGRAMFILES(X86)"]}\\Microsoft\\Edge\\Application\\msedge.exe`,
-      `${process.env["PROGRAMFILES"]}\\Microsoft\\Edge\\Application\\msedge.exe`,
-    ],
-  }[process.platform];
-  for (const c of candidates || []) if (c && existsSync(c)) return c;
-  for (const name of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"]) {
-    const r = spawnSync("which", [name], { encoding: "utf8" });
-    if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
-  }
-  fail("没找到 Chrome、Chromium 或 Edge；安装其一，或用环境变量 CHROME_PATH 指定路径。");
-}
-
-const chromePath = findChrome();
-let profile, chrome, cleaning, ws, handedOff;
-// 启动的那个进程不一定是真正的浏览器：有的版本把浏览器交给另一个进程后自己退出。
-// 所以关闭时先让浏览器自己退出，再按本次临时目录的名字找还活着的进程。
-function closeBrowser() {
-  return new Promise((ok) => {
-    const socket = ws, timer = setTimeout(() => ok(false), 3000);
-    socket.onerror = null; socket.onclose = () => { clearTimeout(timer); ok(true); };
-    try { socket.send(JSON.stringify({ id: 2147483647, method: "Browser.close" })); } catch { clearTimeout(timer); ok(false); }
-  });
-}
-function profileProcesses() {
-  const name = basename(profile);
-  if (process.platform === "win32") {
-    const script = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.Contains('${name}') } | ForEach-Object { $_.ProcessId }`;
-    const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", timeout: 20000, windowsHide: true });
-    return (r.stdout || "").split(/\s+/).map(Number).filter((pid) => pid && pid !== process.pid);
-  }
-  const r = spawnSync("ps", ["-axww", "-o", "pid=,command="], { encoding: "utf8", timeout: 10000 });
-  return (r.stdout || "").split("\n").filter((line) => line.includes(name)).map((line) => Number(line.trim().split(/\s+/)[0])).filter((pid) => pid && pid !== process.pid);
-}
-function killProfileProcesses() {
-  // 查两遍：第一遍之后才冒出来的子进程也要关掉。
-  for (let pass = 0; pass < 2; pass++) {
-    const pids = profileProcesses(); if (!pids.length) return;
-    for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch {} }
-  }
-}
-function removeProfile(closed) {
-  if (!profile) return;
-  const remove = (maxRetries) => rmSync(profile, { recursive: true, force: true, maxRetries, retryDelay: 100 });
-  try {
-    // 浏览器不是启动的那个进程时，连接断开不等于它已经退出，等不到它的退出事件，直接按目录名收尾。
-    if (!closed || handedOff) killProfileProcesses();
-    try { remove(5); } catch { killProfileProcesses(); remove(10); }
-  } catch (error) { console.error(`shoot：临时目录没删掉（${error.code || error.message}），可以稍后手动删除：${profile}`); }
-  profile = undefined;
-}
-async function stopChrome() {
-  const closed = ws?.readyState === WebSocket.OPEN ? await closeBrowser() : false;
-  if (chrome && chrome.exitCode === null && chrome.signalCode === null) await new Promise((ok) => {
-    const timer = setTimeout(() => { chrome.kill("SIGKILL"); ok(); }, 3000);
-    chrome.once("close", () => { clearTimeout(timer); ok(); }); chrome.kill();
-  });
-  removeProfile(closed);
-}
+let ws, cleaning;
+let browser;
+try { browser = createChrome({ timeoutMs, prefix: "oil-shoot-", label: "shoot" }); }
+catch (error) { fail(error.message); }
+const launchChrome = () => browser.launch();
+const stopChrome = () => browser.stop(ws);
 function cleanup() { return cleaning ||= (async () => { for (const child of encoders) child.kill("SIGKILL"); await stopChrome(); server?.close(); removeFrames(); })(); }
 process.on("exit", () => {
   try { for (const child of encoders) child.kill("SIGKILL"); removeFrames(); } catch {}
-  try { chrome?.kill(); } catch {}
   try { server?.close(); } catch {}
-  try { removeProfile(false); } catch {}
+  browser.dispose();
 });
 process.on("SIGINT", async () => { await cleanup(); process.exit(130); });
 process.on("SIGTERM", async () => { await cleanup(); process.exit(143); });
-async function launchChrome() {
-  profile = mkdtempSync(join(tmpdir(), "oil-shoot-")); handedOff = false;
-  chrome = spawn(chromePath, ["--headless=new", "--enable-unsafe-swiftshader", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run",
-    "--no-default-browser-check", "--hide-scrollbars", "--mute-audio", "--disable-extensions", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
-  const portFile = join(profile, "DevToolsActivePort");
-  const fromPortFile = () => {
-    try {
-      const [port, path] = readFileSync(portFile, "utf8").split("\n").map((line) => line.trim());
-      return /^\d+$/.test(port) && path?.startsWith("/devtools/browser/") ? `ws://127.0.0.1:${port}${path}` : null;
-    } catch { return null; }
-  };
-  return new Promise((ok, no) => {
-    let buf = "", exited;
-    const timer = setTimeout(() => finish(new Error("timeout")), timeoutMs(45000));
-    const poll = setInterval(() => { const url = fromPortFile(); if (url) finish(null, url); }, 100);
-    const onData = (d) => { buf += d; const m = buf.match(/DevTools listening on (ws:\/\/\S+)/); if (m) finish(null, m[1]); };
-    const onError = (e) => finish(e);
-    // 浏览器可能已经交给另一个进程，端口文件稍后才出现，所以不马上判失败。
-    const onExit = () => { handedOff = true; exited = setTimeout(() => finish(new Error("浏览器提前退出")), timeoutMs(10000)); };
-    function finish(error, url) {
-      clearTimeout(timer); clearTimeout(exited); clearInterval(poll);
-      chrome.stderr.off("data", onData); chrome.off("error", onError); chrome.off("exit", onExit);
-      error ? no(error) : ok(url);
-    }
-    chrome.stderr.on("data", onData); chrome.once("error", onError); chrome.once("exit", onExit);
-  });
-}
 let wsUrl;
 try { wsUrl = await launchChrome(); }
 catch (error) {
@@ -673,7 +582,9 @@ const send = (method, params = {}, targetSession) => new Promise((ok, no) => {
   const timer = setTimeout(() => {
     const error = new Error(`${context}：CDP ${method} ${limit / 1000} 秒内没有响应；${slowHint()}`);
     error.code = "TRANSPORT_TIMEOUT";
-    if (method === "Page.captureScreenshot" && workerAttempt === "1") {
+    if (method === "Page.navigate") {
+      pending.delete(id); error.code = "NAVIGATION_TIMEOUT"; no(error);
+    } else if (method === "Page.captureScreenshot" && workerAttempt === "1") {
       pending.delete(id); browserNeedsRestart = true; error.code = "SCREENSHOT_TIMEOUT"; no(error);
     } else abortTransport(error);
   }, limit);
@@ -757,9 +668,14 @@ async function open(url, wait = Number(opt.wait)) {
       timer = setTimeout(ok, timeoutMs(15000));
     });
     try {
-      let nav = await cdp("Page.navigate", { url });
-      // 被取消不等于打不开：浏览器自己的导航偶尔会打断这一次（Edge 的新配置上见过），等一下再试一次。
-      if (nav.errorText === "net::ERR_ABORTED") { await sleep(300); nav = await cdp("Page.navigate", { url }); }
+      let nav, retried = false;
+      try { nav = await cdp("Page.navigate", { url }); }
+      catch (error) {
+        if (error.code !== "NAVIGATION_TIMEOUT") throw error;
+        retried = true; await sleep(300); nav = await cdp("Page.navigate", { url });
+      }
+      // 被取消或超时都不等于打不开：浏览器自己的导航偶尔会打断这一次，只补试一次。
+      if (!retried && nav.errorText === "net::ERR_ABORTED") { await sleep(300); nav = await cdp("Page.navigate", { url }); }
       if (nav.errorText) throw new Error(`打不开 ${url}：${nav.errorText}`);
       await loaded;
       await evaluate(`document.fonts ? document.fonts.ready.then(() => true) : true`);
@@ -1632,7 +1548,7 @@ async function sheet(items, file, w, h) {
   const html = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><style>body{margin:0;padding:32px;background:#ececea;font:13px -apple-system,"PingFang SC",sans-serif;color:#555}
 main{display:flex;gap:24px;align-items:flex-start}figure{margin:0;width:${cell}px}img{width:100%;display:block;border-radius:12px;box-shadow:0 1px 3px #0002}
 figcaption{margin-top:10px}</style><main>${figures}</main>`;
-  const tmp = join(profile, "sheet.html");
+  const tmp = browser.tempFile("sheet.html");
   writeFileSync(tmp, html);
   const width = items.length * cell + (items.length - 1) * 24 + 64;
   await setViewport(width, Math.round((cell * h) / w) + 120, 1);
@@ -1684,7 +1600,7 @@ canvas{width:100%;display:block;border-radius:8px;box-shadow:0 1px 3px #0002;bac
   });
   window.__compare = { overall: +(100 * total / (sw * sh)).toFixed(1), cells, refHeight: refH, buildHeight: build.naturalHeight };
 })().catch((e) => { window.__compare = { error: e.message }; });</script>`;
-  const tmp = join(profile, "compare.html");
+  const tmp = browser.tempFile("compare.html");
   writeFileSync(tmp, html);
   await setViewport(2 * 720 + 20 + 56, 900, 1);
   await open(`file://${tmp}`);

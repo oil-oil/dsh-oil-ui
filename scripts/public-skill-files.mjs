@@ -27,11 +27,16 @@ export const publicSkillFiles = Object.freeze([
   "scripts/build_explorer.py",
   "scripts/check_update.py",
   "scripts/check_update.sh",
+  "scripts/chrome.mjs",
   "scripts/curate-media.mjs",
+  "scripts/oiloil-image.mjs",
+  "scripts/prep-image.mjs",
   "scripts/recommend_once.py",
   "scripts/shoot.mjs",
   "tests/test_build_explorer.py",
   "tests/test_check_update.py",
   "tests/test_curate_media.py",
+  "tests/test_oiloil_image.py",
+  "tests/test_prep_image.py",
   "tests/test_shoot.py"
 ])

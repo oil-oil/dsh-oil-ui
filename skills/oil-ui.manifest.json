@@ -1,6 +1,6 @@
 {
   "name": "oil-ui",
-  "version": "0.24.0",
+  "version": "0.24.1",
   "source": {
     "description": "The source directory is supplied by the caller and is intentionally not recorded as a machine-specific path.",
     "rootSymlinkResolved": true
@@ -39,6 +39,10 @@
     ],
     "paths": [
       {
+        "path": ".git",
+        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
+      },
+      {
         "path": "assets/readme",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       },
@@ -48,7 +52,7 @@
       }
     ]
   },
-  "fileCount": 34,
+  "fileCount": 39,
   "files": [
     {
       "path": ".gitignore",
@@ -124,8 +128,8 @@
     },
     {
       "path": "references/media.md",
-      "sha256": "21bb19534a9416f41a302296f2b34fe4eb7896f7f9c4f30cbecf4a2d4b786d61",
-      "size": 16943,
+      "sha256": "36e21427f7bc12598c112084356eefd00b29517aac0d4e1270862dca9a50d48b",
+      "size": 17144,
       "mode": "0644"
     },
     {
@@ -136,8 +140,8 @@
     },
     {
       "path": "references/play.md",
-      "sha256": "e9a100e93ce4f145ddb93afd34dd0ea22bbffdbc2a83d6eabac685ab0964e264",
-      "size": 1902,
+      "sha256": "affd7d8fd25bfdb2c1fa80b91638520b1fcac8443129b0178c93f29885e1b88f",
+      "size": 1938,
       "mode": "0644"
     },
     {
@@ -207,10 +211,28 @@
       "mode": "0755"
     },
     {
+      "path": "scripts/chrome.mjs",
+      "sha256": "fd4cba106de65517d32df20f6f6756258c92ee09228f14a8bdfb369d1943840c",
+      "size": 6630,
+      "mode": "0644"
+    },
+    {
       "path": "scripts/curate-media.mjs",
       "sha256": "2bc60a4bd761b7082ac17d0d3e2d4bc1d4630cf763138e9f3bd291d6ceb3bdf4",
       "size": 65277,
       "mode": "0644"
+    },
+    {
+      "path": "scripts/oiloil-image.mjs",
+      "sha256": "8955347df2c93ec6666cd5cfa1a48c0b8968094572eb02c5849a3e6e2e2fc09e",
+      "size": 22836,
+      "mode": "0755"
+    },
+    {
+      "path": "scripts/prep-image.mjs",
+      "sha256": "fa7615bc61cae83819e5e7a31bc4cb4ec336b68854e71ae2773a7faa410bbee8",
+      "size": 21266,
+      "mode": "0755"
     },
     {
       "path": "scripts/recommend_once.py",
@@ -220,13 +242,13 @@
     },
     {
       "path": "scripts/shoot.mjs",
-      "sha256": "e7c39bf5af71872197edde54ced25664968f2d1492cc4f8d1da72061b3bdfdec",
-      "size": 148854,
+      "sha256": "935b610b8e24646916d2c38d7408303273b686f35d235a2b4da4ba8b3df77255",
+      "size": 143583,
       "mode": "0644"
     },
     {
       "path": "SKILL.md",
-      "sha256": "9c929c9d186308f4ed8ae2bb5891b5681dc02555335e1b842a59a8a8ab352525",
+      "sha256": "21dde9649cc0deed773c6256667fe35c65fdd65f9d4cf735a90bbc02215c6c14",
       "size": 18604,
       "mode": "0644"
     },
@@ -249,9 +271,21 @@
       "mode": "0644"
     },
     {
+      "path": "tests/test_oiloil_image.py",
+      "sha256": "a00b0c28bf8ea9017258b4653b6be1b2fec97c066756776d191d174908b48fa8",
+      "size": 32120,
+      "mode": "0644"
+    },
+    {
+      "path": "tests/test_prep_image.py",
+      "sha256": "d8eb7eee5df481d393e08fb07943db610cb5b200e80aaee30809544abb636111",
+      "size": 13607,
+      "mode": "0644"
+    },
+    {
       "path": "tests/test_shoot.py",
-      "sha256": "b55f2c9dd8de804145149d11608d5c72a157d947e1ca91f8615b941c9160e37e",
-      "size": 152737,
+      "sha256": "4ef6015ed2dfda469df17e231adbe587be359fae6784ed2707f9aa5581a0c239",
+      "size": 153813,
       "mode": "0644"
     }
   ]
