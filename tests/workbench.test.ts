@@ -35,6 +35,8 @@ beforeEach(async () => {
   vi.stubEnv('DSH_HOME', join(localHome.path, '.dsh'));
   vi.stubEnv('OIL_UI_PRO_DIR', '');
   vi.stubEnv('OIL_UI_IMAGE_GEN_SCRIPT', '');
+  vi.stubEnv('OIL_TOKEN', '');
+  vi.stubEnv('OIL_API', '');
 });
 
 afterEach(async () => {
@@ -494,7 +496,6 @@ describe('managed image generation and editing in cwd', () => {
       { mode: 'edit' },
       { size: '0x100' },
       { size: 'wide' },
-      { quality: 'ultra' },
       { background: 'blue' },
       { out: 'x.svg' },
       { background: 'transparent', out: 'x.jpg' },
@@ -519,13 +520,13 @@ describe('managed image generation and editing in cwd', () => {
       mode: 'generate',
       model: 'test-model',
       size: '1024x1024',
-      quality: 'medium',
       background: 'transparent',
       outputFiles: [join(cwd, 'assets/generated.png')],
     });
     expect(result.data).toMatchObject({ prompt, mode: 'generate' });
     const args = result.data?.args as string[];
     expect(args).toContain('--json');
+    expect(args).not.toContain('--quality');
     expect(args).not.toContain('--force');
     expect(args).toContain('--prompt-file');
     expect(args).not.toContain(prompt);
@@ -552,9 +553,8 @@ describe('managed image generation and editing in cwd', () => {
       images,
       out: 'assets/variant.webp',
       size: '1536x1024',
-      quality: 'high',
     });
-    expect(result).toMatchObject({ ok: true, mode: 'edit', size: '1536x1024', quality: 'high' });
+    expect(result).toMatchObject({ ok: true, mode: 'edit', size: '1536x1024' });
     const args = result.data?.args as string[];
     expect(args.filter(arg => arg === '--image')).toHaveLength(2);
     for (const image of images) expect(args).toContain(join(cwd, image));
@@ -598,7 +598,14 @@ describe('managed image generation and editing in cwd', () => {
 
   it('reports a missing local image-gen installation without starting an executor', async () => {
     const { w, cwd } = await setup();
-    await expect(w.image(cwd, { prompt: 'An object' })).rejects.toThrow('Local image-gen script not found');
+    const runCommand = vi.spyOn(ManagedProcesses.prototype, 'runCommand');
+    await expect(w.image(cwd, { prompt: 'An object' })).resolves.toMatchObject({
+      ok: false,
+      reason: 'no_image_tool',
+      outputFiles: [],
+      agentInstruction: expect.stringContaining('任务照常继续'),
+    });
+    expect(runCommand).not.toHaveBeenCalled();
   });
 });
 

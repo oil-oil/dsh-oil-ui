@@ -72,7 +72,6 @@ export interface ImageRequest {
   out?: string;
   images?: string[];
   size?: string;
-  quality?: 'auto' | 'low' | 'medium' | 'high';
   background?: 'auto' | 'opaque' | 'transparent';
   model?: string;
   force?: boolean;

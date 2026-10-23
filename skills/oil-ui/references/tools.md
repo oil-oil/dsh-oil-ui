@@ -48,11 +48,10 @@
 
 ### 生图与改图（`oil_ui_image`）
 
-当 `oil_ui_skill_status` 显示 `imageGenAvailable: true` 时，调用 `oil_ui_image` 生成或编辑图片：
+查看 `oil_ui_skill_status.imageSource`：有本机 `image-gen` 时优先使用；否则使用 oiloil；显示 `none` 时按返回说明继续。尺寸可用 `size` 指定为 `1K`、`2K`、`4K` 或支持的宽高值。
 
-- **文生图（`mode: "generate"`）**：`oil_ui_image({ "prompt": "...", "out": "assets/hero.png", "size": "1536x1024", "quality": "high" })`
-- **透明底抠图（`background: "transparent"`）**：`oil_ui_image({ "prompt": "...", "background": "transparent", "out": "assets/cutout.png" })`
-- **基于参考图的图生图 / 同模多材质变体（`mode: "edit"`）**：传入 1–16 张本地参考图（如先生成原色器物，再派生烟熏、绿锈等表面，保持角度与光影一致）：`oil_ui_image({ "mode": "edit", "images": ["assets/raw.png"], "prompt": "...", "out": "assets/variant.png" })`
+- **文生图**：`oil_ui_image({ "prompt": "...", "out": "assets/hero.png", "size": "2K" })`
+- **参考图改图**：`oil_ui_image({ "mode": "edit", "images": ["assets/source.png"], "prompt": "...", "out": "assets/edited.png" })`（oiloil 一次支持一张参考图）
 
 ### 组装风格对比页（`oil_ui_explorer`）
 
