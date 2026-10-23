@@ -70,7 +70,7 @@ async function main() {
   const outputPath = path.resolve(outputArgument ?? defaultOutput)
   const outputDirectory = path.dirname(outputPath)
   const skillManifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-  if (skillManifest.name !== 'oil-ui' || skillManifest.fileCount !== 34) throw new Error('Expected the 34-file open-source oil-ui distribution.')
+  if (skillManifest.name !== 'oil-ui' || skillManifest.fileCount !== 39) throw new Error('Expected the 39-file open-source oil-ui distribution.')
   const expectedPaths = skillManifest.files.map(file => file.path)
   if (expectedPaths.some(p => /^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/.test(p))) throw new Error('Pro resources cannot be packaged.')
   if (JSON.stringify([...expectedPaths].sort()) !== JSON.stringify(publicSkillFiles)) throw new Error('Only reviewed public Skill resource paths may be packaged.')

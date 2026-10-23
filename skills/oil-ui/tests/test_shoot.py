@@ -1632,6 +1632,19 @@ document.querySelector('#go').onclick=()=>document.body.style.background='#15151
         self.assertEqual(len(requests), 2, requests)
         self.assert_artifacts(output, ('page.png', 'report.json'))
 
+    def test_navigation_timeout_retries_only_once(self):
+        for always, expected in [(False, 0), (True, 1)]:
+            with self.subTest(always=always):
+                env, journal = self.transport_fault_env('navigate', always=always)
+                journal.unlink(missing_ok=True)
+                output = self.folder / f'navigation-timeout-{always}'
+                result = subprocess.run([NODE, str(SCRIPT), str(self.page), '--out', str(output)],
+                                        cwd=ROOT, env=env, capture_output=True, text=True, timeout=90, encoding='utf-8')
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                events = [json.loads(line) for line in journal.read_text(encoding='utf-8').splitlines()]
+                self.assertEqual([row['fault'] for row in events if row.get('fault') == 'navigate'], ['navigate'] if not always else ['navigate', 'navigate'])
+                if not always: self.assert_artifacts(output, ('page.png', 'report.json'))
+
     def test_run_leaves_no_browser_process_or_profile(self):
         output = self.folder / 'clean'
         self.shoot(output)
@@ -1845,7 +1858,7 @@ globalThis.WebSocket=class extends Native {
  constructor(...args){super(...args);this.dropOpen=mode==='connect'&&fault()}
  set onopen(callback){super.onopen=this.dropOpen?null:callback}
  send(data){const msg=JSON.parse(data);
-  const selected=mode==='setup'?msg.method==='Target.createTarget':mode==='cdp'&&msg.method==='Runtime.evaluate'&&msg.params.expression.includes('"value":"#hang"');
+  const selected=mode==='setup'?msg.method==='Target.createTarget':mode==='navigate'?msg.method==='Page.navigate':mode==='cdp'&&msg.method==='Runtime.evaluate'&&msg.params.expression.includes('"value":"#hang"');
   if(selected){write({stage:mode,timeout:watchdog.delay});if(fault()){write({fault:mode});clearTimeout(watchdog.timer);original(watchdog.callback,100);return}}
   return super.send(data);
  }
