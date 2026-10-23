@@ -129,7 +129,7 @@ git clone https://github.com/oil-oil/dsh-oil-ui.git
 cd dsh-oil-ui
 pnpm install
 pnpm pack:plugin
-dsh plugin --profile web add ./.work/dsh-oil-ui-0.3.2.tgz
+dsh plugin --profile web add ./.work/dsh-oil-ui-0.4.0.tgz
 ```
 
 </details>
