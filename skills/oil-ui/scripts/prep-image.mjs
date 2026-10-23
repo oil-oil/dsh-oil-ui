@@ -33,7 +33,7 @@ const HELP = `常用命令：
 报错里的重跑命令用于 macOS/Linux shell 或 Windows PowerShell，也附无 shell 的 argv。
 标准输出为 JSON：每文件原始/结果尺寸、字节数、警告和可粘贴的 <img srcset sizes>。
 片段路径相对当前目录，含空格等字符会 URL 编码；在项目根目录运行，alt 按内容填写。
-Windows 跨盘输出使用 file:/// 绝对地址；部署到网站时请把图片放在站点目录内并使用相对路径。
+Windows 跨盘输出使用 file:/// 绝对地址；本地预览、截图验收和部署时，请把图片放在站点目录内并使用相对路径。
 进度和未转义的 HTML 片段在标准错误，可直接复制；单项失败继续整批，errors 列出失败及重跑命令，退出码 1。
 需要 Node 22+ 及本机 Chrome/Chromium/Edge，也可设 CHROME_PATH；不会自动安装工具。`;
 const example = 'node <skill>/scripts/prep-image.mjs image.png --width 960 --out assets/web';

@@ -224,14 +224,14 @@
     },
     {
       "path": "scripts/oiloil-image.mjs",
-      "sha256": "8955347df2c93ec6666cd5cfa1a48c0b8968094572eb02c5849a3e6e2e2fc09e",
-      "size": 22836,
+      "sha256": "477491ce4ab9005a4e904652994f232052d2b89f78b868f0c4b6a9399f4e878d",
+      "size": 23043,
       "mode": "0755"
     },
     {
       "path": "scripts/prep-image.mjs",
-      "sha256": "fa7615bc61cae83819e5e7a31bc4cb4ec336b68854e71ae2773a7faa410bbee8",
-      "size": 21266,
+      "sha256": "4cec0a8beb5bdbdaa6c9679bad93bfa53cc875b6b19db945d2f7e80d848ca19a",
+      "size": 21290,
       "mode": "0755"
     },
     {
@@ -272,14 +272,14 @@
     },
     {
       "path": "tests/test_oiloil_image.py",
-      "sha256": "a00b0c28bf8ea9017258b4653b6be1b2fec97c066756776d191d174908b48fa8",
-      "size": 32120,
+      "sha256": "52c7aa731c6bbd28e0034571839fe34127548b995e98c2fb9d29b896d21d21e5",
+      "size": 32735,
       "mode": "0644"
     },
     {
       "path": "tests/test_prep_image.py",
-      "sha256": "d8eb7eee5df481d393e08fb07943db610cb5b200e80aaee30809544abb636111",
-      "size": 13607,
+      "sha256": "ac182cfd9869574bca5ca64694578b9344c9b181597e06090e7135a22ec74a20",
+      "size": 13700,
       "mode": "0644"
     },
     {

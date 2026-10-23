@@ -406,6 +406,18 @@ class OiloilImageTests(unittest.TestCase):
         self.assertEqual(len(self.requests), 2)
         self.assertEqual(self.recovery_files(), [])
 
+    def test_recovery_command_quotes_literal_paths_for_the_shell(self):
+        quoted = self.evaluate("""console.log(JSON.stringify({
+          posix: cli.shellQuote("a$b'c", "linux"),
+          powershell: cli.shellQuote("a$b'c", "win32")
+        }));""")
+        self.assertEqual(quoted['posix'], "'a$b'\\''c'")
+        self.assertEqual(quoted['powershell'], "'a$b''c'")
+        self.disconnect = True
+        result = self.call('image', '<说明>', '--out', 'assets/$literal.webp')
+        self.assertEqual(result.returncode, 6)
+        self.assertIn(f"--out '{self.cwd}/assets/$literal.webp'", result.stderr)
+
     def test_transport_failure_preserves_the_key_for_status_without_retrying(self):
         self.disconnect = True
         result = self.call('image', '<说明>')

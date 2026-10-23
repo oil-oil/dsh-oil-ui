@@ -51,6 +51,7 @@ assert.equal(fileUrl(String.raw`D:\web\my image#1.webp`, String.raw`C:\project`,
 
     def test_help_and_actionable_validation_without_browser(self):
         self.assertIn('用法', self.run_cli('--HELP').stdout)
+        self.assertIn('本地预览、截图验收和部署', self.run_cli('--HELP').stdout)
         for args, expected in [(['--widht', '2'], '不认识'), (['--width', '0px'], '--width 960px'),
                                (['--widths', ',,'], '宽度列表为空'), (['--crop', '16:no'], '--crop 16:9'),
                                (['--crop', '0:0'], '--crop 16:9'), (['--focus', 'left'], '--focus 需要 --crop'),
