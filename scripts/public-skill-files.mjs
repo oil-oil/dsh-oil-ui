@@ -24,6 +24,7 @@ export const publicSkillFiles = Object.freeze([
   "references/ux-reviewer.md",
   "references/visual-language.md",
   "references/visual-review.md",
+  "references/workdir.md",
   "scripts/build_explorer.py",
   "scripts/check_update.py",
   "scripts/check_update.sh",
@@ -38,5 +39,6 @@ export const publicSkillFiles = Object.freeze([
   "tests/test_curate_media.py",
   "tests/test_oiloil_image.py",
   "tests/test_prep_image.py",
-  "tests/test_shoot.py"
+  "tests/test_shoot.py",
+  "tests/test_workdir.py"
 ])

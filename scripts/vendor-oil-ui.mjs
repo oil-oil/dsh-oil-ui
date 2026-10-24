@@ -13,7 +13,7 @@ const skillsDirectory = path.resolve(scriptDirectory, '..', 'skills')
 const destinationDirectory = path.join(skillsDirectory, 'oil-ui')
 const manifestPath = path.join(skillsDirectory, 'oil-ui.manifest.json')
 const excludedNames = new Set(['.git', '.DS_Store', '__pycache__'])
-// Documentation-only artwork and duplicate English README are outside the 39-file runtime distribution.
+// Documentation-only artwork and duplicate English README are outside the 41-file runtime distribution.
 const documentationOnly = new Set(['assets/readme', 'README.en.md'])
 
 function usage() {
@@ -166,7 +166,7 @@ async function main() {
   const { entries, exclusions, symlinks } = await collectFiles(sourceRoot)
   if (entries.some(f => /^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/.test(f.path))) throw new Error('Pro-only resources cannot be bundled.')
   const actualPaths = entries.map(file => file.path).sort()
-  if (JSON.stringify(actualPaths) !== JSON.stringify(publicSkillFiles)) throw new Error('Source paths differ from the reviewed 39-file public distribution. Review the public file list before syncing.')
+  if (JSON.stringify(actualPaths) !== JSON.stringify(publicSkillFiles)) throw new Error('Source paths differ from the reviewed 41-file public distribution. Review the public file list before syncing.')
   entries.sort((left, right) => left.path.localeCompare(right.path))
 
   await mkdir(skillsDirectory, { recursive: true })

@@ -53,6 +53,8 @@ Tell your agent what you need, for example:
 
 Share any brand assets, screenshots, or existing project you have. It can start without references and only asks you questions when the deliverable is unclear.
 
+Intermediate candidates, screenshots, and media caches live in the project’s `.oil-ui` workspace. Final code and production assets are still written back to the project, and existing project conventions take precedence.
+
 ## Built-in style comparison page
 
 <p align="center">

@@ -1,6 +1,6 @@
 {
   "name": "oil-ui",
-  "version": "0.24.2",
+  "version": "0.25.0",
   "source": {
     "description": "The source directory is supplied by the caller and is intentionally not recorded as a machine-specific path.",
     "rootSymlinkResolved": true
@@ -52,7 +52,7 @@
       }
     ]
   },
-  "fileCount": 39,
+  "fileCount": 41,
   "files": [
     {
       "path": ".gitignore",
@@ -98,14 +98,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "a07782a995d210f2e4b3956b5a76ee08f1d7b57205d0055b6a13aff9b9c36edf",
-      "size": 8684,
+      "sha256": "fc56ce6a6bb83c58941a1ca587f0ac727bf252b4fd38680e11581ec68133c3f2",
+      "size": 8907,
       "mode": "0644"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "f80881065473122c9d3fca5e83baddcd80f9d347d9f6893527ee70315078003d",
-      "size": 7847,
+      "sha256": "777ca72c34430770e1b5e2cd3d5e51c9ff90c35bf6e1223d3fac6956d52ef4e1",
+      "size": 8016,
       "mode": "0644"
     },
     {
@@ -193,6 +193,12 @@
       "mode": "0644"
     },
     {
+      "path": "references/workdir.md",
+      "sha256": "f2a34dc819e1fe69d4602a808f0a0fc55aaf2d0f37a523f264a94292a63219a7",
+      "size": 4407,
+      "mode": "0644"
+    },
+    {
       "path": "scripts/build_explorer.py",
       "sha256": "a48d3cc52a0b273b8cdb84f2d29224c31e22f0e07c0ac0c56119d86f38788dd3",
       "size": 46845,
@@ -248,8 +254,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "6c31aa166e4f150b6c1fff308fd99d884999ab76768758b5b78780e39fd7bc52",
-      "size": 18604,
+      "sha256": "3c626c71f978473236d0370865b918229d571684492f4ff5084bf47b503c57dd",
+      "size": 18925,
       "mode": "0644"
     },
     {
@@ -286,6 +292,12 @@
       "path": "tests/test_shoot.py",
       "sha256": "4ef6015ed2dfda469df17e231adbe587be359fae6784ed2707f9aa5581a0c239",
       "size": 153813,
+      "mode": "0644"
+    },
+    {
+      "path": "tests/test_workdir.py",
+      "sha256": "57151a18f5ebac66ee66cfbf68eb74bdb181ecb1f31546d1e03c68edbb71a88a",
+      "size": 7308,
       "mode": "0644"
     }
   ]
