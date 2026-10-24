@@ -296,8 +296,8 @@
     },
     {
       "path": "tests/test_workdir.py",
-      "sha256": "229c6fc57434f62a87922405a7a4f5aeeebb484b0ee23ed4e5129c78c4ee2b50",
-      "size": 12142,
+      "sha256": "05b252138f0eef0c8c06911ddd910ad4d2b9886c49a442ee62d8543b216f927a",
+      "size": 14123,
       "mode": "0644"
     }
   ]

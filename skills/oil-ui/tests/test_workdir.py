@@ -57,7 +57,23 @@ if (getComputedStyle(document.body).color !== 'rgb(1, 2, 3)') console.error('SHA
         work = self.project / '.oil-ui' / '截图 任务'
         candidate = work / 'explore/candidate.html'
         candidate.parent.mkdir(parents=True)
-        candidate.write_text('<!doctype html><html><head><meta charset="utf-8"><title>候选</title></head><body>候选页面</body></html>', encoding='utf-8')
+        outside_file = Path(str(self.project) + '-outside.html')
+        outside_file.write_text('outside fixture', encoding='utf-8')
+        self.addCleanup(lambda: outside_file.unlink(missing_ok=True))
+        (work / '.env').write_text('synthetic', encoding='utf-8')
+        (work / 'credentials.json').write_text('synthetic', encoding='utf-8')
+        (work / 'escape.txt').symlink_to(outside_file)
+        (self.project / '.git').mkdir()
+        (self.project / '.git/config').write_text('synthetic', encoding='utf-8')
+        candidate.write_text('''<!doctype html><html><head><meta charset="utf-8"><title>候选</title>
+<link rel="stylesheet" href="../../../assets/shared.css"></head><body>候选页面<script type="module">
+if (getComputedStyle(document.body).color !== 'rgb(1, 2, 3)') console.error('SHARED_ASSET_MISSING');
+const root = encodeURI('/.oil-ui/截图 任务');
+for (const path of [`${root}/.env`, `${root}/credentials.json`, `${root}/escape.txt`, '/.git/config']) {
+  if ((await fetch(path)).status !== 404) console.error('WORKSPACE_SECRET_LEAK ' + path);
+}
+console.error('CANDIDATE_LOADED');
+</script></body></html>''', encoding='utf-8')
         env = dict(os.environ, CHROME_PATH=find_browser())
         result = subprocess.run([NODE, str(SHOOT), f'{page},{candidate}', '--root', str(self.project), '--out', str(work / 'shots')], cwd=work, env=env,
                                 capture_output=True, text=True, encoding='utf-8', timeout=90)
@@ -66,6 +82,8 @@ if (getComputedStyle(document.body).color !== 'rgb(1, 2, 3)') console.error('SHA
         self.assertTrue((work / 'shots/candidate.png').is_file())
         report = json.loads((work / 'shots/report.json').read_text(encoding='utf-8'))
         self.assertNotIn('SHARED_ASSET_MISSING', json.dumps(report))
+        self.assertNotIn('WORKSPACE_SECRET_LEAK', json.dumps(report))
+        self.assertIn('CANDIDATE_LOADED', json.dumps(report))
         self.assertFalse((self.project / 'shots').exists())
         explicit = self.project / 'formal-evidence'
         result = subprocess.run([NODE, str(SHOOT), str(page), '--root', str(self.project), '--out', str(explicit)], cwd=work, env=env,
@@ -83,6 +101,15 @@ if (getComputedStyle(document.body).color !== 'rgb(1, 2, 3)') console.error('SHA
                                 capture_output=True, text=True, encoding='utf-8', timeout=90)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('不在 --root', result.stderr)
+        result = subprocess.run([NODE, str(SHOOT), f'{page},{outside_file}', '--root', str(self.project), '--out', str(work / 'mixed-shots')], cwd=work, env=env,
+                                capture_output=True, text=True, encoding='utf-8', timeout=90)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('不在 --root', result.stderr)
+        for broad_root in (Path(tempfile.gettempdir()), Path('/')):
+            result = subprocess.run([NODE, str(SHOOT), str(page), '--root', str(broad_root), '--out', str(work / 'broad-shots')], cwd=work, env=env,
+                                    capture_output=True, text=True, encoding='utf-8', timeout=90)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('范围过宽', result.stderr)
 
     def test_curate_defaults_to_task_workdir_and_honors_explicit_paths(self):
         from test_curate_media import CurateMediaTests
