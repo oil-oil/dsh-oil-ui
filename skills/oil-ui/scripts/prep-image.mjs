@@ -199,6 +199,7 @@ export async function renderImage(data, opts) {
   return { width, height, alpha, crop: { x: x0, y: y0, width: w, height: h }, variants };
 }
 const htmlEscape = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const outputUrl = saved => fileUrl(realpathSync(saved), realpathSync(process.cwd()));
 export function fileUrl(p, cwd = process.cwd(), platform = process.platform) {
   const path = platform === 'win32' ? win32 : posix, rel = path.relative(cwd, p);
   if (path.isAbsolute(rel)) return pathToFileURL(p, { windows: platform === 'win32' }).href;
@@ -267,7 +268,7 @@ export async function main(argv = process.argv.slice(2)) {
         }
         outputs.sort((a, b) => a.width - b.width || a.bytes - b.bytes);
         const candidates = outputs.filter((o, i) => !i || o.width !== outputs[i - 1].width), last = candidates.at(-1);
-        const html = `<img src="${htmlEscape(fileUrl(last.saved))}" srcset="${htmlEscape(candidates.map(o => fileUrl(o.saved) + ' ' + o.width + 'w').join(', '))}" sizes="${htmlEscape(opts.sizes)}" width="${last.width}" height="${last.height}" alt="">`;
+        const html = `<img src="${htmlEscape(outputUrl(last.saved))}" srcset="${htmlEscape(candidates.map(o => outputUrl(o.saved) + ' ' + o.width + 'w').join(', '))}" sizes="${htmlEscape(opts.sizes)}" width="${last.width}" height="${last.height}" alt="">`;
         records.push({ input: file, original: { width: rendered.width, height: rendered.height, bytes: original.length, alpha: rendered.alpha }, crop: rendered.crop, outputs, warnings, html });
         for (const warning of warnings) console.error('prep-image：' + warning);
         console.error(html);

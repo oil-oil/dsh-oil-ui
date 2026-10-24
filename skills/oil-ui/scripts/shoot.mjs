@@ -20,6 +20,7 @@ const HELP = `常用命令：
 多个本地 HTML 也可用逗号分隔；多目标共用服务器和浏览器，默认生成带名称的 sheet.png。
 
   --out <目录>          输出目录，默认 ./shots
+  --root <目录>         本地页面的静态服务根目录，默认按页面和 cwd 推断；共享资源用项目根
   --size <尺寸,...>     默认 390x844；desktop=1440x900，phone/mobile=390x844，可混用数字尺寸
   --states <a,b,...>    依次用 ?state=<名字> 打开并各截一张
   --param <名字>        状态参数名，默认 state
@@ -445,8 +446,8 @@ const MIME = {
   ".csv": "text/csv; charset=utf-8", ".ico": "image/x-icon", ".mov": "video/quicktime", ".m4a": "audio/mp4",
   ".hdr": "application/octet-stream", ".exr": "image/x-exr", ".ktx2": "image/ktx2",
 };
-const privatePath = (path) => path.split(/[\\/]/).some((part) => part.startsWith(".")
-  || /^(?:credentials?|secrets?|id_(?:rsa|dsa|ecdsa|ed25519))(?:[._-]|$)/i.test(part));
+const privatePath = (path) => path.split(/[\\/]/).some((part) => part !== ".oil-ui" && (part.startsWith(".")
+  || /^(?:credentials?|secrets?|id_(?:rsa|dsa|ecdsa|ed25519))(?:[._-]|$)/i.test(part)));
 let server = null;
 const localFiles = targets.filter((t) => !/^https?:\/\//i.test(t.target)).map(({ target }) => {
   const path = localPath(target);
@@ -463,6 +464,17 @@ for (const file of localFiles) {
     sharedRoot = parent;
   }
 }
+let explicitRoot = null;
+if (opt.root) {
+  const candidate = resolve(opt.root);
+  if (!existsSync(candidate) || !statSync(candidate).isDirectory()) fail(`--root 需要已有目录：${opt.root}`);
+  explicitRoot = realpathSync(candidate);
+  if (explicitRoot === parse(explicitRoot).root || explicitRoot === realpathSync(tmpdir())) fail(`--root 范围过宽，请使用项目目录：${opt.root}`);
+  for (const file of localFiles) {
+    const fromRoot = relative(explicitRoot, file);
+    if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) fail(`本地目标不在 --root 内：${file}`);
+  }
+}
 async function resolveTarget(t) {
   if (/^https?:\/\//i.test(t)) return t;
   let localTarget = t;
@@ -473,12 +485,12 @@ async function resolveTarget(t) {
   if (!existsSync(file)) fail(`找不到文件：${t}`);
   const isDir = statSync(file).isDirectory();
   const fileDir = realpathSync(isDir ? file : dirname(file));
-  let root = sharedRoot || fileDir;
+  let root = explicitRoot || sharedRoot || fileDir;
   try {
     const cwdReal = realpathSync(process.cwd());
     const tmpReal = realpathSync(tmpdir());
     const relDir = relative(cwdReal, root);
-    if (relDir && relDir !== ".." && !relDir.startsWith(`..${sep}`) && !isAbsolute(relDir)
+    if (!explicitRoot && relDir && relDir !== ".." && !relDir.startsWith(`..${sep}`) && !isAbsolute(relDir)
       && relDir.split(sep).length <= 3 && cwdReal !== parse(cwdReal).root && cwdReal !== tmpReal && !fileDir.startsWith(tmpReal + sep)) {
       root = cwdReal;
     }
