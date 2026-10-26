@@ -117,6 +117,45 @@ describe('declarative Markdown rewrite validation', () => {
     });
   });
 
+  it.each(['lite', 'pro'] as const)('keeps the core action when rewriting direction imagery: %s', (edition) => {
+    const suffix = edition === 'pro' ? '；说服型页面再写上标题原文。' : '。';
+    const raw = `把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，核心动作怎样完成，用什么字体和色彩，主视觉靠什么${suffix}`;
+    const result = transformSkillMarkdown('SKILL.md', raw, { edition, mode: 'lenient' });
+    expect(result.markdown).toContain('核心动作怎样完成');
+    expect(result.markdown).toContain('oil_ui_image');
+    expect(
+      result.rules.find((rule) => rule.id === `skill.direction-images${edition === 'pro' ? '.pro' : ''}`),
+    ).toMatchObject({
+      matches: 1,
+      status: 'matched',
+    });
+  });
+
+  it.each([
+    ['用 `--evidence` 一次取齐状态图。', '用 `oil_ui_shoot`（`evidence: true`） 一次取齐状态图。'],
+    ['用 `--evidence` 给选定画面生成状态图。', '用 `oil_ui_shoot`（`evidence: true`） 给选定画面生成状态图。'],
+  ])('rewrites evidence wording: %s', (raw, expected) => {
+    const result = transformSkillMarkdown('references/tools.md', raw, { edition: 'lite', mode: 'lenient' });
+    expect(result.markdown).toBe(expected);
+    expect(result.rules.find((rule) => rule.id === 'tools.evidence')).toMatchObject({
+      matches: 1,
+      status: 'matched',
+    });
+  });
+
+  it('rewrites the single-state mask flag for the native tool', () => {
+    const result = transformSkillMarkdown('references/tools.md', '单状态需要遮字图时加 `--mask`。', {
+      edition: 'lite',
+      mode: 'lenient',
+    });
+    expect(result.markdown).toBe('单状态需要遮字图时设 `mask: true`。');
+    expect(result.rules.find((rule) => rule.id === 'tools.evidence-mask')).toMatchObject({
+      required: false,
+      matches: 1,
+      status: 'matched',
+    });
+  });
+
   it.each(['每个字段的写法和限制见生成器的 `--help`。', '其他字段写法见生成器的 `--help`。'])(
     'rewrites old and new explorer parameter help wording: %s',
     (raw) => {
