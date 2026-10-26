@@ -96,7 +96,9 @@ describe('bundled open-source Skill and local Pro activation', () => {
       const bytes = await readFile(join(skillDirectory, file.path));
       const info = await lstat(join(skillDirectory, file.path));
       expect(bytes.length).toBe(file.size);
-      expect(`0${(info.mode & 0o777).toString(8).padStart(3, '0')}`).toBe(file.mode);
+      if (process.platform !== 'win32') {
+        expect(`0${(info.mode & 0o777).toString(8).padStart(3, '0')}`).toBe(file.mode);
+      }
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(file.sha256);
     }
     expect((await readdir(join(skillDirectory, '..'))).sort()).toEqual(['oil-ui', 'oil-ui.manifest.json']);

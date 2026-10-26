@@ -83,7 +83,9 @@ export async function verifySkillEntries(root, entries) {
       const targetInfo = await stat(absolutePath)
       if (targetInfo.size !== source.size) throw new Error(`Size mismatch for ${normalized}.`)
       const expectedMode = typeof source.mode === 'string' ? Number.parseInt(source.mode, 8) : source.mode
-      if ((targetInfo.mode & 0o777) !== expectedMode) throw new Error(`Mode mismatch for ${normalized}.`)
+      if (process.platform !== 'win32' && (targetInfo.mode & 0o777) !== expectedMode) {
+        throw new Error(`Mode mismatch for ${normalized}.`)
+      }
       if (typeof source.sha256 !== 'string' || await sha256(absolutePath) !== source.sha256) {
         throw new Error(`SHA-256 mismatch for ${normalized}.`)
       }

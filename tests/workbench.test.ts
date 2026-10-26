@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir, symlink, readFile, readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { DesignWorkbench } from '../src/workbench/index.ts';
 import { buildExplorer, Embedder } from '../src/explorer.ts';
 import { bundledSkillDirectory, type ActiveSkill } from '../src/skill/upstream.ts';
@@ -875,7 +876,7 @@ it('executes real curate-media search in candidates and fetch in assets using on
   const realScript = join(process.cwd(), 'skills/oil-ui/scripts/curate-media.mjs');
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9XkAAAAASUVORK5CYII=';
   // Only network responses are fixtures: parsing, cache allocation, numbering, downloading and SOURCES.md are real.
-  const wrapper = `import{main}from ${JSON.stringify(realScript)};
+  const wrapper = `import{main}from ${JSON.stringify(pathToFileURL(realScript).href)};
     globalThis.fetch=async url=>{
       if(String(url).includes('/collections/'))return Response.json({results:[{title:'Bridge drawing',id:'https://www.loc.gov/item/bridge/',rights:'Public domain',resources:[{image:'https://fixture.invalid/sheet/bridge.png',url:'https://www.loc.gov/item/bridge/'}]}]});
       if(String(url).includes('fixture.invalid/sheet/'))return new Response(Buffer.from('${png}','base64'),{headers:{'content-type':'image/png'}});
