@@ -1,0 +1,90 @@
+name: sync-skill
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-oil-ui
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: oil-oil/oil-ui
+          path: upstream-oil-ui
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile
+      - name: Sync and verify the upstream snapshot
+        run: |
+          node scripts/vendor-oil-ui.mjs --source upstream-oil-ui
+          node scripts/vendor-oil-ui.mjs --source upstream-oil-ui --check
+          rm -rf upstream-oil-ui
+          pnpm check
+          pnpm pack:plugin
+      - name: Read sync metadata
+        id: metadata
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('skills/oil-ui.manifest.json', 'utf8')).version")
+          COMMIT=$(node -p "JSON.parse(require('fs').readFileSync('skills/oil-ui.manifest.json', 'utf8')).source.commit")
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "branch=bot/oil-ui-$VERSION-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - name: Push a dedicated sync branch
+        if: steps.metadata.outputs.changed == 'true'
+        shell: bash
+        env:
+          BRANCH: ${{ steps.metadata.outputs.branch }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add skills/ lib/
+          git commit -m "chore(skill): 同步内置 oil-ui 至 $VERSION"
+          git push origin "$BRANCH"
+      - name: Open a sync pull request
+        if: steps.metadata.outputs.changed == 'true'
+        shell: bash
+        env:
+          BRANCH: ${{ steps.metadata.outputs.branch }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+          COMMIT: ${{ steps.metadata.outputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BODY=$(cat <<EOF
+          自动同步 oil-ui $VERSION。
+
+          - 上游 commit: $COMMIT
+          - 已通过 pnpm check
+          - 已通过打包与解包验证
+          - 由 sync-skill workflow 创建
+          EOF
+          )
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(skill): 同步内置 oil-ui 至 $VERSION" \
+            --body "$BODY"

@@ -34,9 +34,10 @@ export class OilApiError extends Error {
 /** Match oil CLI and the bundled image script on each platform. */
 export function oilTokenConfigPath(env = process.env, platform = process.platform, home = homedir()): string {
   const paths = platform === 'win32' ? win32 : posix;
-  const root = platform === 'win32'
-    ? env.APPDATA || paths.join(home, 'AppData', 'Roaming')
-    : env.XDG_CONFIG_HOME || paths.join(home, '.config');
+  const root =
+    platform === 'win32'
+      ? env.APPDATA || paths.join(home, 'AppData', 'Roaming')
+      : env.XDG_CONFIG_HOME || paths.join(home, '.config');
   return paths.join(root, 'oil', 'config.json');
 }
 
@@ -70,7 +71,7 @@ interface RequestOptions {
 }
 
 export async function requestOilApi<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const token = options.token ?? await readOilToken();
+  const token = options.token ?? (await readOilToken());
   if (!token) throw new OilApiError(401, 'not_logged_in', '尚未登录 oiloil。');
 
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -93,9 +94,10 @@ export async function requestOilApi<T>(path: string, options: RequestOptions = {
     payload = null;
   }
   if (!response.ok) {
-    const error = payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as { error?: { code?: unknown; message?: unknown } }).error
-      : undefined;
+    const error =
+      payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? (payload as { error?: { code?: unknown; message?: unknown } }).error
+        : undefined;
     throw new OilApiError(
       response.status,
       typeof error?.code === 'string' ? error.code : 'api_error',

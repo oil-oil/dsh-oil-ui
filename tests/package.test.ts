@@ -27,5 +27,7 @@ it('rebuilds stale lib before producing and verifying the plugin archive', async
     expect(bundled).not.toContain('STALE_BUILD_SENTINEL');
     expect(bundled).toContain('oil-ui-subagent-reviewer');
     expect(bundled).toBe(await readFile(join(root, 'lib/index.js'), 'utf8'));
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 }, 30000);

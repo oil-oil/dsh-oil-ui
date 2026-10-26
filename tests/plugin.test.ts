@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import SkillRegistry, { type SkillRegistration, type SkillProvider } from '@deepseek-ai/dsh-skill';
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
 import { apply } from '../src/index.ts';
-import { skillStatus } from '../src/upstream.ts';
+import { skillStatus } from '../src/skill/upstream.ts';
 
 const localHome = vi.hoisted(() => ({ path: '' }));
-vi.mock('node:os', async original => {
+vi.mock('node:os', async (original) => {
   const os = await original<typeof import('node:os')>();
   return { ...os, homedir: () => localHome.path || os.homedir() };
 });
@@ -24,11 +24,14 @@ beforeEach(async () => {
   vi.stubEnv('OIL_UI_IMAGE_GEN_SCRIPT', '');
   vi.stubEnv('DSH_HOME', join(isolatedHome, '.dsh'));
   vi.stubEnv('DSH_AGENTS_HOME', '');
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.endsWith('/v1/credits')) return Response.json({ balance: 42 });
-    throw new Error(`Unexpected test fetch: ${url}`);
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1/credits')) return Response.json({ balance: 42 });
+      throw new Error(`Unexpected test fetch: ${url}`);
+    }),
+  );
 });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -42,11 +45,17 @@ it('presents all five tools with native call views and declares explorer/image d
   const tools = new Map<string, ToolDefinition>();
   const disposers: (() => void | Promise<void>)[] = [];
   const ctx = {
-    effect(fn: () => () => void | Promise<void>) { disposers.push(fn()); },
+    effect(fn: () => () => void | Promise<void>) {
+      disposers.push(fn());
+    },
     inject(services: string[], fn: (value: unknown) => unknown) {
       if (services.includes('tools')) fn(ctx);
     },
-    tools: { register(tool: ToolDefinition) { tools.set(tool.name, tool); } },
+    tools: {
+      register(tool: ToolDefinition) {
+        tools.set(tool.name, tool);
+      },
+    },
   };
   try {
     apply(ctx as unknown as Context, { previewPort: 0, preferPro: false });
@@ -56,51 +65,97 @@ it('presents all five tools with native call views and declares explorer/image d
 
     // Generic edit locations are the host's producedPaths contract for deliverable links.
     expect(present('oil_ui_explorer')).toEqual({
-      card: 'generic', title: '生成风格对比页', kind: 'edit', locations: [{ path: 'style-explorer.html' }],
+      card: 'generic',
+      title: '生成风格对比页',
+      kind: 'edit',
+      locations: [{ path: 'style-explorer.html' }],
     });
     expect(present('oil_ui_explorer', { out: 'review/comparison.html' })).toMatchObject({
-      card: 'generic', kind: 'edit', locations: [{ path: 'review/comparison.html' }],
+      card: 'generic',
+      kind: 'edit',
+      locations: [{ path: 'review/comparison.html' }],
     });
     expect(present('oil_ui_image', { prompt: 'A ceramic vase' })).toEqual({
-      card: 'generic', title: '生成图片', kind: 'edit', locations: [{ path: 'assets/generated.png' }],
+      card: 'generic',
+      title: '生成图片',
+      kind: 'edit',
+      locations: [{ path: 'assets/generated.png' }],
     });
-    expect(present('oil_ui_image', { prompt: 'Change the color', images: ['assets/source.png'], out: 'assets/variant.webp' })).toEqual({
-      card: 'generic', title: '编辑图片', kind: 'edit', locations: [{ path: 'assets/variant.webp' }],
+    expect(
+      present('oil_ui_image', {
+        prompt: 'Change the color',
+        images: ['assets/source.png'],
+        out: 'assets/variant.webp',
+      }),
+    ).toEqual({
+      card: 'generic',
+      title: '编辑图片',
+      kind: 'edit',
+      locations: [{ path: 'assets/variant.webp' }],
     });
-    expect(present('oil_ui_image', { prompt: 'Generate', mode: 'generate', images: ['source.png'] })?.title).toBe('生成图片');
+    expect(present('oil_ui_image', { prompt: 'Generate', mode: 'generate', images: ['source.png'] })?.title).toBe(
+      '生成图片',
+    );
     expect(present('oil_ui_shoot')).toEqual({
-      card: 'generic', title: '截图与交互取证', kind: 'execute', locations: [{ path: 'index.html' }],
+      card: 'generic',
+      title: '截图与交互取证',
+      kind: 'execute',
+      locations: [{ path: 'index.html' }],
     });
     expect(present('oil_ui_shoot', { target: 'explore/a.html', out: 'shots/a.png' })).toMatchObject({
-      card: 'generic', kind: 'execute', locations: [{ path: 'explore/a.html' }, { path: 'shots/a.png' }],
+      card: 'generic',
+      kind: 'execute',
+      locations: [{ path: 'explore/a.html' }, { path: 'shots/a.png' }],
     });
     expect(present('oil_ui_media', { query: 'wood' })).toEqual({
-      card: 'generic', title: '搜索并下载素材', kind: 'fetch', locations: [{ path: 'assets/media' }],
+      card: 'generic',
+      title: '搜索并下载素材',
+      kind: 'fetch',
+      locations: [{ path: 'assets/media' }],
     });
     expect(present('oil_ui_media', { action: 'search', query: 'wood', dir: 'candidates' })).toEqual({
-      card: 'generic', title: '搜索素材', kind: 'search', locations: [{ path: 'candidates' }],
+      card: 'generic',
+      title: '搜索素材',
+      kind: 'search',
+      locations: [{ path: 'candidates' }],
     });
     expect(present('oil_ui_media', { action: 'preview', refs: ['T1'], out: 'shots/candidates.png' })).toEqual({
-      card: 'generic', title: '预览素材候选', kind: 'read', locations: [{ path: 'shots/candidates.png' }],
+      card: 'generic',
+      title: '预览素材候选',
+      kind: 'read',
+      locations: [{ path: 'shots/candidates.png' }],
     });
     expect(present('oil_ui_media', { refs: ['T1'], dir: 'assets', out: 'assets/wood.jpg' })).toEqual({
-      card: 'generic', title: '下载素材', kind: 'fetch', locations: [{ path: 'assets/wood.jpg' }],
+      card: 'generic',
+      title: '下载素材',
+      kind: 'fetch',
+      locations: [{ path: 'assets/wood.jpg' }],
     });
     expect(present('oil_ui_skill_status')).toEqual({ card: 'generic', title: '查看 Oil UI Skill 状态', kind: 'read' });
-    expect(present('oil_ui_skill_status', { update: true })).toEqual({ card: 'generic', title: '更新 Oil UI Skill', kind: 'read' });
+    expect(present('oil_ui_skill_status', { update: true })).toEqual({
+      card: 'generic',
+      title: '更新 Oil UI Skill',
+      kind: 'read',
+    });
 
     // Replay may contain malformed/older arguments; defineTool must degrade safely.
     expect(present('oil_ui_explorer', { out: 123 })).toBeUndefined();
     expect(present('oil_ui_image', {})).toBeUndefined();
   } finally {
-    await Promise.all(disposers.map(dispose => dispose()));
+    await Promise.all(disposers.map((dispose) => dispose()));
   }
 });
 
 it('registers 5 native Harness tools, validates their schemas and operates directly in session cwd', async () => {
   const root = await mkdtemp(join(tmpdir(), 'oil-plugin-'));
   const tools = new Map<string, ToolDefinition>();
-  const commands = new Map<string, { name: string; handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string } }>();
+  const commands = new Map<
+    string,
+    {
+      name: string;
+      handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string };
+    }
+  >();
   const pending: Promise<unknown>[] = [];
   const disposers: (() => void | Promise<void>)[] = [];
   let registration: SkillRegistration | undefined;
@@ -118,7 +173,10 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
       },
     },
     commands: {
-      register(cmd: { name: string; handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string } }) {
+      register(cmd: {
+        name: string;
+        handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string };
+      }) {
         commands.set(cmd.name, cmd);
         return () => {
           commands.delete(cmd.name);
@@ -185,9 +243,9 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
     });
     expect(tools.get('oil_ui_skill_status')!.isConcurrencySafe?.({})).toBe(true);
     expect(tools.get('oil_ui_media')!.isConcurrencySafe?.({ action: 'search', query: 'ceramic' })).toBe(true);
-    expect(tools.get('oil_ui_media')!.isConcurrencySafe?.({ action: 'search', query: 'ceramic', out: 'res.json' })).toBe(
-      false,
-    );
+    expect(
+      tools.get('oil_ui_media')!.isConcurrencySafe?.({ action: 'search', query: 'ceramic', out: 'res.json' }),
+    ).toBe(false);
     expect(tools.get('oil_ui_media')!.isConcurrencySafe?.({ action: 'fetch', refs: '1,2' })).toBe(false);
     for (const name of ['oil_ui_explorer', 'oil_ui_shoot', 'oil_ui_image']) {
       expect(tools.get(name)!.isConcurrencySafe?.({}) ?? false).toBe(false);
@@ -207,7 +265,8 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
       ['oil_ui_media', { refs: [1] }],
       ['oil_ui_media', { maps: false }],
       ['oil_ui_explorer', { manifest: [] }],
-    ] as const) await expect(run(name, args)).rejects.toThrow();
+    ] as const)
+      await expect(run(name, args)).rejects.toThrow();
 
     await expect(run('oil_ui_image', {})).rejects.toThrow();
     await expect(run('oil_ui_image', { prompt: '' })).rejects.toThrow('prompt');
@@ -228,7 +287,7 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
       'session-owned',
     );
   } finally {
-    await Promise.all(disposers.map(dispose => dispose()));
+    await Promise.all(disposers.map((dispose) => dispose()));
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -240,11 +299,20 @@ it('reads the Skill registry from the injected context instead of the apply cont
   vi.stubEnv('OIL_UI_PRO_DIR', '');
   const proDir = join(root, '.dsh/skills/oil-ui-pro');
   await mkdir(join(proDir, 'references'), { recursive: true });
-  await writeFile(join(proDir, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Pro\nmetadata:\n  version: 9.9.9\n---\nPro');
+  await writeFile(
+    join(proDir, 'SKILL.md'),
+    '---\nname: oil-ui-pro\ndescription: Pro\nmetadata:\n  version: 9.9.9\n---\nPro',
+  );
   await writeFile(join(proDir, 'references/reviewer-manual.md'), '# 视觉与交互评审手册 (Pro Injected Context)');
   const disposers: (() => void | Promise<void>)[] = [];
   const tools = new Map<string, ToolDefinition>();
-  const commands = new Map<string, { name: string; handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string } }>();
+  const commands = new Map<
+    string,
+    {
+      name: string;
+      handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string };
+    }
+  >();
   const createdListeners: ((payload: { agent: unknown }) => Promise<void> | void)[] = [];
   const pending: Promise<unknown>[] = [];
   let registration: SkillRegistration | undefined;
@@ -260,13 +328,20 @@ it('reads the Skill registry from the injected context instead of the apply cont
       const child = Object.create(ctx);
       if (services.includes('tools')) {
         Object.defineProperty(child, 'tools', {
-          value: { register(tool: ToolDefinition) { tools.set(tool.name, tool); } },
+          value: {
+            register(tool: ToolDefinition) {
+              tools.set(tool.name, tool);
+            },
+          },
         });
       }
       if (services.includes('commands')) {
         Object.defineProperty(child, 'commands', {
           value: {
-            register(cmd: { name: string; handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string } }) {
+            register(cmd: {
+              name: string;
+              handler: (inv: unknown) => Promise<{ kind: string; text?: string }> | { kind: string; text?: string };
+            }) {
               commands.set(cmd.name, cmd);
               return () => {};
             },
@@ -276,14 +351,20 @@ it('reads the Skill registry from the injected context instead of the apply cont
       if (services.includes('skills')) {
         Object.defineProperty(child, 'skills', {
           value: {
-            register(skill: SkillRegistration) { registration = skill; },
+            register(skill: SkillRegistration) {
+              registration = skill;
+            },
             get: async (name: string) => (registration?.name === name ? registration : undefined),
           },
         });
       }
       if (services.includes('systemPrompt')) {
         Object.defineProperty(child, 'systemPrompt', {
-          value: { section() { return () => {}; } },
+          value: {
+            section() {
+              return () => {};
+            },
+          },
         });
       }
       pending.push(Promise.resolve(fn(child)));
@@ -305,12 +386,14 @@ it('reads the Skill registry from the injected context instead of the apply cont
       activeSkillName: 'oil-ui-pro',
       edition: 'pro',
     });
-    await expect(commands.get('oil-ui-status')!.handler({
-      agent: exec.agent,
-      rawInput: '',
-      attachments: [],
-      signal: exec.signal,
-    })).resolves.toMatchObject({
+    await expect(
+      commands.get('oil-ui-status')!.handler({
+        agent: exec.agent,
+        rawInput: '',
+        attachments: [],
+        signal: exec.signal,
+      }),
+    ).resolves.toMatchObject({
       kind: 'success',
       text: expect.stringContaining('oil-ui-pro（Pro）'),
     });
@@ -319,14 +402,21 @@ it('reads the Skill registry from the injected context instead of the apply cont
       await listener({
         agent: {
           session: { id: 'sub-1', header: { cwd: root, origin: 'subagent' } },
-          ctx: { systemPrompt: { section(sec: { name: string; text: string }) { subSections.push(sec); return () => {}; } } },
+          ctx: {
+            systemPrompt: {
+              section(sec: { name: string; text: string }) {
+                subSections.push(sec);
+                return () => {};
+              },
+            },
+          },
         },
       });
     }
     await vi.waitFor(() => expect(subSections).toHaveLength(1), { timeout: 5000 });
     expect(subSections[0]!.text).toContain('Pro Injected Context');
   } finally {
-    await Promise.all(disposers.map(dispose => dispose()));
+    await Promise.all(disposers.map((dispose) => dispose()));
     localHome.path = '';
     await rm(root, { recursive: true, force: true });
   }
@@ -360,9 +450,9 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
       register: vi.fn(),
       get: registry.get.bind(registry),
       registerProvider(create: Parameters<SkillRegistry['registerProvider']>[0]) {
-        const dispose = registry.registerProvider(control => {
+        const dispose = registry.registerProvider((control) => {
           invalidate.mockImplementation(() => control.invalidate?.());
-          return provider = create({ ...control, invalidate });
+          return (provider = create({ ...control, invalidate }));
         });
         disposers.push(dispose);
         return dispose;
@@ -375,7 +465,7 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
     await Promise.all(pending);
     expect(ctx.skills.register).not.toHaveBeenCalled();
     expect(provider?.name).toBe('oil-ui-provider');
-    expect((await registry.list()).map(s => s.name)).toEqual(['oil-ui']);
+    expect((await registry.list()).map((s) => s.name)).toEqual(['oil-ui']);
     const before = await provider!.list({});
     expect(before).toEqual([expect.objectContaining({ name: 'oil-ui', rank: 20 })]);
 
@@ -384,7 +474,7 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
       join(pro, 'SKILL.md'),
       '---\nname: oil-ui-pro\ndescription: Hot-installed Pro\nmetadata:\n  version: hot\n---\nPro body with `scripts/shoot.mjs`',
     );
-    expect((await registry.list()).map(s => s.name)).toEqual(['oil-ui']);
+    expect((await registry.list()).map((s) => s.name)).toEqual(['oil-ui']);
     const exec = {
       agent: { session: { id: 'alice', header: { cwd: root } } },
       signal: new AbortController().signal,
@@ -395,27 +485,46 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
       proSourcePath: pro,
       visibleMatchesOriginal: true,
     });
-    expect((await registry.list()).map(s => s.name)).toEqual(['oil-ui-pro']);
+    expect((await registry.list()).map((s) => s.name)).toEqual(['oil-ui-pro']);
     expect(invalidate).toHaveBeenCalledTimes(1);
     await tools.get('oil_ui_skill_status')!.execute({}, exec);
     await tools.get('oil_ui_skill_status')!.execute({}, exec);
     expect(invalidate).toHaveBeenCalledTimes(1);
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ skills: { 'oil-ui-pro': { version: '0.0.0' } } }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ skills: { 'oil-ui-pro': { version: '0.0.0' } } }))),
+    );
     await tools.get('oil_ui_skill_status')!.execute({ update: true }, exec);
     expect(invalidate).toHaveBeenCalledTimes(2);
     const loadedPro = await registry.get('oil-ui-pro');
     expect(loadedPro?.content).toContain('oil_ui_shoot');
     expect(await provider!.list({})).toEqual([expect.objectContaining({ name: 'oil-ui-pro', rank: 10 })]);
-    disposers.push(registry.registerProvider(() => ({
-      name: 'filesystem',
-      async list() { return [{ name: 'oil-ui-pro', description: 'Raw filesystem Skill', source: 'project-dsh', provider: 'filesystem', rank: 100, locator: pro, invocation: { modelInvocable: true, userInvocable: true } }]; },
-      async get() { throw new Error('Filesystem Skill must lose arbitration'); },
-    })));
+    disposers.push(
+      registry.registerProvider(() => ({
+        name: 'filesystem',
+        async list() {
+          return [
+            {
+              name: 'oil-ui-pro',
+              description: 'Raw filesystem Skill',
+              source: 'project-dsh',
+              provider: 'filesystem',
+              rank: 100,
+              locator: pro,
+              invocation: { modelInvocable: true, userInvocable: true },
+            },
+          ];
+        },
+        async get() {
+          throw new Error('Filesystem Skill must lose arbitration');
+        },
+      })),
+    );
     expect((await registry.get('oil-ui-pro'))?.provider).toBe('oil-ui-provider');
     const old = Array.isArray(before) ? before[0] : undefined;
     expect(await provider!.get(old!, {})).toBeUndefined();
   } finally {
-    await Promise.all(disposers.map(dispose => dispose()));
+    await Promise.all(disposers.map((dispose) => dispose()));
     localHome.path = '';
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
@@ -517,7 +626,7 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
     for (const listener of createdListeners) await listener({ agent: liteSubagent });
     await vi.waitFor(() => expect(subSections).toHaveLength(1), { timeout: 5000 });
     expect(subSections[0]!.name).toBe('oil-ui-subagent-reviewer');
-    expect(subSections[0]!.text).toContain('/references');
+    expect(subSections[0]!.text).toContain(`${sep}references`);
     expect(subSections[0]!.text).toContain('ux-reviewer.md');
     expect(subSections[0]!.text).toContain('# 视觉与交互评审手册 (子 Agent 专用)');
     expect(subSections[0]!.text).toContain('oil_ui_shoot');
@@ -551,12 +660,10 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
     expect(proSubSections[0]!.text).toContain('Pro 专属标识');
     expect(proSubSections[0]!.text).toContain('能用 `oil_ui_shoot` 时');
   } finally {
-    await Promise.all(disposers.map(dispose => dispose()));
+    await Promise.all(disposers.map((dispose) => dispose()));
     await rm(root, { recursive: true, force: true });
   }
 });
-
-
 
 it('never awaits reviewer setup in agent/created, falls back after compile failure, and disposes only its own section', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-reviewer-fallback-')));
@@ -568,16 +675,33 @@ it('never awaits reviewer setup in agent/created, falls back after compile failu
   const disposeReviewer = vi.fn();
   const agent = {
     session: { header: { cwd: root, origin: 'subagent' } },
-    ctx: { systemPrompt: { section(section: { name: string; text: string }) {
-      sections.set(section.name, section.text);
-      return () => { sections.delete(section.name); disposeReviewer(); };
-    } } },
+    ctx: {
+      systemPrompt: {
+        section(section: { name: string; text: string }) {
+          sections.set(section.name, section.text);
+          return () => {
+            sections.delete(section.name);
+            disposeReviewer();
+          };
+        },
+      },
+    },
   };
   const ctx = {
-    effect(fn: () => () => void | Promise<void>) { disposers.push(fn()); },
-    inject(services: string[], fn: (value: unknown) => unknown) { if (services.includes('systemPrompt')) fn(ctx); },
-    systemPrompt: { section() { return () => {}; } },
-    on(_name: string, fn: typeof listener) { listener = fn; },
+    effect(fn: () => () => void | Promise<void>) {
+      disposers.push(fn());
+    },
+    inject(services: string[], fn: (value: unknown) => unknown) {
+      if (services.includes('systemPrompt')) fn(ctx);
+    },
+    systemPrompt: {
+      section() {
+        return () => {};
+      },
+    },
+    on(_name: string, fn: typeof listener) {
+      listener = fn;
+    },
   };
   try {
     await mkdir(join(pro, 'references'), { recursive: true });
@@ -587,16 +711,18 @@ it('never awaits reviewer setup in agent/created, falls back after compile failu
     apply(ctx as unknown as Context, { previewPort: 0, preferPro: true, proSkillDir: pro });
     expect(listener!({ agent })).toBeUndefined();
     expect(listener!({ agent })).toBeUndefined();
-    await vi.waitFor(() => expect(sections.get('oil-ui-subagent-reviewer')).toContain('# 视觉与交互评审手册'), { timeout: 5000 });
+    await vi.waitFor(() => expect(sections.get('oil-ui-subagent-reviewer')).toContain('# 视觉与交互评审手册'), {
+      timeout: 5000,
+    });
     expect(sections.get('oil-ui')).toBe(inherited);
     expect(sections.size).toBe(2);
-    await Promise.all(disposers.map(dispose => dispose()));
+    await Promise.all(disposers.map((dispose) => dispose()));
     expect(disposeReviewer).toHaveBeenCalledTimes(1);
     expect(sections.get('oil-ui')).toBe(inherited);
     expect(sections.size).toBe(1);
     expect(listener!({ agent })).toBeUndefined();
   } finally {
-    await Promise.all(disposers.map(dispose => dispose()));
+    await Promise.all(disposers.map((dispose) => dispose()));
     await rm(root, { recursive: true, force: true });
   }
 });
