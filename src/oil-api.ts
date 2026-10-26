@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { win32, posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 const DEFAULT_API = 'https://api.oiloil.org';
@@ -31,13 +31,22 @@ export class OilApiError extends Error {
   }
 }
 
+/** Match oil CLI and the bundled image script on each platform. */
+export function oilTokenConfigPath(env = process.env, platform = process.platform, home = homedir()): string {
+  const paths = platform === 'win32' ? win32 : posix;
+  const root = platform === 'win32'
+    ? env.APPDATA || paths.join(home, 'AppData', 'Roaming')
+    : env.XDG_CONFIG_HOME || paths.join(home, '.config');
+  return paths.join(root, 'oil', 'config.json');
+}
+
 /** Uses the same login token as oil CLI; the config `api` field is intentionally ignored. */
 export async function readOilToken(): Promise<string | null> {
   const envToken = process.env.OIL_TOKEN?.trim();
   if (envToken) return envToken;
 
   try {
-    const raw = await readFile(join(homedir(), '.config', 'oil', 'config.json'), 'utf8');
+    const raw = await readFile(oilTokenConfigPath(), 'utf8');
     const config: unknown = JSON.parse(raw);
     if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
     const token = (config as Record<string, unknown>).token;
