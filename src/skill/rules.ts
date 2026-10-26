@@ -43,6 +43,12 @@ const NATIVE_TOOL_COMMANDS_SECTION = `### 常用调用方式（\`oil_ui_shoot\`�
 
 写好三个候选首屏（如 \`explore/a.html\`、\`explore/b.html\`、\`explore/c.html\`）后，调用 \`oil_ui_explorer({ "manifest": "explore/manifest.json", "out": "style-explorer.html" })\` 即可生成内嵌全部本地资源的独立对比页。`;
 
+const hasDirectionImagery = (markdown: string) =>
+  markdown.includes('把每个方向用三四行写给用户') &&
+  markdown.includes('再列出首屏和关键区块需要的图') &&
+  markdown.includes('oil_ui_image') &&
+  markdown.includes('oil_ui_media');
+
 export type SkillEdition = 'lite' | 'pro';
 
 export interface MarkdownRule {
@@ -87,17 +93,20 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     file: 'SKILL.md',
     requiredIn: ['pro'],
     match:
-      /把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，用什么字体和色彩，主视觉靠什么；说服型页面再写上标题原文。/,
+      /把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，(?:核心动作怎样完成，)?用什么字体和色彩，主视觉靠什么；说服型页面再写上标题原文。/,
     replacement:
-      '把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，用什么字体和色彩，主视觉靠什么；再列出首屏和关键区块需要的图，逐张标注来源（检索、生成、代码绘制）。若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，且 `imageSource` 不是 `none`，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。说服型页面再写上标题原文。',
+      '把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，核心动作怎样完成，用什么字体和色彩，主视觉靠什么；再列出首屏和关键区块需要的图，逐张标注来源（检索、生成、代码绘制）。若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，且 `imageSource` 不是 `none`，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。说服型页面再写上标题原文。',
+    nativeSatisfied: hasDirectionImagery,
   },
   {
     id: 'skill.direction-images',
     file: 'SKILL.md',
     requiredIn: ['lite'],
-    match: /把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，用什么字体和色彩，主视觉靠什么。/,
+    match:
+      /把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，(?:核心动作怎样完成，)?用什么字体和色彩，主视觉靠什么。/,
     replacement:
-      '把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，用什么字体和色彩，主视觉靠什么；再列出首屏和关键区块需要的图，逐张标注来源（检索、生成、代码绘制）。若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，且 `imageSource` 不是 `none`，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。',
+      '把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，核心动作怎样完成，用什么字体和色彩，主视觉靠什么；再列出首屏和关键区块需要的图，逐张标注来源（检索、生成、代码绘制）。若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，且 `imageSource` 不是 `none`，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。',
+    nativeSatisfied: hasDirectionImagery,
   },
   {
     id: 'skill.prototype-images.pro',
@@ -204,8 +213,16 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     id: 'tools.evidence',
     file: 'references/tools.md',
     requiredIn: ['lite', 'pro'],
-    match: /用 `--evidence` 一次取齐/g,
-    replacement: '用 `oil_ui_shoot`（`evidence: true`）一次取齐',
+    match: /用 `--evidence`(?= 一次取齐| 给选定画面生成)/g,
+    replacement: '用 `oil_ui_shoot`（`evidence: true`）',
+  },
+  {
+    id: 'tools.evidence-mask',
+    file: 'references/tools.md',
+    requiredIn: [],
+    optionalReason: 'Compatibility with upstream versions that document single-state --mask evidence.',
+    match: /单状态需要遮字图时加 `--mask`/g,
+    replacement: '单状态需要遮字图时设 `mask: true`',
   },
   {
     id: 'tools.dom-hints',
