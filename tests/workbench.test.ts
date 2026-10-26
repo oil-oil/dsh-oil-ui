@@ -2,16 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir, symlink, readFile, readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { DesignWorkbench } from '../src/workbench.ts';
+import { DesignWorkbench } from '../src/workbench/index.ts';
 import { buildExplorer, Embedder } from '../src/explorer.ts';
-import { bundledSkillDirectory, type ActiveSkill } from '../src/upstream.ts';
+import { bundledSkillDirectory, type ActiveSkill } from '../src/skill/upstream.ts';
 import { ManagedProcesses } from '../src/processes.ts';
 import type { ImageRequest } from '../src/tool-requests.ts';
 
 vi.mock('node:fs/promises', { spy: true });
 
 const localHome = vi.hoisted(() => ({ path: '' }));
-vi.mock('node:os', async original => {
+vi.mock('node:os', async (original) => {
   const os = await original<typeof import('node:os')>();
   return { ...os, homedir: () => localHome.path || os.homedir() };
 });
@@ -79,7 +79,10 @@ describe('workspace-rooted preview server and security boundaries', () => {
     await mkdir(join(cwd, 'explore'), { recursive: true });
     await mkdir(join(cwd, 'assets'), { recursive: true });
     await writeFile(join(cwd, 'index.html'), '<!doctype html><title>Workspace page</title>');
-    await writeFile(join(cwd, 'explore/a.html'), '<!doctype html><title>Candidate A</title><img src="../assets/hero.png">');
+    await writeFile(
+      join(cwd, 'explore/a.html'),
+      '<!doctype html><title>Candidate A</title><img src="../assets/hero.png">',
+    );
     await writeFile(join(cwd, 'assets/font.ttf'), Buffer.from([0, 1, 0, 0]));
 
     const base = await w.preview(cwd);
@@ -143,8 +146,8 @@ describe('native explorer and managed scripts in cwd', () => {
     expect(data.project).toBeUndefined();
     expect(data.brief).toBeUndefined();
     expect(data.round).toBeUndefined();
-    expect(data.candidates.map(candidate => candidate.id)).toEqual(['candidate-1', 'candidate-2']);
-    expect(data.candidates.map(candidate => candidate.name)).toEqual(['Named from title', 'untitled']);
+    expect(data.candidates.map((candidate) => candidate.id)).toEqual(['candidate-1', 'candidate-2']);
+    expect(data.candidates.map((candidate) => candidate.name)).toEqual(['Named from title', 'untitled']);
     for (const candidate of data.candidates) {
       for (const key of ['concept', 'typography', 'palette', 'traits']) expect(candidate).not.toHaveProperty(key);
     }
@@ -158,7 +161,10 @@ describe('native explorer and managed scripts in cwd', () => {
     await mkdir(join(cwd, 'explore'), { recursive: true });
     await mkdir(join(cwd, 'assets'), { recursive: true });
     await writeFile(join(cwd, 'explore/theme.css'), '@import "base.css";body{background:url("../assets/pixel.png")}');
-    await writeFile(join(cwd, 'explore/base.css'), '@font-face{font-family:Test;src:url("../assets/font.woff2")}body{color:#123456}');
+    await writeFile(
+      join(cwd, 'explore/base.css'),
+      '@font-face{font-family:Test;src:url("../assets/font.woff2")}body{color:#123456}',
+    );
     await writeFile(join(cwd, 'assets/pixel.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     await writeFile(join(cwd, 'assets/font.woff2'), 'font fixture');
     for (const id of ['a', 'b', 'c']) {
@@ -184,7 +190,9 @@ describe('native explorer and managed scripts in cwd', () => {
     expect(data.candidates[0]?.content).toContain('data:font/woff2;base64,');
     expect(data.candidates[0]?.content).not.toContain('@import');
     expect(data.candidates[0]?.content).toContain("script-src 'none'");
-    expect(JSON.parse(await readFile(join(cwd, 'explore/manifest.json'), 'utf8')).candidates[0].name).toBe('Direction a');
+    expect(JSON.parse(await readFile(join(cwd, 'explore/manifest.json'), 'utf8')).candidates[0].name).toBe(
+      'Direction a',
+    );
 
     const res = await fetch(result.explorerUrl);
     expect(res.status).toBe(200);
@@ -217,22 +225,28 @@ describe('native explorer and managed scripts in cwd', () => {
     expect(directoryResult.manifestPath).toBe('directions/manifest.json');
     let html = await readFile(join(cwd, directoryResult.explorerPath), 'utf8');
     let data = explorerData(html);
-    expect(data.candidates.map(candidate => candidate.name)).toEqual(['Alpha direction', 'b']);
+    expect(data.candidates.map((candidate) => candidate.name)).toEqual(['Alpha direction', 'b']);
 
     await writeFile(join(directory, 'a.html'), '<title>Updated alpha</title>');
     const filesResult = await w.explorer(cwd, { inputs: ['directions/a.html', 'directions/b.html'] });
     expect(filesResult.explorerPath).toBe('style-explorer.html');
     html = await readFile(join(cwd, filesResult.explorerPath), 'utf8');
     data = explorerData(html);
-    expect(data.candidates.map(candidate => candidate.name)).toEqual(['Updated alpha', 'b']);
+    expect(data.candidates.map((candidate) => candidate.name)).toEqual(['Updated alpha', 'b']);
   });
 
   it('accepts JSON manifests, embeds scripts/images, constrains URLs and escapes injected metadata', async () => {
     const { w, cwd, root } = await setup();
     await mkdir(join(cwd, 'explore'), { recursive: true });
     await mkdir(join(cwd, 'assets'), { recursive: true });
-    await writeFile(join(cwd, 'explore/a.html'), '<title>Interactive</title><script src="app.js" defer></script><button>Test</button>');
-    await writeFile(join(cwd, 'explore/app.js'), 'localStorage.setItem("loaded","true");document.body.dataset.ready="yes";');
+    await writeFile(
+      join(cwd, 'explore/a.html'),
+      '<title>Interactive</title><script src="app.js" defer></script><button>Test</button>',
+    );
+    await writeFile(
+      join(cwd, 'explore/app.js'),
+      'localStorage.setItem("loaded","true");document.body.dataset.ready="yes";',
+    );
     await writeFile(join(cwd, 'assets/pixel.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     const c = {
       id: 'a',
@@ -260,7 +274,9 @@ describe('native explorer and managed scripts in cwd', () => {
     const data = explorerData(html);
     expect(html).toContain('connect-src http://127.0.0.1:5173');
     expect(html).not.toContain('</script><script>escape');
-    expect(html).toContain("if(c.typography)row(t('fonts'),c.typography);if(c.traits?.length)row(t('traits'),c.traits.join(' · '))");
+    expect(html).toContain(
+      "if(c.typography)row(t('fonts'),c.typography);if(c.traits?.length)row(t('traits'),c.traits.join(' · '))",
+    );
     expect(data.candidates[0]?.content).toContain('Object.defineProperty(window');
     expect(data.candidates[0]?.content).toContain('localStorage.setItem');
     expect(data.candidates[0]?.content).not.toContain('src="app.js"');
@@ -336,6 +352,7 @@ describe('native explorer and managed scripts in cwd', () => {
       waitMs: 10,
     });
     expect(result.ok).toBe(true);
+    expect(result).not.toHaveProperty('source');
     expect(result.outputFiles).toEqual([join(cwd, 'shots/idle.png')]);
     expect(await readFile(join(cwd, 'shots/idle.png'), 'utf8')).toBe('image bytes');
     const shotsEntries = await readdir(join(cwd, 'shots'));
@@ -375,7 +392,13 @@ describe('native explorer and managed scripts in cwd', () => {
     expect(await readFile(previewed.sheetPath!, 'utf8')).toBe('preview-sheet');
 
     const fetched = await w.media(cwd, { action: 'fetch', refs: 'M1', dir: 'assets/media', sheet: false });
-    expect(fetched).toMatchObject({ ok: true, action: 'fetch', count: 1, outputDir: join(cwd, 'assets/media'), sheetPath: null });
+    expect(fetched).toMatchObject({
+      ok: true,
+      action: 'fetch',
+      count: 1,
+      outputDir: join(cwd, 'assets/media'),
+      sheetPath: null,
+    });
 
     const combined = await w.media(cwd, { query: 'bridge | landscape', sources: 'met' });
     expect(combined).toMatchObject({
@@ -390,14 +413,16 @@ describe('native explorer and managed scripts in cwd', () => {
   });
 
   it('terminates timed-out scripts and kills active scripts when disposed', async () => {
-    const { w, cwd } = await scriptedWorkbench(`console.log('started');process.on('SIGTERM',()=>{});setInterval(()=>{},1000);`);
+    const { w, cwd } = await scriptedWorkbench(
+      `console.log('started');process.on('SIGTERM',()=>{});setInterval(()=>{},1000);`,
+    );
     const result = await w.shoot(cwd, { timeoutMs: 100 });
     expect(result.ok).toBe(false);
     expect(result.stderr).toContain('timed out');
     const running = w.shoot(cwd, { timeoutMs: 10000 });
     for (let i = 0; i < 100; i++) {
       if ((w as unknown as { processes: { active: Set<unknown> } }).processes.active.size) break;
-      await new Promise(resolve => setTimeout(resolve, 5));
+      await new Promise((resolve) => setTimeout(resolve, 5));
     }
     await w.dispose();
     expect((await running).ok).toBe(false);
@@ -414,13 +439,15 @@ it('honors Harness cancellation and reports malformed media output as structured
   const running = w.shoot(cwd, { timeoutMs: 10000 }, controller.signal);
   for (let i = 0; i < 100; i++) {
     if ((w as unknown as { processes: { active: Set<unknown> } }).processes.active.size) break;
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   controller.abort();
   expect(await running).toMatchObject({ ok: false, outputFiles: [] });
   const media = await w.media(cwd, { query: 'landscape' });
   expect(media).toMatchObject({ ok: false, count: 0, items: [], sheetPath: null });
-  expect(media.errors).toEqual(expect.arrayContaining([expect.objectContaining({ message: 'Media script returned invalid JSON' })]));
+  expect(media.errors).toEqual(
+    expect.arrayContaining([expect.objectContaining({ message: 'Media script returned invalid JSON' })]),
+  );
 });
 
 it('hot-switches explorer templates and scripts on one workbench after Pro is installed', async () => {
@@ -484,7 +511,7 @@ async function imageWorkbench(body = IMAGE_MOCK) {
 }
 
 async function promptsIn(directory: string) {
-  return (await readdir(directory)).filter(name => name.startsWith('.prompt-'));
+  return (await readdir(directory)).filter((name) => name.startsWith('.prompt-'));
 }
 
 describe('managed image generation and editing in cwd', () => {
@@ -517,6 +544,7 @@ describe('managed image generation and editing in cwd', () => {
     const result = await w.image(cwd, { prompt, background: 'transparent', model: 'test-model' });
     expect(result).toMatchObject({
       ok: true,
+      source: 'image-gen',
       mode: 'generate',
       model: 'test-model',
       size: '1024x1024',
@@ -530,13 +558,21 @@ describe('managed image generation and editing in cwd', () => {
     expect(args).not.toContain('--force');
     expect(args).toContain('--prompt-file');
     expect(args).not.toContain(prompt);
-    expect(ManagedProcesses.prototype.runCommand).toHaveBeenCalledWith('python3', expect.any(Array), cwd, 180000, undefined);
+    expect(ManagedProcesses.prototype.runCommand).toHaveBeenCalledWith(
+      'python3',
+      expect.any(Array),
+      cwd,
+      180000,
+      undefined,
+    );
     expect(await readFile(result.outputFiles[0]!, 'utf8')).toBe('image fixture');
     expect(await promptsIn(join(cwd, 'assets'))).toEqual([]);
     await expect(readFile(String(result.data?.promptFile))).rejects.toThrow();
     const next = await w.image(cwd, { prompt: 'Keep existing', force: false });
     expect(next.outputFiles).toEqual([join(cwd, 'assets/generated-1.png')]);
-    await expect(w.image(cwd, { prompt: 'Keep existing', out: 'assets/generated.png' })).rejects.toThrow('already exists');
+    await expect(w.image(cwd, { prompt: 'Keep existing', out: 'assets/generated.png' })).rejects.toThrow(
+      'already exists',
+    );
     const forced = await w.image(cwd, { prompt: 'Replace', force: true });
     expect(forced.data?.args).toContain('--force');
   });
@@ -556,7 +592,7 @@ describe('managed image generation and editing in cwd', () => {
     });
     expect(result).toMatchObject({ ok: true, mode: 'edit', size: '1536x1024' });
     const args = result.data?.args as string[];
-    expect(args.filter(arg => arg === '--image')).toHaveLength(2);
+    expect(args.filter((arg) => arg === '--image')).toHaveLength(2);
     for (const image of images) expect(args).toContain(join(cwd, image));
     const explicit = await w.image(cwd, {
       prompt: 'Edit',
@@ -573,7 +609,9 @@ describe('managed image generation and editing in cwd', () => {
   });
 
   it('cleans prompts after a nonzero exit and malformed JSON', async () => {
-    const { w, cwd } = await imageWorkbench(`console.error('mock generation failed');console.log('not JSON');process.exitCode=1;`);
+    const { w, cwd } = await imageWorkbench(
+      `console.error('mock generation failed');console.log('not JSON');process.exitCode=1;`,
+    );
     expect(await w.image(cwd, { prompt: 'Fail safely' })).toMatchObject({
       ok: false,
       outputFiles: [],
@@ -620,8 +658,10 @@ it('streams preview files with HEAD, bounded/open/suffix ranges and unsatisfiabl
   expect(head.headers.get('accept-ranges')).toBe('bytes');
   expect(await head.text()).toBe('');
   for (const [range, body, contentRange] of [
-    ['bytes=2-5', '2345', 'bytes 2-5/10'], ['bytes=8-', '89', 'bytes 8-9/10'],
-    ['bytes=-3', '789', 'bytes 7-9/10'], ['bytes=8-999', '89', 'bytes 8-9/10'],
+    ['bytes=2-5', '2345', 'bytes 2-5/10'],
+    ['bytes=8-', '89', 'bytes 8-9/10'],
+    ['bytes=-3', '789', 'bytes 7-9/10'],
+    ['bytes=8-999', '89', 'bytes 8-9/10'],
   ]) {
     const res = await fetch(url, { headers: { Range: range! } });
     expect(res.status).toBe(206);
@@ -657,7 +697,10 @@ it('forwards selector as a native element crop without adding steps or marks', a
   const result = await w.shoot(cwd, { selector: '  #hero > .card  ' });
   expect(result).toMatchObject({ ok: true, selectorMode: 'crop', outputFiles: [join(cwd, 'shots/desktop.png')] });
   const args = JSON.parse(result.stdout);
-  expect(args.slice(args.indexOf('--selector'), args.indexOf('--selector') + 2)).toEqual(['--selector', '#hero > .card']);
+  expect(args.slice(args.indexOf('--selector'), args.indexOf('--selector') + 2)).toEqual([
+    '--selector',
+    '#hero > .card',
+  ]);
   expect(args).not.toContain('--steps');
   expect(args).not.toContain('--mark');
 });
@@ -672,24 +715,39 @@ it.each([
 ])('forwards batch target $target to the real shoot.mjs dry-run parser', async ({ target, manifest, index }) => {
   const { w, cwd } = await setup();
   await mkdir(join(cwd, 'explore'));
-  for (const id of ['a', 'b', 'style-explorer']) await writeFile(join(cwd, `explore/${id}.html`), `<title>${id}</title>`);
+  for (const id of ['a', 'b', 'style-explorer'])
+    await writeFile(join(cwd, `explore/${id}.html`), `<title>${id}</title>`);
   if (index) await writeFile(join(cwd, 'explore/index.html'), '<title>Index</title>');
-  if (manifest) await writeFile(join(cwd, 'explore/manifest.json'), JSON.stringify({
-    candidates: [{ id: 'b', source: 'b.html' }, { id: 'a', source: 'a.html' }],
-  }));
+  if (manifest)
+    await writeFile(
+      join(cwd, 'explore/manifest.json'),
+      JSON.stringify({
+        candidates: [
+          { id: 'b', source: 'b.html' },
+          { id: 'a', source: 'a.html' },
+        ],
+      }),
+    );
   const run = vi.spyOn(ManagedProcesses.prototype, 'run');
   const preview = vi.spyOn(w, 'preview');
   const result = await w.shoot(cwd, { target, noSheet: true, dryRun: true });
   expect(result.ok, result.stderr).toBe(true);
   expect(result.outputFiles).toEqual([]);
-  const localTargets = Array.isArray(target) ? target : target.split(',').map(p => p.trim());
+  const localTargets = Array.isArray(target) ? target : target.split(',').map((p) => p.trim());
   expect(run.mock.calls[0]?.[1]).toEqual([
-    ...localTargets.map(p => join(cwd, p)), '--size', '1440x900', '--no-sheet', '--dry-run', '--out', join(cwd, 'shots'),
+    ...localTargets.map((p) => join(cwd, p)),
+    '--size',
+    '1440x900',
+    '--no-sheet',
+    '--dry-run',
+    '--out',
+    join(cwd, 'shots'),
   ]);
   expect(preview).not.toHaveBeenCalled();
   const parsed = JSON.parse(result.stdout);
-  const expectedTargets = (manifest ? ['b', 'a'] : Array.isArray(target) && target.length === 1 ? ['a'] : ['a', 'b'])
-    .map(id => join(cwd, `explore/${id}.html`));
+  const expectedTargets = (
+    manifest ? ['b', 'a'] : Array.isArray(target) && target.length === 1 ? ['a'] : ['a', 'b']
+  ).map((id) => join(cwd, `explore/${id}.html`));
   expect(parsed.targets ?? [parsed.target]).toEqual(expectedTargets);
   expect(parsed.flags).toContain('no-sheet');
   expect(parsed.options.out).toBe(join(cwd, 'shots'));
@@ -703,8 +761,12 @@ it('validates every local batch target before starting the screenshot engine', a
   await symlink(root, join(cwd, 'linked'));
   const run = vi.spyOn(ManagedProcesses.prototype, 'run');
   for (const target of [
-    [], ['index.html', ''], ['index.html', 'missing.html'], ['index.html', '../outside.html'],
-    ['index.html', 'linked/outside.html'], 'index.html, ../outside.html',
+    [],
+    ['index.html', ''],
+    ['index.html', 'missing.html'],
+    ['index.html', '../outside.html'],
+    ['index.html', 'linked/outside.html'],
+    'index.html, ../outside.html',
   ]) {
     await expect(w.shoot(cwd, { target, dryRun: true })).rejects.toThrow();
   }
@@ -719,8 +781,11 @@ it('keeps preview URLs for index directories and preserves HTTP targets containi
     const result = await w.shoot(cwd, { target, dryRun: true, noSheet: false });
     expect(result.ok, result.stderr).toBe(true);
     const parsed = JSON.parse(result.stdout);
-    expect(parsed.target).toMatch(target.startsWith('https:') ? /^https:\/\/example\.com\/page\?tags=a,b#hero$/ :
-      /^http:\/\/127\.0\.0\.1:\d+\/site\/index\.html\?state=ready#hero$/);
+    expect(parsed.target).toMatch(
+      target.startsWith('https:')
+        ? /^https:\/\/example\.com\/page\?tags=a,b#hero$/
+        : /^http:\/\/127\.0\.0\.1:\d+\/site\/index\.html\?state=ready#hero$/,
+    );
     expect(parsed.options.out).toContain('.shoot-tmp-');
     expect(parsed.flags).not.toContain('no-sheet');
   }
@@ -732,7 +797,10 @@ it('parses native selector crops and rejects incompatible modes in the real shoo
   const result = await w.shoot(cwd, { selector: '  #hero  ', dryRun: true });
   expect(result.ok, result.stderr).toBe(true);
   expect(JSON.parse(result.stdout)).toMatchObject({
-    selector: { kind: 'css', value: '#hero' }, options: { selector: '#hero' }, groups: [], marks: [],
+    selector: { kind: 'css', value: '#hero' },
+    options: { selector: '#hero' },
+    groups: [],
+    marks: [],
   });
   for (const input of [{ fullPage: true }, { record: true }, { motion: true }, { entry: true }, { evidence: true }]) {
     const conflict = await w.shoot(cwd, { ...input, selector: '#hero', dryRun: true });
@@ -745,7 +813,13 @@ it('uses real shoot.mjs dry-run parsing for uppercase presets, dimensions and st
   const { w, cwd } = await setup();
   await writeFile(join(cwd, 'index.html'), '<title>Native dry-run</title>');
   for (const size of ['DESKTOP', '1440X900']) {
-    const result = await w.shoot(cwd, { target: 'index.html?state=ready#hero', size, record: 'false', motion: 'false', dryRun: true });
+    const result = await w.shoot(cwd, {
+      target: 'index.html?state=ready#hero',
+      size,
+      record: 'false',
+      motion: 'false',
+      dryRun: true,
+    });
     expect(result.ok, result.stderr).toBe(true);
     const parsed = JSON.parse(result.stdout);
     expect(parsed.sizes).toEqual([{ w: 1440, h: 900 }]);
@@ -753,12 +827,17 @@ it('uses real shoot.mjs dry-run parsing for uppercase presets, dimensions and st
     expect(parsed.flags).not.toContain('motion');
     expect(result.stdout).toContain('?state=ready#hero');
   }
-  for (const input of [{ states: ['idle', 'done'] }, { evidence: true }, { size: 'desktop,mobile' }, { record: true }]) {
+  for (const input of [
+    { states: ['idle', 'done'] },
+    { evidence: true },
+    { size: 'desktop,mobile' },
+    { record: true },
+  ]) {
     await expect(w.shoot(cwd, { ...input, out: 'shots/single.png' })).rejects.toThrow('directory');
   }
   const single = await w.shoot(cwd, { out: 'shots/single.png', record: 'false', motion: 'false', dryRun: true });
   expect(single.ok, single.stderr).toBe(true);
-  expect((await readdir(join(cwd, 'shots'))).some(name => name.startsWith('.shoot-tmp-'))).toBe(false);
+  expect((await readdir(join(cwd, 'shots'))).some((name) => name.startsWith('.shoot-tmp-'))).toBe(false);
 });
 
 it('maps preview and array options through the real media parser, surfaces failed copies, and ignores unrelated output symlinks', async () => {
@@ -778,14 +857,18 @@ it('maps preview and array options through the real media parser, surfaces faile
     }
     return { ok: true, timedOut: false, exitCode: 0, stdout: JSON.stringify({ items: [], files: [] }), stderr: '' };
   });
-  expect(await w.media(cwd, { action: 'preview', refs: ['L1'], dir: 'candidates', out: 'shots/preview.png' })).toMatchObject({ ok: true, sheetPath: join(cwd, 'shots/preview.png') });
+  expect(
+    await w.media(cwd, { action: 'preview', refs: ['L1'], dir: 'candidates', out: 'shots/preview.png' }),
+  ).toMatchObject({ ok: true, sheetPath: join(cwd, 'shots/preview.png') });
   expect(await readFile(join(cwd, 'shots/preview.png'), 'utf8')).toBe('sheet');
   await w.media(cwd, { action: 'search', query: 'bridge', dir: 'candidates', sources: ['loc'] });
   await w.media(cwd, { action: 'fetch', refs: ['L1'], dir: 'assets', maps: ['normal', 'roughness'], sheet: false });
-  expect(commands.every(command => command.opts.cache === join(cwd, '.curate-cache.json'))).toBe(true);
+  expect(commands.every((command) => command.opts.cache === join(cwd, '.curate-cache.json'))).toBe(true);
   expect(commands[2]!.opts.maps).toEqual(['normal', 'roughness']);
   await mkdir(join(cwd, 'shots/is-directory.png'));
-  await expect(w.media(cwd, { action: 'preview', refs: 'L1', dir: 'candidates', out: 'shots/is-directory.png' })).rejects.toThrow();
+  await expect(
+    w.media(cwd, { action: 'preview', refs: 'L1', dir: 'candidates', out: 'shots/is-directory.png' }),
+  ).rejects.toThrow();
 });
 
 it('executes real curate-media search in candidates and fetch in assets using one workspace cache', async () => {
@@ -799,7 +882,13 @@ it('executes real curate-media search in candidates and fetch in assets using on
       throw Error('Unexpected network request: '+url);
     };await main();`;
   const { w, cwd } = await scriptedWorkbench('', wrapper);
-  const search = await w.media(cwd, { action: 'search', query: 'bridge', kind: 'blueprint', dir: 'candidates', sources: ['loc'] });
+  const search = await w.media(cwd, {
+    action: 'search',
+    query: 'bridge',
+    kind: 'blueprint',
+    dir: 'candidates',
+    sources: ['loc'],
+  });
   expect(search.ok, search.stderr).toBe(true);
   expect(search.count).toBe(1);
   const ref = String((search.items[0] as Record<string, unknown>).ref);
@@ -808,7 +897,9 @@ it('executes real curate-media search in candidates and fetch in assets using on
   const fetched = await w.media(cwd, { action: 'fetch', refs: [ref], dir: 'assets', sheet: false });
   expect(fetched.ok, `${fetched.stderr}\n${JSON.stringify(fetched.errors)}`).toBe(true);
   expect(fetched.count).toBe(1);
-  expect(await readFile(String((fetched.items[0] as Record<string, unknown>).saved))).toEqual(Buffer.from(png, 'base64'));
+  expect(await readFile(String((fetched.items[0] as Record<string, unknown>).saved))).toEqual(
+    Buffer.from(png, 'base64'),
+  );
   expect(await readFile(join(cwd, 'assets/SOURCES.md'), 'utf8')).toContain('Bridge drawing');
 }, 20000);
 

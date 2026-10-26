@@ -61,7 +61,7 @@ interface RequestOptions {
 }
 
 export async function requestOilApi<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const token = options.token ?? await readOilToken();
+  const token = options.token ?? (await readOilToken());
   if (!token) throw new OilApiError(401, 'not_logged_in', '尚未登录 oiloil。');
 
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -84,9 +84,10 @@ export async function requestOilApi<T>(path: string, options: RequestOptions = {
     payload = null;
   }
   if (!response.ok) {
-    const error = payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as { error?: { code?: unknown; message?: unknown } }).error
-      : undefined;
+    const error =
+      payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? (payload as { error?: { code?: unknown; message?: unknown } }).error
+        : undefined;
     throw new OilApiError(
       response.status,
       typeof error?.code === 'string' ? error.code : 'api_error',

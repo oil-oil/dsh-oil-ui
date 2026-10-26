@@ -1,106 +1,140 @@
 #!/usr/bin/env node
 
-import { parse } from 'yaml'
-import { publicSkillFiles } from './public-skill-files.mjs'
-import { transformSkillMarkdown, validateSkillTree } from '../src/transform.ts'
-import { createHash } from 'node:crypto'
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process';
+import {
+  chmod,
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
+import { TRANSFORM_VERSION, transformSkillMarkdown, validateSkillTree } from '../src/skill/transform.ts';
+import {
+  assertNoProResources,
+  assertPublicSkillFiles,
+  inside,
+  isExcludedSkillPath,
+  sha256,
+  skillExclusionRules,
+  toPosix,
+  verifySkillEntries,
+  verifySkillSnapshot,
+} from './lib/skill-distribution.mjs';
 
-const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
-const skillsDirectory = path.resolve(scriptDirectory, '..', 'skills')
-const destinationDirectory = path.join(skillsDirectory, 'oil-ui')
-const manifestPath = path.join(skillsDirectory, 'oil-ui.manifest.json')
-const excludedNames = new Set(['.git', '.DS_Store', '__pycache__'])
-// Documentation-only artwork and duplicate English README are outside the 41-file runtime distribution.
-const documentationOnly = new Set(['assets/readme', 'README.en.md'])
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const skillsDirectory = path.join(root, 'skills');
+const destinationDirectory = path.join(skillsDirectory, 'oil-ui');
+const manifestPath = path.join(skillsDirectory, 'oil-ui.manifest.json');
+const sourceRepository = 'https://github.com/oil-oil/oil-ui';
 
 function usage() {
-  process.stderr.write('Usage: node scripts/vendor-oil-ui.mjs <source-skill-directory>\n')
-  process.exitCode = 2
+  return [
+    'Usage: node scripts/vendor-oil-ui.mjs [source-skill-directory] [--check]',
+    '       node scripts/vendor-oil-ui.mjs --source <source-skill-directory> [--check]',
+    '',
+    'Options:',
+    '  --source <dir>  oil-ui Git checkout. Defaults to OIL_UI_SOURCE_DIR or ../oil-ui.',
+    '  --check         Generate in a temporary directory and verify the committed snapshot.',
+    '  --help          Show this help.',
+    '',
+    'OIL_UI_SOURCE_COMMIT may identify a non-Git source archive. OIL_UI_REPO is deprecated.',
+  ].join('\n');
 }
 
-function inside(root, candidate) {
-  return candidate === root || candidate.startsWith(`${root}${path.sep}`)
-}
-
-function toPosix(relativePath) {
-  return relativePath.split(path.sep).join('/')
-}
-
-function excluded(relativePath, name, isDirectory) {
-  if (excludedNames.has(name) || documentationOnly.has(toPosix(relativePath))) return true
-  return !isDirectory && name.endsWith('.pyc')
-}
-
-function versionFromSkill(markdown) {
-  const frontmatter = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
-  if (!frontmatter) throw new Error('The source SKILL.md has no YAML frontmatter.')
-
-  let inMetadata = false
-  for (const line of frontmatter[1].split(/\r?\n/)) {
-    if (/^metadata:\s*$/.test(line)) {
-      inMetadata = true
-      continue
+function parseArguments(argv) {
+  let source;
+  let check = false;
+  let help = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--') {
+      continue;
+    } else if (argument === '--help' || argument === '-h') {
+      help = true;
+    } else if (argument === '--check') {
+      check = true;
+    } else if (argument === '--source') {
+      source = argv[++index];
+      if (!source) throw new Error('--source requires a directory.');
+    } else if (argument.startsWith('--')) {
+      throw new Error(`Unknown option: ${argument}`);
+    } else if (source) {
+      throw new Error('Specify the source directory only once.');
+    } else {
+      source = argument;
     }
-    if (inMetadata && /^[^\s#][^:]*:\s*/.test(line)) inMetadata = false
-    if (!inMetadata) continue
-    const version = line.match(/^\s+version:\s*["']?([^"'\s]+)["']?\s*$/)
-    if (version) return version[1]
   }
-  throw new Error('The source SKILL.md metadata does not declare a version.')
+  return { source, check, help };
 }
 
-async function sha256(filePath) {
-  return createHash('sha256').update(await readFile(filePath)).digest('hex')
-}
-
-async function collectFiles(root, directory = root, relativeDirectory = '', ancestors = [], entries = [], exclusions = [], symlinks = []) {
-  const realDirectory = await realpath(directory)
-  if (!inside(root, realDirectory)) {
-    throw new Error(`Source directory escaped the supplied root at ${toPosix(relativeDirectory || '.')}.`)
+async function collectFiles(
+  rootDirectory,
+  directory = rootDirectory,
+  relativeDirectory = '',
+  ancestors = [],
+  entries = [],
+  exclusions = [],
+  symlinks = [],
+) {
+  const realDirectory = await realpath(directory);
+  if (!inside(rootDirectory, realDirectory)) {
+    throw new Error(`Source directory escaped the supplied root at ${toPosix(relativeDirectory || '.')}.`);
   }
   if (ancestors.includes(realDirectory)) {
-    throw new Error(`A directory symlink cycle was found at ${toPosix(relativeDirectory || '.')}.`)
+    throw new Error(`A directory symlink cycle was found at ${toPosix(relativeDirectory)}.`);
   }
 
-  const rows = await readdir(directory, { withFileTypes: true })
-  for (const row of rows) {
-    const relativePath = relativeDirectory ? path.join(relativeDirectory, row.name) : row.name
-    const absolutePath = path.join(directory, row.name)
-    const linkInfo = await lstat(absolutePath)
-    let resolvedPath = absolutePath
-    let sourceKind = 'file'
+  for (const row of await readdir(directory, { withFileTypes: true })) {
+    const relativePath = relativeDirectory ? path.join(relativeDirectory, row.name) : row.name;
+    const absolutePath = path.join(directory, row.name);
+    const linkInfo = await lstat(absolutePath);
+    let resolvedPath = absolutePath;
+    let sourceKind = 'file';
 
     if (linkInfo.isSymbolicLink()) {
-      resolvedPath = await realpath(absolutePath)
-      if (!inside(root, resolvedPath)) {
-        throw new Error(`A source symlink escapes the supplied root at ${toPosix(relativePath)}.`)
-      }
-      sourceKind = 'resolved-symlink'
-      symlinks.push(toPosix(relativePath))
+      resolvedPath = await realpath(absolutePath);
+      sourceKind = 'resolved-symlink';
+      symlinks.push(toPosix(relativePath));
     } else {
-      resolvedPath = await realpath(absolutePath)
-      if (!inside(root, resolvedPath)) {
-        throw new Error(`A source entry escapes the supplied root at ${toPosix(relativePath)}.`)
-      }
+      resolvedPath = await realpath(absolutePath);
+    }
+    if (!inside(rootDirectory, resolvedPath)) {
+      throw new Error(`A source entry escapes the supplied root at ${toPosix(relativePath)}.`);
     }
 
-    const targetInfo = await stat(resolvedPath)
-    const isDirectory = targetInfo.isDirectory()
-    if (excluded(relativePath, row.name, isDirectory)) {
-      exclusions.push({ path: toPosix(relativePath), reason: 'Excluded from the runtime distribution (repository metadata, caches or documentation-only files).' })
-      continue
+    const targetInfo = await stat(resolvedPath);
+    const isDirectory = targetInfo.isDirectory();
+    if (isExcludedSkillPath(relativePath, row.name, isDirectory)) {
+      exclusions.push({
+        path: toPosix(relativePath),
+        reason: 'Excluded from the runtime distribution (repository metadata, caches or documentation-only files).',
+      });
+      continue;
     }
-
     if (isDirectory) {
-      await collectFiles(root, resolvedPath, relativePath, [...ancestors, realDirectory], entries, exclusions, symlinks)
-      continue
+      await collectFiles(
+        rootDirectory,
+        resolvedPath,
+        relativePath,
+        [...ancestors, realDirectory],
+        entries,
+        exclusions,
+        symlinks,
+      );
+      continue;
     }
-    if (!targetInfo.isFile()) {
-      throw new Error(`Unsupported non-file entry at ${toPosix(relativePath)}.`)
-    }
+    if (!targetInfo.isFile()) throw new Error(`Unsupported non-file entry at ${toPosix(relativePath)}.`);
 
     entries.push({
       path: toPosix(relativePath),
@@ -109,140 +143,148 @@ async function collectFiles(root, directory = root, relativeDirectory = '', ance
       mode: targetInfo.mode & 0o777,
       sha256: await sha256(resolvedPath),
       sourceKind,
-    })
+    });
   }
-  return { entries, exclusions, symlinks }
+  return { entries, exclusions, symlinks };
 }
 
-async function verifyCopy(root, entries) {
-  const expected = new Map(entries.map(entry => [entry.path, entry]))
-  const actualPaths = []
+function resolveSourceCommit(sourceRoot) {
+  const supplied = process.env.OIL_UI_SOURCE_COMMIT?.trim();
+  if (supplied) {
+    if (!/^[0-9a-f]{40}$/i.test(supplied)) throw new Error('OIL_UI_SOURCE_COMMIT must be a full Git commit SHA.');
+    return supplied.toLowerCase();
+  }
+  try {
+    return execFileSync('git', ['-C', sourceRoot, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    throw new Error('The oil-ui source must be a Git checkout, or set OIL_UI_SOURCE_COMMIT explicitly.');
+  }
+}
 
-  async function visit(directory, relativeDirectory = '') {
-    for (const row of await readdir(directory, { withFileTypes: true })) {
-      const relativePath = relativeDirectory ? path.join(relativeDirectory, row.name) : row.name
-      const normalized = toPosix(relativePath)
-      const absolutePath = path.join(directory, row.name)
-      const info = await lstat(absolutePath)
-      if (info.isSymbolicLink()) throw new Error(`The vendored tree contains a symlink at ${normalized}.`)
-      if (info.isDirectory()) {
-        await visit(absolutePath, relativePath)
-        continue
-      }
-      if (!info.isFile()) throw new Error(`The vendored tree contains a non-file entry at ${normalized}.`)
-      actualPaths.push(normalized)
-      const source = expected.get(normalized)
-      if (!source) throw new Error(`Unexpected file in the vendored tree: ${normalized}.`)
-      const targetInfo = await stat(absolutePath)
-      if (targetInfo.size !== source.size) throw new Error(`Size mismatch after copying ${normalized}.`)
-      if ((targetInfo.mode & 0o777) !== source.mode) throw new Error(`Mode mismatch after copying ${normalized}.`)
-      // Hashes are offline manifest evidence only; do not turn them into a copy/install gate.
+async function buildSnapshot(sourceRoot, stageDirectory, stagedManifest) {
+  const sourceSkill = path.join(sourceRoot, 'SKILL.md');
+  const raw = await readFile(sourceSkill, 'utf8');
+  const frontmatter = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!frontmatter) throw new Error('The source SKILL.md has no YAML frontmatter.');
+  const identity = parse(frontmatter[1]);
+  if (identity.name !== 'oil-ui') throw new Error('Only the open-source oil-ui may be bundled.');
+  const version = identity.metadata?.version;
+  if (typeof version !== 'string' || !version)
+    throw new Error('The source SKILL.md metadata does not declare a version.');
+
+  const transformContext = await validateSkillTree(sourceRoot, { mode: 'strict' });
+  const commit = resolveSourceCommit(sourceRoot);
+  const { entries, exclusions, symlinks } = await collectFiles(sourceRoot);
+  const paths = entries.map((file) => file.path);
+  assertNoProResources(paths);
+  assertPublicSkillFiles(paths, 'Source paths');
+  entries.sort((left, right) => left.path.localeCompare(right.path));
+
+  for (const entry of entries) {
+    const targetPath = path.join(stageDirectory, ...entry.path.split('/'));
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    if (entry.path.endsWith('.md')) {
+      const source = await readFile(entry.sourcePath, 'utf8');
+      const compiled = transformSkillMarkdown(entry.path, source, { ...transformContext, mode: 'strict' });
+      const bytes = Buffer.from(compiled.markdown, 'utf8');
+      await writeFile(targetPath, bytes);
+      entry.size = bytes.length;
+      entry.sha256 = await sha256(targetPath);
+    } else {
+      await copyFile(entry.sourcePath, targetPath);
     }
+    await chmod(targetPath, entry.mode);
   }
 
-  await visit(root)
-  actualPaths.sort()
-  const expectedPaths = [...expected.keys()].sort()
-  if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) {
-    throw new Error('The vendored tree does not contain exactly the expected files.')
-  }
+  const manifest = {
+    name: 'oil-ui',
+    version,
+    transformVersion: TRANSFORM_VERSION,
+    source: {
+      repository: sourceRepository,
+      commit,
+      rootSymlinkResolved: true,
+    },
+    symlinkAudit: {
+      checkedWithinSuppliedRoot: true,
+      resolvedSourceSymlinks: symlinks,
+      outputContainsSymlinks: false,
+    },
+    exclusions: {
+      rules: skillExclusionRules,
+      paths: exclusions.sort((left, right) => left.path.localeCompare(right.path)),
+    },
+    fileCount: entries.length,
+    files: entries.map(({ path: filePath, size, mode, sha256: hash, sourceKind }) => ({
+      path: filePath,
+      sha256: hash,
+      size,
+      mode: `0${mode.toString(8).padStart(3, '0')}`,
+      ...(sourceKind === 'resolved-symlink' ? { sourceKind } : {}),
+    })),
+  };
+
+  await verifySkillEntries(stageDirectory, entries);
+  await writeFile(stagedManifest, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
+  return manifest;
 }
 
 async function main() {
-  const sourceArgument = process.argv[2] ?? process.env.OIL_UI_REPO ?? path.resolve(scriptDirectory, '..', '..', 'oil-ui')
-  if (!sourceArgument || sourceArgument.startsWith('--')) {
-    usage()
-    return
+  const options = parseArguments(process.argv.slice(2));
+  if (options.help) {
+    process.stdout.write(`${usage()}\n`);
+    return;
   }
+  if (!process.env.OIL_UI_SOURCE_DIR && process.env.OIL_UI_REPO) {
+    process.stderr.write('OIL_UI_REPO is deprecated; use OIL_UI_SOURCE_DIR instead.\n');
+  }
+  const sourceArgument =
+    options.source ?? process.env.OIL_UI_SOURCE_DIR ?? process.env.OIL_UI_REPO ?? path.resolve(root, '..', 'oil-ui');
+  const sourceRoot = await realpath(path.resolve(sourceArgument));
+  if (!(await stat(sourceRoot)).isDirectory()) throw new Error('The supplied source must be a directory.');
 
-  const sourceRoot = await realpath(path.resolve(sourceArgument))
-  if (!(await stat(sourceRoot)).isDirectory()) throw new Error('The supplied source must be a directory.')
-  const sourceSkill = path.join(sourceRoot, 'SKILL.md')
-  const raw = await readFile(sourceSkill, 'utf8')
-  const identity = parse(raw.match(/^---\r?\n([\s\S]*?)\r?\n---/)[1])
-  if (identity.name !== 'oil-ui') throw new Error('Only the open-source oil-ui may be bundled.')
-  const transformContext = await validateSkillTree(sourceRoot, { mode: 'strict' })
-  const version = versionFromSkill(raw)
-  const { entries, exclusions, symlinks } = await collectFiles(sourceRoot)
-  if (entries.some(f => /^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/.test(f.path))) throw new Error('Pro-only resources cannot be bundled.')
-  const actualPaths = entries.map(file => file.path).sort()
-  if (JSON.stringify(actualPaths) !== JSON.stringify(publicSkillFiles)) throw new Error('Source paths differ from the reviewed 41-file public distribution. Review the public file list before syncing.')
-  entries.sort((left, right) => left.path.localeCompare(right.path))
-
-  await mkdir(skillsDirectory, { recursive: true })
-  const stageDirectory = await mkdtemp(path.join(skillsDirectory, '.oil-ui-stage-'))
-  const stagedManifest = path.join(skillsDirectory, `.oil-ui.manifest-${process.pid}.tmp`)
-  let installed = false
+  await mkdir(skillsDirectory, { recursive: true });
+  const workspace = await mkdtemp(
+    path.join(options.check ? os.tmpdir() : skillsDirectory, options.check ? 'dsh-oil-ui-check-' : '.oil-ui-sync-'),
+  );
+  const stageDirectory = path.join(workspace, 'oil-ui');
+  const stagedManifest = path.join(workspace, 'oil-ui.manifest.json');
+  await mkdir(stageDirectory);
   try {
-    for (const entry of entries) {
-      const targetPath = path.join(stageDirectory, ...entry.path.split('/'))
-      await mkdir(path.dirname(targetPath), { recursive: true })
-      if (entry.path.endsWith('.md')) {
-        const raw = await readFile(entry.sourcePath, 'utf8')
-        const compiled = transformSkillMarkdown(entry.path, raw, { ...transformContext, mode: 'strict' })
-        const buf = Buffer.from(compiled.markdown, 'utf8')
-        await writeFile(targetPath, buf)
-        entry.size = buf.length
-        entry.sha256 = createHash('sha256').update(buf).digest('hex')
-      } else {
-        await copyFile(entry.sourcePath, targetPath)
+    const manifest = await buildSnapshot(sourceRoot, stageDirectory, stagedManifest);
+    if (options.check) {
+      const currentManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      await verifySkillSnapshot(destinationDirectory, currentManifest);
+      await verifySkillSnapshot(destinationDirectory, manifest);
+      if (JSON.stringify(currentManifest) !== JSON.stringify(manifest)) {
+        throw new Error('Skill manifest metadata differs from the source checkout. Run pnpm sync:skill.');
       }
-      await chmod(targetPath, entry.mode)
+      process.stdout.write(
+        `Skill snapshot is up to date: oil-ui ${manifest.version} from ${manifest.source.commit}.\n`,
+      );
+      return;
     }
 
-    const manifest = {
-      name: 'oil-ui',
-      version,
-      source: {
-        description: 'The source directory is supplied by the caller and is intentionally not recorded as a machine-specific path.',
-        rootSymlinkResolved: true,
-      },
-      symlinkAudit: {
-        checkedWithinSuppliedRoot: true,
-        resolvedSourceSymlinks: symlinks,
-        outputContainsSymlinks: false,
-      },
-      exclusions: {
-        rules: [
-          { name: '.git', reason: 'Repository metadata is not part of the Skill runtime.' },
-          { name: '.DS_Store', reason: 'macOS Finder metadata is not part of the Skill runtime.' },
-          { name: '__pycache__', reason: 'Python bytecode cache is not part of the Skill runtime.' },
-          { name: '*.pyc', reason: 'Compiled Python bytecode is a regenerable cache.' },
-          { name: 'assets/readme', reason: 'README showcase images are not runtime resources.' },
-          { name: 'README.en.md', reason: 'Duplicate English README; README.md is retained.' },
-        ],
-        paths: exclusions.sort((left, right) => left.path.localeCompare(right.path)),
-      },
-      fileCount: entries.length,
-      files: entries.map(({ path: filePath, size, mode, sha256: hash, sourceKind }) => ({
-        path: filePath,
-        sha256: hash,
-        size,
-        mode: `0${mode.toString(8).padStart(3, '0')}`,
-        ...(sourceKind === 'resolved-symlink' ? { sourceKind } : {}),
-      })),
-    }
-
-    await verifyCopy(stageDirectory, entries)
-    await writeFile(stagedManifest, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 })
-
-    await mkdir(skillsDirectory, { recursive: true })
-    const existing = await lstat(destinationDirectory).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error))
-    if (existing?.isSymbolicLink()) throw new Error('The destination Skill directory must not be a symlink.')
-    if (existing) await rm(destinationDirectory, { recursive: true, force: true })
-    await rename(stageDirectory, destinationDirectory)
-    installed = true
-    await rename(stagedManifest, manifestPath)
-
-    await verifyCopy(destinationDirectory, entries)
-    process.stdout.write(`Vendored oil-ui ${version}: ${entries.length} files copied; ${exclusions.length} non-runtime paths excluded; ${symlinks.length} internal symlinks resolved.\n`)
+    const existing = await lstat(destinationDirectory).catch((error) =>
+      error.code === 'ENOENT' ? null : Promise.reject(error),
+    );
+    if (existing?.isSymbolicLink()) throw new Error('The destination Skill directory must not be a symlink.');
+    if (existing) await rm(destinationDirectory, { recursive: true, force: true });
+    await rename(stageDirectory, destinationDirectory);
+    await rename(stagedManifest, manifestPath);
+    await verifySkillSnapshot(destinationDirectory, manifest);
+    process.stdout.write(
+      `Vendored oil-ui ${manifest.version} from ${manifest.source.commit}: ${manifest.fileCount} files copied; ${manifest.exclusions.paths.length} non-runtime paths excluded.\n`,
+    );
   } finally {
-    if (!installed) await rm(stageDirectory, { recursive: true, force: true }).catch(() => {})
-    await rm(stagedManifest, { force: true }).catch(() => {})
+    await rm(workspace, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-main().catch(error => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
-  process.exitCode = 1
-})
+main().catch((error) => {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+});
