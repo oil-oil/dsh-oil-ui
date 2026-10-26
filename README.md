@@ -109,6 +109,8 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ## 安装
 
+支持 DeepSeek Harness `0.2.1-rc.2` 与 `0.2.1-rc.3`。桌面版通过安装目录提供的 `dsh` 命令，将下方示例中的 `--profile web` 换成 `--profile desktop`；管理桌面插件前先完全退出桌面程序。
+
 ### 1. 一行命令安装到 DeepSeek Harness
 
 如果你使用 DeepSeek Harness 的默认 Web 界面（`dsh web`），直接在终端运行：
