@@ -1,0 +1,10 @@
+node_modules/
+lib/
+skills/
+assets/
+.work/
+.eval/
+coverage/
+*.tgz
+.DS_Store
+pnpm-lock.yaml
