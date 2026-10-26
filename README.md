@@ -109,7 +109,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ## 安装
 
-当前插件声明支持 DeepSeek Harness `0.2.1-rc.2`，Node.js 需要 22.19.0 或更高版本。其他 Harness 版本需要先核对兼容性。
+当前插件声明支持 DeepSeek Harness `0.2.1-rc.2` 与 `0.2.1-rc.3`，Node.js 需要 22.19.0 或更高版本。其他 Harness 版本需要先核对兼容性。桌面版通过安装目录提供的 `dsh` 命令，将下方示例中的 `--profile web` 换成 `--profile desktop`；管理桌面插件前先完全退出桌面程序。
 
 ### 1. 一行命令安装到 DeepSeek Harness
 
