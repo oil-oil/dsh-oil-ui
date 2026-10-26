@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DesignWorkbench } from '../src/workbench/index.ts';
-import { readOilToken, requestOilApi } from '../src/oil-api.ts';
+import { oilTokenConfigPath, readOilToken, requestOilApi } from '../src/oil-api.ts';
 
 const fixture = vi.hoisted(() => ({ home: '' }));
 vi.mock('node:os', async (original) => ({
@@ -17,6 +17,8 @@ beforeEach(async () => {
   fixture.home = root;
   vi.stubEnv('OIL_TOKEN', '');
   vi.stubEnv('OIL_API', '');
+  vi.stubEnv('APPDATA', join(root, 'AppData', 'Roaming'));
+  vi.stubEnv('XDG_CONFIG_HOME', join(root, '.config'));
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -36,12 +38,25 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe('oiloil authentication and client requests', () => {
+  it.each([
+    [
+      'win32',
+      { APPDATA: 'C:\\Users\\Alice\\AppData\\Roaming', XDG_CONFIG_HOME: 'C:\\ignored' },
+      'C:\\Users\\Alice',
+      'C:\\Users\\Alice\\AppData\\Roaming\\oil\\config.json',
+    ],
+    ['win32', {}, 'C:\\Users\\Alice', 'C:\\Users\\Alice\\AppData\\Roaming\\oil\\config.json'],
+    ['linux', { XDG_CONFIG_HOME: '/custom/config' }, '/home/alice', '/custom/config/oil/config.json'],
+    ['linux', {}, '/home/alice', '/home/alice/.config/oil/config.json'],
+    ['darwin', {}, '/Users/alice', '/Users/alice/.config/oil/config.json'],
+  ] as const)('resolves the CLI token config for %s (%j)', (platform, env, home, expected) => {
+    expect(oilTokenConfigPath(env, platform, home)).toBe(expected);
+  });
+
   it('prefers OIL_TOKEN, reads config token otherwise, and ignores the login-site api field', async () => {
-    await mkdir(join(root, '.config', 'oil'), { recursive: true });
-    await writeFile(
-      join(root, '.config', 'oil', 'config.json'),
-      JSON.stringify({ token: 'cli-token', api: 'https://login.example' }),
-    );
+    const configPath = oilTokenConfigPath();
+    await mkdir(join(configPath, '..'), { recursive: true });
+    await writeFile(configPath, JSON.stringify({ token: 'cli-token', api: 'https://login.example' }));
     expect(await readOilToken()).toBe('cli-token');
     vi.stubEnv('OIL_TOKEN', ' env-token ');
     expect(await readOilToken()).toBe('env-token');
