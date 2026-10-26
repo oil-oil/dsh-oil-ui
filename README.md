@@ -35,7 +35,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 - **直接在当前工作目录读写**：不创建额外的 `projects/<uuid>` 嵌套目录，页面、样式、脚本和截图都落在当前目录，和原生 `read` / `write` / `read_image` 完全一致。
 - **只注册 `oil-ui` 独有的 5 个工具**：对比页打包、浏览器截图与交互巡检、公有领域素材检索、AI 生图修图，以及 Skill 状态检查。
-- **从上游 `oil-ui` 自动编译派生**：插件把上游 `SKILL.md` 和 `references/*.md` 里的命令行示例自动改写为原生工具调用。上游更新后，跑一条 `pnpm vendor:skill` 就能同步派生，不用手工维护两套文档。
+- **从上游 `oil-ui` 自动编译派生**：插件把上游 `SKILL.md` 和 `references/*.md` 里的命令行示例自动改写为原生工具调用。上游更新后，跑一条 `pnpm sync:skill` 就能同步派生，不用手工维护两套文档。
 
 ---
 
@@ -61,21 +61,21 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 插件向模型暴露 5 个专用工具，参数全部以当前工作目录（`cwd`）为基准：
 
-| 工具 | 作用 |
-| --- | --- |
-| `oil_ui_skill_status` | 刷新 Skill 状态，返回当前生效的 `activeSkillName`、生图来源与 oiloil 余额，同时处理版本更新检查和一次性 Pro 提示 |
-| `oil_ui_explorer` | 读取 `explore/manifest.json`（兼容常见简写字段），把多个首屏候选内联打包成可交互的 `style-explorer.html` 对比页 |
-| `oil_ui_shoot` | 在真实浏览器里打开本地页面或 URL：支持指定视口尺寸、2x 特写、多状态连拍（`states`）、交互步骤脚本（`steps`）、录屏抽帧（`record` / `motion`）以及证据拼图（`evidence`），并自动检查控制台报错、横向溢出、断图与文字对比度 |
-| `oil_ui_media` | 搜索、预览和下载免版权/公有领域图片、博物馆馆藏（Met、AIC、Cleveland、Wikimedia、Openverse 等）、视频与地图素材 |
-| `oil_ui_image` | 优先调用本地 `image-gen`；本机不可用时使用 oiloil 生成或编辑图片，支持指定分辨率；oiloil 返回格式不同时按实际格式保存并返回路径 |
+| 工具                  | 作用                                                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `oil_ui_skill_status` | 刷新 Skill 状态，返回当前生效的 `activeSkillName`、生图来源与 oiloil 余额，同时处理版本更新检查和一次性 Pro 提示                                                                                                          |
+| `oil_ui_explorer`     | 读取 `explore/manifest.json`（兼容常见简写字段），把多个首屏候选内联打包成可交互的 `style-explorer.html` 对比页                                                                                                           |
+| `oil_ui_shoot`        | 在真实浏览器里打开本地页面或 URL：支持指定视口尺寸、2x 特写、多状态连拍（`states`）、交互步骤脚本（`steps`）、录屏抽帧（`record` / `motion`）以及证据拼图（`evidence`），并自动检查控制台报错、横向溢出、断图与文字对比度 |
+| `oil_ui_media`        | 搜索、预览和下载免版权/公有领域图片、博物馆馆藏（Met、AIC、Cleveland、Wikimedia、Openverse 等）、视频与地图素材                                                                                                           |
+| `oil_ui_image`        | 优先调用本地 `image-gen`；本机不可用时使用 oiloil 生成或编辑图片，支持指定分辨率；oiloil 返回格式不同时按实际格式保存并返回路径                                                                                           |
 
 同时向聊天输入框注册 3 个以 `oil-ui-` 为前缀的 Slash 快捷命令（与其他 `oil-*` 系列 Skill 区分）：
 
-| 命令 | 作用 |
-| --- | --- |
-| `/oil-ui-status [update]` | 直接查看当前生效版本（`oil-ui` / `oil-ui-pro`）、更新状态与 `image-gen` 状态；带 `update` 参数时直接原地更新 |
-| `/oil-ui-explore <需求描述>` | 支持附带参考图/文件，直接发起三方向探索并生成 `style-explorer.html` 对比页 |
-| `/oil-ui-review [目标页面或文件]` | 支持附带截图/文件，对目标页面抓真图并执行视觉层级 + 可用性双轨走查 |
+| 命令                              | 作用                                                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `/oil-ui-status [update]`         | 直接查看当前生效版本（`oil-ui` / `oil-ui-pro`）、更新状态与 `image-gen` 状态；带 `update` 参数时直接原地更新 |
+| `/oil-ui-explore <需求描述>`      | 支持附带参考图/文件，直接发起三方向探索并生成 `style-explorer.html` 对比页                                   |
+| `/oil-ui-review [目标页面或文件]` | 支持附带截图/文件，对目标页面抓真图并执行视觉层级 + 可用性双轨走查                                           |
 
 ---
 
@@ -85,14 +85,14 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ### Oil UI Pro 多了什么
 
-| 能力 | `oil-ui`（内置免费版） | `Oil UI Pro` |
-| --- | :---: | :---: |
-| 设计方向探索 + `style-explorer.html` 同屏对比 | ✓ | ✓ |
-| 真实截图驱动的多轮视觉精修与对比度/排版巡检 | — | ✓ |
-| 多状态连拍（`states`）、交互步骤（`steps`）与录屏抽帧 | — | ✓ |
-| 博物馆/公有领域素材检索（`oil_ui_media`）与 AI 生图修图（`oil_ui_image`）完整分册 | — | ✓ |
-| 独立视觉与 UX 走查 | 主要流程轻量 UX 走查 | 自主风险探针、深入洞察与同路径复核 |
-| 完整场景分册（营销落地页、数据后台、移动多屏、重绘改版、字体子集化） | — | ✓ |
+| 能力                                                                              | `oil-ui`（内置免费版） |            `Oil UI Pro`            |
+| --------------------------------------------------------------------------------- | :--------------------: | :--------------------------------: |
+| 设计方向探索 + `style-explorer.html` 同屏对比                                     |           ✓            |                 ✓                  |
+| 真实截图驱动的多轮视觉精修与对比度/排版巡检                                       |           —            |                 ✓                  |
+| 多状态连拍（`states`）、交互步骤（`steps`）与录屏抽帧                             |           —            |                 ✓                  |
+| 博物馆/公有领域素材检索（`oil_ui_media`）与 AI 生图修图（`oil_ui_image`）完整分册 |           —            |                 ✓                  |
+| 独立视觉与 UX 走查                                                                |  主要流程轻量 UX 走查  | 自主风险探针、深入洞察与同路径复核 |
+| 完整场景分册（营销落地页、数据后台、移动多屏、重绘改版、字体子集化）              |           —            |                 ✓                  |
 
 ### 自动识别本地 Pro 与子代理评审注入
 
@@ -109,15 +109,17 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ## 安装
 
+当前插件声明支持 DeepSeek Harness `0.2.1-rc.2`，Node.js 需要 22.19.0 或更高版本。其他 Harness 版本需要先核对兼容性。
+
 ### 1. 一行命令安装到 DeepSeek Harness
 
-如果你使用 DeepSeek Harness 的默认 Web 界面（`dsh web`），直接在终端运行：
+如果你使用 `web` profile 的 DeepSeek Harness Web 界面，在终端运行：
 
 ```bash
 dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 ```
 
-（若使用命令行无头模式，将 `--profile web` 换成 `--profile headless` 即可。）
+若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#58fe551130e416dcdae3118d7ed61138c1601010`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
 
 仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需任何额外构建授权，直接启动 `dsh web` 即可使用。
 
@@ -127,9 +129,9 @@ dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 ```bash
 git clone https://github.com/oil-oil/dsh-oil-ui.git
 cd dsh-oil-ui
-pnpm install
-pnpm pack:plugin
-dsh plugin --profile web add ./.work/dsh-oil-ui-0.4.0.tgz
+pnpm install --frozen-lockfile
+pnpm pack:plugin .work/dsh-oil-ui.tgz
+dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
 ```
 
 </details>
@@ -163,10 +165,12 @@ dsh plugin --profile web add ./.work/dsh-oil-ui-0.4.0.tgz
 当上游 `oil-ui` 更新了 `SKILL.md`、分册或脚本时，在仓库根目录运行：
 
 ```bash
-pnpm vendor:skill   # 同步 ../oil-ui（或设置 OIL_UI_SOURCE_DIR）
-pnpm test           # 运行插件与编译转换测试
-pnpm pack:plugin    # 重新构建并打出 .tgz 插件包
+OIL_UI_SOURCE_DIR=../oil-ui pnpm sync:skill
+pnpm check
+pnpm pack:plugin .work/dsh-oil-ui.tgz
 ```
+
+维护规则见[开发指南](docs/development.md)、[版本与来源](docs/versioning.md)和[发布流程](docs/releasing.md)。
 
 ---
 

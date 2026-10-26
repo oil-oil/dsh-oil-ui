@@ -35,7 +35,7 @@ DeepSeek Harness already ships with native file tools (`read`, `write`, `edit`),
 
 - **Works directly in `cwd`**: No hidden `projects/<uuid>` nesting. HTML, CSS, scripts, and screenshots live right in the current working directory alongside native `read`, `write`, and `read_image`.
 - **Registers only the 5 specialized `oil-ui` tools**: Comparison page bundling, headless browser captures & interaction scripts, public-domain media search, AI image generation, and Skill status discovery.
-- **Compiled automatically from upstream `oil-ui`**: Upstream `SKILL.md` and `references/*.md` files are automatically transformed so CLI script invocations map cleanly to native `dsh-oil-ui` tool calls. When upstream `oil-ui` changes, a single `pnpm vendor:skill` updates the plugin.
+- **Compiled automatically from upstream `oil-ui`**: Upstream `SKILL.md` and `references/*.md` files are automatically transformed so CLI script invocations map cleanly to native `dsh-oil-ui` tool calls. When upstream `oil-ui` changes, a single `pnpm sync:skill` updates the plugin.
 
 ---
 
@@ -61,21 +61,21 @@ From a short prompt, the agent runs the full loop—**explore directions → bun
 
 The plugin registers 5 tools, all resolved relative to the active session's working directory (`cwd`):
 
-| Tool | What it does |
-| --- | --- |
-| `oil_ui_skill_status` | Refreshes Skill status and returns `activeSkillName`, image source, and oiloil balance; also checks for updates and handles the one-time Pro recommendation notice |
-| `oil_ui_explorer` | Reads `explore/manifest.json` (normalizing common shorthand fields) and bundles candidate HTML files into a single interactive `style-explorer.html` comparison page |
-| `oil_ui_shoot` | Captures real browser screenshots of local files or URLs: supports custom viewports, 2x zoom crops, multi-state captures (`states`), scripted interactions (`steps`), motion recordings (`record` / `motion`), contact sheets (`evidence`), and built-in console/overflow/contrast checks |
-| `oil_ui_media` | Searches, previews, and downloads public-domain images, museum collections (Met, AIC, Cleveland, Wikimedia, Openverse), video clips, and map tiles |
-| `oil_ui_image` | Uses local `image-gen` first, then oiloil when unavailable; supports a requested resolution and reports the saved path when oiloil returns a different format |
+| Tool                  | What it does                                                                                                                                                                                                                                                                              |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `oil_ui_skill_status` | Refreshes Skill status and returns `activeSkillName`, image source, and oiloil balance; also checks for updates and handles the one-time Pro recommendation notice                                                                                                                        |
+| `oil_ui_explorer`     | Reads `explore/manifest.json` (normalizing common shorthand fields) and bundles candidate HTML files into a single interactive `style-explorer.html` comparison page                                                                                                                      |
+| `oil_ui_shoot`        | Captures real browser screenshots of local files or URLs: supports custom viewports, 2x zoom crops, multi-state captures (`states`), scripted interactions (`steps`), motion recordings (`record` / `motion`), contact sheets (`evidence`), and built-in console/overflow/contrast checks |
+| `oil_ui_media`        | Searches, previews, and downloads public-domain images, museum collections (Met, AIC, Cleveland, Wikimedia, Openverse), video clips, and map tiles                                                                                                                                        |
+| `oil_ui_image`        | Uses local `image-gen` first, then oiloil when unavailable; supports a requested resolution and reports the saved path when oiloil returns a different format                                                                                                                             |
 
 It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoid collisions with other `oil-*` Skills):
 
-| Command | What it does |
-| --- | --- |
+| Command                   | What it does                                                                                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/oil-ui-status [update]` | Inspects the active Oil UI edition (`oil-ui` / `oil-ui-pro`), version update status, and `image-gen` availability; pass `update` to update in place |
-| `/oil-ui-explore <brief>` | Accepts optional reference attachments and queues a 3-direction exploration (`style-explorer.html`) |
-| `/oil-ui-review [target]` | Accepts optional screenshot/file attachments and queues a two-track UI/UX review (visual hierarchy + task flow) |
+| `/oil-ui-explore <brief>` | Accepts optional reference attachments and queues a 3-direction exploration (`style-explorer.html`)                                                 |
+| `/oil-ui-review [target]` | Accepts optional screenshot/file attachments and queues a two-track UI/UX review (visual hierarchy + task flow)                                     |
 
 ---
 
@@ -85,14 +85,14 @@ It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoi
 
 ### What Oil UI Pro Adds
 
-| Capability | `oil-ui` (Bundled Free) | `Oil UI Pro` |
-| --- | :---: | :---: |
-| 3-direction exploration + `style-explorer.html` comparison page | ✓ | ✓ |
-| Screenshot-driven multi-round visual refinement & typography/contrast linting | — | ✓ |
-| Multi-state captures (`states`), scripted interactions (`steps`) & motion frame strips | — | ✓ |
-| Museum/public-domain media (`oil_ui_media`) & AI image generation (`oil_ui_image`) playbooks | — | ✓ |
-| Independent visual and UX walkthroughs | Lightweight UX walkthrough for key flows | Autonomous risk probes, deeper observations, and same-path rechecks |
-| Full domain playbooks (marketing sites, data consoles, mobile flows, redesigns, font subsetting) | — | ✓ |
+| Capability                                                                                       |         `oil-ui` (Bundled Free)          |                            `Oil UI Pro`                             |
+| ------------------------------------------------------------------------------------------------ | :--------------------------------------: | :-----------------------------------------------------------------: |
+| 3-direction exploration + `style-explorer.html` comparison page                                  |                    ✓                     |                                  ✓                                  |
+| Screenshot-driven multi-round visual refinement & typography/contrast linting                    |                    —                     |                                  ✓                                  |
+| Multi-state captures (`states`), scripted interactions (`steps`) & motion frame strips           |                    —                     |                                  ✓                                  |
+| Museum/public-domain media (`oil_ui_media`) & AI image generation (`oil_ui_image`) playbooks     |                    —                     |                                  ✓                                  |
+| Independent visual and UX walkthroughs                                                           | Lightweight UX walkthrough for key flows | Autonomous risk probes, deeper observations, and same-path rechecks |
+| Full domain playbooks (marketing sites, data consoles, mobile flows, redesigns, font subsetting) |                    —                     |                                  ✓                                  |
 
 ### Automatic Local Pro Detection & Subagent Review Injection
 
@@ -109,15 +109,17 @@ The update check and one-time Pro prompt from upstream `oil-ui` are built direct
 
 ## Installation
 
+The package currently declares support for DeepSeek Harness `0.2.1-rc.2` and requires Node.js 22.19.0 or later. Verify compatibility before using another Harness version.
+
 ### 1. One-line install into DeepSeek Harness
 
-For the default DeepSeek Harness Web UI (`dsh web`), run:
+For the DeepSeek Harness Web UI with the `web` profile, run:
 
 ```bash
 dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 ```
 
-(For headless CLI runs, replace `--profile web` with `--profile headless`.)
+For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#58fe551130e416dcdae3118d7ed61138c1601010`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
 
 Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed directly to the repository, no build allowance is required—just launch `dsh web` after installing.
 
@@ -127,9 +129,9 @@ Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed dir
 ```bash
 git clone https://github.com/oil-oil/dsh-oil-ui.git
 cd dsh-oil-ui
-pnpm install
-pnpm pack:plugin
-dsh plugin --profile web add ./.work/dsh-oil-ui-0.4.0.tgz
+pnpm install --frozen-lockfile
+pnpm pack:plugin .work/dsh-oil-ui.tgz
+dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
 ```
 
 </details>
@@ -163,10 +165,12 @@ The plugin works out of the box and automatically discovers local `oil-ui-pro` a
 When upstream `oil-ui` updates its `SKILL.md`, reference manuals, or scripts:
 
 ```bash
-pnpm vendor:skill   # Syncs from ../oil-ui (or OIL_UI_SOURCE_DIR)
-pnpm test           # Runs plugin and Skill transformation tests
-pnpm pack:plugin    # Rebuilds and packs .work/dsh-oil-ui-<version>.tgz
+OIL_UI_SOURCE_DIR=../oil-ui pnpm sync:skill
+pnpm check
+pnpm pack:plugin .work/dsh-oil-ui.tgz
 ```
+
+See [development](docs/development.md), [versioning](docs/versioning.md), and [release](docs/releasing.md) for the maintenance workflow.
 
 ---
 
