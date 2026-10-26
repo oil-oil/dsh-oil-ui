@@ -109,6 +109,8 @@ The update check and one-time Pro prompt from upstream `oil-ui` are built direct
 
 ## Installation
 
+Supports DeepSeek Harness `0.2.1-rc.2` and `0.2.1-rc.3`. For Desktop, use the `dsh` launcher shipped with the installation and replace `--profile web` below with `--profile desktop`. Fully quit Desktop before managing its plugins.
+
 ### 1. One-line install into DeepSeek Harness
 
 For the default DeepSeek Harness Web UI (`dsh web`), run:

@@ -114,6 +114,23 @@ describe('workspace-rooted preview server and security boundaries', () => {
 });
 
 describe('native explorer and managed scripts in cwd', () => {
+  it('embeds absolute local assets while rejecting URL schemes and out-of-project paths', async () => {
+    const { cwd, root } = await setup();
+    const image = join(cwd, 'pixel.png');
+    await writeFile(image, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const embedder = new Embedder(cwd);
+    expect(await embedder.uri(image, cwd)).toMatch(/^data:image\/png;base64,/);
+    if (process.platform === 'win32') {
+      expect(await embedder.uri(image.replace(/\\/g, '/'), cwd)).toMatch(/^data:image\/png;base64,/);
+    }
+    for (const url of ['https://example.com/pixel.png', '//example.com/pixel.png', 'file:///etc/passwd', 'c:relative.png']) {
+      await expect(embedder.path(url, cwd)).rejects.toThrow('Use local assets');
+    }
+    const outside = join(root, 'outside.png');
+    await writeFile(outside, 'private');
+    await expect(embedder.path(outside, cwd)).rejects.toThrow('within the project');
+  });
+
   it('builds from a minimal manifest and omits absent optional metadata in the bundled legacy template', async () => {
     const { cwd } = await setup();
     await writeFile(join(cwd, 'titled.html'), '<!doctype html><title>Named from title</title><main>Page</main>');

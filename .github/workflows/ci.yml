@@ -13,6 +13,9 @@ jobs:
   check:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dsh: ["0.2.1-rc.2", "0.2.1-rc.3"]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -24,9 +27,26 @@ jobs:
         with:
           python-version: "3.12"
       - run: pnpm install --frozen-lockfile
+      - name: Test against DSH rc.3 dependencies
+        if: matrix.dsh == '0.2.1-rc.3'
+        run: pnpm add -D --save-exact @deepseek-ai/cordis@4.0.5 @deepseek-ai/dsh-agent@0.2.1-rc.3 @deepseek-ai/dsh-llm@0.2.1-rc.3 @deepseek-ai/dsh-session@0.2.1-rc.3 @deepseek-ai/dsh-skill@0.2.1-rc.3 @deepseek-ai/dsh-system-prompt@0.2.1-rc.3 @deepseek-ai/dsh-tools@0.2.1-rc.3
       - run: pnpm check
       - name: Verify committed lib/index.js is up to date
         run: git diff --exit-code lib/
+
+  windows-compatibility:
+    if: github.event_name != 'schedule'
+    runs-on: windows-latest
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - name: Check Windows credentials, drive paths and native tools
+        run: pnpm exec vitest run tests/oil-api.test.ts tests/workbench.test.ts tests/plugin.test.ts -t 'oiloil|embeds absolute|accepts JSON manifests|registers 5 native|reads the Skill registry'
 
   sync-oil-ui:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

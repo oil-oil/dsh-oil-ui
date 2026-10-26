@@ -65,7 +65,8 @@ export class Embedder {
   private total = 0;
   constructor(private root: string) { this.realRoot = realpath(root); }
   async path(value: string, base: string): Promise<string> {
-    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) throw new Error(`Use local assets, received ${value}`);
+    const windowsDrivePath = process.platform === 'win32' && /^[a-z]:[\\/]/i.test(value);
+    if (!windowsDrivePath && /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(value)) throw new Error(`Use local assets, received ${value}`);
     const clean = decodeURIComponent(value.split(/[?#]/,1)[0]!).replace(/\\/g, '/');
     const path = resolve(base,clean);
     const root = await this.realRoot;
