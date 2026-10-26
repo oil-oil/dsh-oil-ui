@@ -1,8 +1,10 @@
 {
   "name": "oil-ui",
   "version": "0.25.0",
+  "transformVersion": "7",
   "source": {
-    "description": "The source directory is supplied by the caller and is intentionally not recorded as a machine-specific path.",
+    "repository": "https://github.com/oil-oil/oil-ui",
+    "commit": "ff3ed0a88972747840ece9d4cd664807d6f5d501",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {

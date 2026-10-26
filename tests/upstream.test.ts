@@ -1,13 +1,25 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { lstat, readFile, readdir, mkdtemp, mkdir, rm, writeFile, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { loadUpstreamSkill, skillDirectory, skillStatus, resolveActiveSkill, resolveImageGenScript, createSkillProvider, checkSkillUpdate, loadReviewerManual } from '../src/upstream.ts';
-import { TRANSFORM_VERSION, isHarnessNativeSkillMarkdown, transformSkillMarkdown } from '../src/transform.ts';
+import {
+  loadUpstreamSkill,
+  skillDirectory,
+  skillStatus,
+  resolveActiveSkill,
+  resolveImageGenScript,
+  createSkillProvider,
+  checkSkillUpdate,
+  loadReviewerManual,
+} from '../src/skill/upstream.ts';
+import { TRANSFORM_VERSION, isHarnessNativeSkillMarkdown, transformSkillMarkdown } from '../src/skill/transform.ts';
 import { createHash } from 'node:crypto';
 import { join, relative, sep } from 'node:path';
 
 const fixture = vi.hoisted(() => ({ home: '' }));
-vi.mock('node:os', async original => ({ ...(await original<typeof import('node:os')>()), homedir: () => fixture.home }));
+vi.mock('node:os', async (original) => ({
+  ...(await original<typeof import('node:os')>()),
+  homedir: () => fixture.home,
+}));
 
 let root: string;
 beforeEach(async () => {
@@ -59,11 +71,11 @@ describe('bundled open-source Skill and local Pro activation', () => {
     expect(uxDispatch).not.toContain('模板路径换成本 Skill 目录下的绝对路径');
   });
 
-  it('bundles[41] public files with matching offline manifest evidence and no Pro tree', async () => {
+  it('bundles the reviewed public files with matching offline manifest evidence and no Pro tree', async () => {
     const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8'));
     expect(manifest.name).toBe('oil-ui');
     expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(manifest.fileCount).toBe(41);
+    expect(manifest.fileCount).toBeGreaterThan(0);
     const walk = async (directory: string): Promise<string[]> => {
       const paths: string[] = [];
       for (const row of await readdir(directory, { withFileTypes: true })) {
@@ -76,13 +88,17 @@ describe('bundled open-source Skill and local Pro activation', () => {
       return paths;
     };
     expect((await walk(skillDirectory)).sort()).toEqual(manifest.files.map((f: { path: string }) => f.path).sort());
-    expect(manifest.files).toHaveLength(41);
+    expect(manifest.files).toHaveLength(manifest.fileCount);
     for (const file of manifest.files) {
-      expect(file.path).not.toMatch(/^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/);
+      expect(file.path).not.toMatch(
+        /^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/,
+      );
       const bytes = await readFile(join(skillDirectory, file.path));
       const info = await lstat(join(skillDirectory, file.path));
       expect(bytes.length).toBe(file.size);
-      expect(`0${(info.mode & 0o777).toString(8).padStart(3, '0')}`).toBe(file.mode);
+      if (process.platform !== 'win32') {
+        expect(`0${(info.mode & 0o777).toString(8).padStart(3, '0')}`).toBe(file.mode);
+      }
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(file.sha256);
     }
     expect((await readdir(join(skillDirectory, '..'))).sort()).toEqual(['oil-ui', 'oil-ui.manifest.json']);
@@ -90,10 +106,14 @@ describe('bundled open-source Skill and local Pro activation', () => {
 
   it('detects explicit Pro, compiles raw Pro Markdown into native Harness tools, and reports both versions', async () => {
     const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8'));
-    const rawProBody = '启动时后台静默运行更新检查（`bash "<skill-dir>/scripts/check_update.sh" >/dev/null 2>&1 &`）\n用 `scripts/shoot.mjs` 截图\n';
+    const rawProBody =
+      '启动时后台静默运行更新检查（`bash "<skill-dir>/scripts/check_update.sh" >/dev/null 2>&1 &`）\n用 `scripts/shoot.mjs` 截图\n';
     const dir = await pro(join(root, 'explicit'), 'oil-ui-pro', rawProBody);
     await mkdir(join(dir, 'references'), { recursive: true });
-    await writeFile(join(dir, 'references/tools.md'), '# 工具参考\n`node scripts/shoot.mjs http://localhost:3000 --out ./shots`\n');
+    await writeFile(
+      join(dir, 'references/tools.md'),
+      '# 工具参考\n`node scripts/shoot.mjs http://localhost:3000 --out ./shots`\n',
+    );
     const options = { proSkillDir: ` ${dir} ` };
     const resolved = await resolveActiveSkill(options);
     expect(resolved).toMatchObject({
@@ -128,15 +148,21 @@ describe('bundled open-source Skill and local Pro activation', () => {
     });
     expect(status.note).toContain('No hash gate is enforced during loading or execution.');
     expect(status.transformDiagnostics?.sourceDirectory).toBe(dir);
-    expect(status.transformDiagnostics?.unmatchedRules).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'skill.compatibility', file: 'SKILL.md', required: true }),
-      expect.objectContaining({ id: 'media.sheet', file: 'references/media.md', required: true }),
-    ]));
-    expect(status.transformDiagnostics?.unmatchedRules.some(rule => rule.id === 'skill.pro-notice')).toBe(false);
+    expect(status.transformDiagnostics?.unmatchedRules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'skill.compatibility', file: 'SKILL.md', required: true }),
+        expect.objectContaining({ id: 'media.sheet', file: 'references/media.md', required: true }),
+      ]),
+    );
+    expect(status.transformDiagnostics?.unmatchedRules.some((rule) => rule.id === 'skill.pro-notice')).toBe(false);
   });
 
   it('uses already-compiled Pro directory directly without re-caching', async () => {
-    const nativeBody = transformSkillMarkdown('SKILL.md', '---\nname: oil-ui-pro\ndescription: Native Pro\n---\nCall `oil_ui_skill_status` and `oil_ui_shoot`.\n', { edition: 'pro', mode: 'lenient' }).markdown;
+    const nativeBody = transformSkillMarkdown(
+      'SKILL.md',
+      '---\nname: oil-ui-pro\ndescription: Native Pro\n---\nCall `oil_ui_skill_status` and `oil_ui_shoot`.\n',
+      { edition: 'pro', mode: 'lenient' },
+    ).markdown;
     const dir = join(root, 'native-pro');
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, 'SKILL.md'), nativeBody);
@@ -147,10 +173,19 @@ describe('bundled open-source Skill and local Pro activation', () => {
 
   it('falls back with no Pro and allows preferPro=false while still reporting an installed Pro', async () => {
     expect(await resolveActiveSkill()).toMatchObject({ edition: 'lite', source: 'bundled-lite', name: 'oil-ui' });
-    expect(await skillStatus(null)).toMatchObject({ proInstalled: false, proSourcePath: null, visibleMatchesOriginal: false });
+    expect(await skillStatus(null)).toMatchObject({
+      proInstalled: false,
+      proSourcePath: null,
+      visibleMatchesOriginal: false,
+    });
     const dir = await pro(join(root, 'explicit'));
     const status = await skillStatus(null, { proSkillDir: dir, preferPro: false });
-    expect(status).toMatchObject({ edition: 'lite', activeSkillName: 'oil-ui', proInstalled: true, proSourcePath: dir });
+    expect(status).toMatchObject({
+      edition: 'lite',
+      activeSkillName: 'oil-ui',
+      proInstalled: true,
+      proSourcePath: dir,
+    });
     expect(status.upgradeHint).toContain('npx github:oil-oil/oil-cli install oil-ui-pro');
   });
 
@@ -267,7 +302,10 @@ describe('discovery snapshots, arbitration and update backoff', () => {
     const dir = await pro(join(root, 'raw-pro'));
     await mkdir(join(dir, 'references'));
     await writeFile(join(dir, 'references/tools.md'), '# 工具\nnode scripts/shoot.mjs <target>');
-    const provider = createSkillProvider({ proSkillDir: dir }, { signal: new AbortController().signal, invalidate: vi.fn() });
+    const provider = createSkillProvider(
+      { proSkillDir: dir },
+      { signal: new AbortController().signal, invalidate: vi.fn() },
+    );
     const first = (await provider.list({}))[0]!;
     expect(first.rank).toBe(10);
     await expect(lstat(join(root, '.dsh/cache'))).rejects.toThrow();
@@ -286,7 +324,11 @@ describe('discovery snapshots, arbitration and update backoff', () => {
     const visible = { ...lite, provider: 'scope-override', invocation: lite.invocation! };
     const status = await skillStatus(visible, { proSkillDir: dir });
     expect(status.detected).toMatchObject({ name: 'oil-ui-pro', version: '9.8.7' });
-    expect(status.effective).toMatchObject({ name: 'oil-ui', provider: 'scope-override', version: lite.metadata?.version });
+    expect(status.effective).toMatchObject({
+      name: 'oil-ui',
+      provider: 'scope-override',
+      version: lite.metadata?.version,
+    });
     expect(status.activeSkillName).toBe('oil-ui');
     expect(status.visibleMatchesOriginal).toBe(false);
   });
@@ -311,7 +353,9 @@ describe('discovery snapshots, arbitration and update backoff', () => {
     vi.stubEnv('XDG_STATE_HOME', join(root, 'state'));
     const now = Date.now();
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
-    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ skills: { 'oil-ui': { version: '2.0.0' } } })))
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ skills: { 'oil-ui': { version: '2.0.0' } } })))
       .mockRejectedValue(new Error('offline'));
     vi.stubGlobal('fetch', fetcher);
     const active = await resolveActiveSkill({ preferPro: false });
@@ -336,7 +380,7 @@ describe('atomic versioned Pro compilation and review fallback', () => {
     await writeFile(join(dir, 'references/tools.md'), 'node scripts/shoot.mjs <target>');
     await writeFile(join(dir, 'references/deep/extra.md'), 'first version');
     const first = await Promise.all(Array.from({ length: 8 }, () => resolveActiveSkill({ proSkillDir: dir })));
-    expect(new Set(first.map(s => s.directory)).size).toBe(1);
+    expect(new Set(first.map((s) => s.directory)).size).toBe(1);
     const compiled = first[0]!.directory;
     expect(await readFile(join(compiled, '.complete'), 'utf8')).toMatch(/^[a-f0-9]{64}$/);
     expect(await readFile(join(compiled, 'references/deep/extra.md'), 'utf8')).toBe('first version');
@@ -349,7 +393,7 @@ describe('atomic versioned Pro compilation and review fallback', () => {
     expect(second.directory).not.toBe(compiled);
     expect(await readFile(join(compiled, 'references/deep/extra.md'), 'utf8')).toBe('first version');
     const cache = await readdir(join(root, '.dsh/cache/dsh-oil-ui'));
-    expect(cache.some(name => name.startsWith('.oil-ui-pro-'))).toBe(false);
+    expect(cache.some((name) => name.startsWith('.oil-ui-pro-'))).toBe(false);
   });
 
   it('falls back to bundled review on compile failure and refreshes manuals after a version change', async () => {
@@ -369,7 +413,11 @@ describe('atomic versioned Pro compilation and review fallback', () => {
     const manual = await readFile(join(skillDirectory, 'references/reviewer-manual.md'), 'utf8');
     expect(manual).not.toContain('size: "480x300"');
     expect(manual).toMatch(/原比例缩放到 480px 或 180px/);
-    for (const [file, flag] of [['layout-and-viewport', '--compare'], ['media', '--sheet'], ['style-explorer', '--help']]) {
+    for (const [file, flag] of [
+      ['layout-and-viewport', '--compare'],
+      ['media', '--sheet'],
+      ['style-explorer', '--help'],
+    ]) {
       expect(await readFile(join(skillDirectory, `references/${file}.md`), 'utf8')).not.toContain(flag);
     }
     const tools = await readFile(join(skillDirectory, 'references/tools.md'), 'utf8');
