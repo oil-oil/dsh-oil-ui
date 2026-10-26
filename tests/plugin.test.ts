@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import SkillRegistry, { type SkillRegistration, type SkillProvider } from '@deepseek-ai/dsh-skill';
@@ -626,7 +626,7 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
     for (const listener of createdListeners) await listener({ agent: liteSubagent });
     await vi.waitFor(() => expect(subSections).toHaveLength(1), { timeout: 5000 });
     expect(subSections[0]!.name).toBe('oil-ui-subagent-reviewer');
-    expect(subSections[0]!.text).toContain('/references');
+    expect(subSections[0]!.text).toContain(`${sep}references`);
     expect(subSections[0]!.text).toContain('ux-reviewer.md');
     expect(subSections[0]!.text).toContain('# 视觉与交互评审手册 (子 Agent 专用)');
     expect(subSections[0]!.text).toContain('oil_ui_shoot');
