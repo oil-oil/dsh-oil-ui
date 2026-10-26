@@ -19,7 +19,7 @@ import type { SkillEdition } from './rules.ts';
 export { MARKDOWN_RULES } from './rules.ts';
 export type { MarkdownRule, SkillEdition } from './rules.ts';
 
-export const TRANSFORM_VERSION = '7';
+export const TRANSFORM_VERSION = '8';
 
 const EXCLUDED_NAMES = new Set(['.git', '.DS_Store', '__pycache__']);
 const DOC_ONLY_PATHS = new Set(['assets/readme', 'README.en.md']);
