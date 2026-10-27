@@ -4,7 +4,7 @@
   "transformVersion": "8",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "215324365c5b36c61c6ccf09bb751708716a773d",
+    "commit": "c60d91d0ebdcfb96cac6f3988823291549ea6190",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -50,14 +50,6 @@
       },
       {
         "path": "README.en.md",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
-        "path": "scripts/__pycache__",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
-        "path": "tests/__pycache__",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       }
     ]
