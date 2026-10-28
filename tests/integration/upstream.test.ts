@@ -8,7 +8,6 @@ import { MARKDOWN_RULES, transformSkillMarkdown, validateSkillTree } from '../..
 const project = fileURLToPath(new URL('../../', import.meta.url));
 const bundled = join(project, 'skills/oil-ui');
 const liteSource = process.env.OIL_UI_SOURCE_DIR;
-const proSource = process.env.OIL_UI_PRO_DIR;
 
 if (!liteSource) throw new Error('Set OIL_UI_SOURCE_DIR to an oil-ui checkout for integration tests.');
 const resolvedLiteSource = resolve(liteSource);
@@ -36,18 +35,5 @@ describe('explicit upstream integration', () => {
         expect(result.markdown, file).toBe(bundledMarkdown);
       }
     }
-  });
-
-  it.skipIf(!proSource || !existsSync(proSource))('strictly validates an explicitly supplied Pro source', async () => {
-    const report = await validateSkillTree(proSource!, { mode: 'strict' });
-    expect(report).toMatchObject({ edition: 'pro', input: 'upstream', unmatchedRules: [] });
-    expect(report.rules.find((rule) => rule.id === 'review-loop.paths')).toMatchObject({
-      required: true,
-      status: 'matched',
-    });
-    expect(report.rules.find((rule) => rule.id === 'skill.pro-notice')).toMatchObject({
-      required: false,
-      status: 'unmatched',
-    });
   });
 });

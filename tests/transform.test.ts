@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { adapterFingerprint, loadMarkdownRules } from '../src/skill/adapter.ts';
+import { writeProAdapter } from './pro-adapter-fixture.ts';
 import {
   MARKDOWN_RULES,
   SkillTransformError,
@@ -26,6 +28,81 @@ async function tempDirectory() {
   temporary.push(directory);
   return directory;
 }
+
+describe('installed Pro adapter protocol', () => {
+  const fixtureRule = (replacement = 'Native fixture marker') => ({
+    id: 'fixture.native-marker',
+    file: 'SKILL.md',
+    requiredIn: [],
+    match: { source: 'Fixture placeholder' },
+    replacement,
+  });
+
+  it('loads fixture rules only for Pro and fingerprints their bytes', async () => {
+    const directory = await tempDirectory();
+    expect(await loadMarkdownRules('lite')).toBe(MARKDOWN_RULES);
+    expect(await loadMarkdownRules('lite', directory)).toBe(MARKDOWN_RULES);
+    await writeProAdapter(directory, [fixtureRule()]);
+    const rules = await loadMarkdownRules('pro', directory, '8');
+    expect(rules).toHaveLength(MARKDOWN_RULES.length + 1);
+    const transformed = transformSkillMarkdown('SKILL.md', 'Fixture placeholder', {
+      edition: 'pro',
+      mode: 'lenient',
+      ruleSet: rules,
+    });
+    expect(transformed.markdown).toBe('Native fixture marker');
+    const first = await adapterFingerprint(directory, '8');
+    expect(await adapterFingerprint(directory, '8')).toBe(first);
+    await writeProAdapter(directory, [fixtureRule('Updated fixture marker')]);
+    expect(await adapterFingerprint(directory, '8')).not.toBe(first);
+  });
+
+  it('rejects incompatible metadata, invalid rules and IDs that collide with shared rules', async () => {
+    const directory = await tempDirectory();
+    await writeProAdapter(directory, [], '7');
+    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('requires transform 7');
+    await writeProAdapter(directory, [{ ...fixtureRule(), id: 'skill.startup' }]);
+    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('must be unique');
+    await writeProAdapter(directory, [{ ...fixtureRule(), match: { source: 'x', flags: 'gg' } }]);
+    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('rule 1 is invalid');
+    await writeProAdapter(directory, [{ ...fixtureRule(), nativeSatisfied: { operation: 'eval' } }]);
+    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('rule 1 is invalid');
+    await writeProAdapter(directory, [{ ...fixtureRule(), match: { source: 'Fixture secret(' } }]);
+    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('rule 1 is invalid');
+    await writeProAdapter(directory, [{ ...fixtureRule(), file: '../outside.md' }]);
+    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('rule 1 is invalid');
+    const metadataPath = join(directory, 'adapters/dsh/adapter.json');
+    const metadata = JSON.parse(await readFile(metadataPath, 'utf8'));
+    await writeFile(metadataPath, JSON.stringify({ ...metadata, protocolVersion: 2 }));
+    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('protocol is unsupported');
+  });
+
+  it('rejects traversal and symlink escapes in both loading and fingerprinting', async () => {
+    const directory = await tempDirectory();
+    const source = join(directory, 'source');
+    await writeProAdapter(source);
+    const metadataPath = join(source, 'adapters/dsh/adapter.json');
+    await writeFile(join(directory, 'outside.json'), '[]');
+    await writeFile(
+      metadataPath,
+      JSON.stringify({ protocolVersion: 1, transformVersion: '8', rules: '../../../outside.json' }),
+    );
+    await expect(loadMarkdownRules('pro', source, '8')).rejects.toThrow('inside adapters/dsh');
+    await expect(adapterFingerprint(source, '8')).rejects.toThrow('inside adapters/dsh');
+    await symlink(join(directory, 'outside.json'), join(source, 'adapters/dsh/linked.json'));
+    await writeFile(
+      metadataPath,
+      JSON.stringify({ protocolVersion: 1, transformVersion: '8', rules: './linked.json' }),
+    );
+    await expect(loadMarkdownRules('pro', source, '8')).rejects.toThrow('inside adapters/dsh');
+    await writeFile(
+      metadataPath,
+      JSON.stringify({ protocolVersion: 1, transformVersion: '8', rules: '../outside.json' }),
+    );
+    await writeFile(join(source, 'adapters/outside.json'), '[]');
+    await expect(loadMarkdownRules('pro', source, '8')).rejects.toThrow('inside adapters/dsh');
+  });
+});
 
 describe('declarative Markdown rewrite validation', () => {
   it('has unique readable IDs and explains every compatibility-only rule', () => {
@@ -117,15 +194,13 @@ describe('declarative Markdown rewrite validation', () => {
     });
   });
 
-  it.each(['lite', 'pro'] as const)('keeps the core action when rewriting direction imagery: %s', (edition) => {
-    const suffix = edition === 'pro' ? '；说服型页面再写上标题原文。' : '。';
-    const raw = `把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，核心动作怎样完成，用什么字体和色彩，主视觉靠什么${suffix}`;
-    const result = transformSkillMarkdown('SKILL.md', raw, { edition, mode: 'lenient' });
+  it('keeps the core action when rewriting Lite direction imagery', () => {
+    const raw =
+      '把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，核心动作怎样完成，用什么字体和色彩，主视觉靠什么。';
+    const result = transformSkillMarkdown('SKILL.md', raw, { edition: 'lite', mode: 'lenient' });
     expect(result.markdown).toContain('核心动作怎样完成');
     expect(result.markdown).toContain('oil_ui_image');
-    expect(
-      result.rules.find((rule) => rule.id === `skill.direction-images${edition === 'pro' ? '.pro' : ''}`),
-    ).toMatchObject({
+    expect(result.rules.find((rule) => rule.id === 'skill.direction-images')).toMatchObject({
       matches: 1,
       status: 'matched',
     });
@@ -138,7 +213,7 @@ describe('declarative Markdown rewrite validation', () => {
     expect(result.markdown).toContain('oil_ui_media');
   });
 
-  it('rewrites imagery and prototype guidance in the 0.27 exploration module', () => {
+  it('rewrites Lite imagery and prototype guidance in the 0.27 exploration module', () => {
     const raw = [
       '先用三四行写清每个方向的感觉、首屏、核心动作、字体、色彩和主视觉，附上推荐及理由，再问用户。',
       '主视觉靠图的方向按 [素材](media.md) 生成一张，至多重新生成一次；页面已有专项候选流程时按专项，不重复增加生成批次。其余图位先用从页面取色的色块占着。',
@@ -148,11 +223,7 @@ describe('declarative Markdown rewrite validation', () => {
     expect(result.markdown).toContain('oil_ui_media');
     expect(result.markdown).toContain('其余图位用代码占位');
     expect(result.markdown).not.toContain('direction-concept.md');
-    expect(result.rules.find((rule) => rule.id === 'skill.explore-prototype-images.pro')).toMatchObject({ matches: 0 });
-    const pro = transformSkillMarkdown('references/task-explore.md', raw, { edition: 'pro', mode: 'lenient' });
-    expect(pro.markdown).not.toContain('direction-concept.md');
-    expect(pro.markdown).toContain('已有专项候选流程');
-    expect(pro.rules.find((rule) => rule.id === 'skill.explore-prototype-images.pro')).toMatchObject({ matches: 1 });
+    expect(result.rules.find((rule) => rule.id === 'skill.explore-prototype-images')).toMatchObject({ matches: 1 });
   });
 
   it.each([

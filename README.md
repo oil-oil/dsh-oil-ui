@@ -100,6 +100,8 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 在本机安装好 `oil-ui-pro`（默认位于 `~/.agents/skills/oil-ui-pro` 或 `~/.dsh/skills/oil-ui-pro`）后，不需要重启 DeepSeek Harness。Agent 在任务开始调用 `oil_ui_skill_status` 时，插件会扫描本机目录，把 `oil-ui-pro` 的 `SKILL.md` 和分册编译为原生工具说明，并以高于宿主内置文件加载器的优先级生效。当主 Agent 派发子代理（`subagent`）做视觉与交互走查时，插件会自动向子代理注入原生化的 `reviewer-manual.md` 及 `references/` 目录路径，主 Agent 无需手动拼接手册路径。
 
+Pro 的专用转换规则作为声明式 JSON 数据随 Pro 安装包的 `adapters/dsh/` 交付，不进入公开插件。插件只加载兼容版本的规则，不执行其中的 JavaScript；适配资源缺失、无效或与当前转换协议不兼容时，只使用内置 Lite。`oil_ui_skill_status` 返回的 `proAdapterReady`、`proAdapterError` 和 `upgradeHint` 可用于判断是否需要安装兼容的 Pro 版本。
+
 ### 版本检查与一次性 Pro 提醒
 
 原来在 `oil-ui` 脚本里的版本更新检查和一次性 Pro 推荐，在 `dsh-oil-ui` 里直接合进了 `oil_ui_skill_status`：

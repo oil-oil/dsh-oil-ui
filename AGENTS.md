@@ -50,6 +50,7 @@ GitHub 直接安装依赖已提交的 `lib/` 和 `skills/`，不能把它们当�
 - 上游同步只接受公开 `oil-ui`。`scripts/public-skill-files.mjs` 是人工审核白名单，新增文件必须连同来源、用途和公开性一起审阅，不能自动放行 Pro 资源。
 - manifest 必须记录上游仓库、完整 commit、Skill 版本和 transform 版本。非 Git 源需要显式提供 `OIL_UI_SOURCE_COMMIT`。
 - 默认测试不得读取相邻仓库、真实 HOME、真实令牌或访问真实付费服务。集成测试必须显式传入目录，真实付费验证单独授权。
+- Pro 专用转换数据只从本机安装包的 `adapters/dsh/` 读取，不得写入公开源码、测试、`lib/`、测试日志或 PR 说明；测试只用虚构规则。协议或 transform 版本不兼容时必须回退 Lite，编译和评审手册缓存必须同时随文档及规则变化失效。
 - 不打印、复制或提交 `OIL_TOKEN` 和 `~/.config/oil/config.json` 的内容。文档只说明读取规则，不写入真实凭据。
 - 工作区路径约束、Symlink 检查、输出覆盖保护和进程清理属于安全边界，重构时不能复制出一份更宽松的实现。
 - 修改工具数量、命令、环境变量、目录职责或发布方式时，同步更新中英文 README、`AGENTS.md` 和相关 docs。

@@ -13,8 +13,9 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
+import { loadMarkdownRules } from './adapter.ts';
 import { MARKDOWN_RULES } from './rules.ts';
-import type { SkillEdition } from './rules.ts';
+import type { MarkdownRule, SkillEdition } from './rules.ts';
 
 export { MARKDOWN_RULES } from './rules.ts';
 export type { MarkdownRule, SkillEdition } from './rules.ts';
@@ -29,6 +30,7 @@ export interface TransformOptions {
   edition: SkillEdition;
   input?: TransformInput;
   mode?: 'strict' | 'lenient';
+  ruleSet?: readonly MarkdownRule[];
 }
 
 export interface RuleResult {
@@ -61,7 +63,7 @@ export function transformSkillMarkdown(relativePath: string, raw: string, option
   const nativeEvidence = raw.split('\r\n').join('\n');
   const rules: RuleResult[] = [];
   let markdown = raw;
-  for (const rule of MARKDOWN_RULES) {
+  for (const rule of options.ruleSet ?? MARKDOWN_RULES) {
     if (rule.file !== file) continue;
     if (
       (rule.requiredIn.length > 0 && !rule.requiredIn.includes(options.edition)) ||
@@ -95,7 +97,10 @@ export function transformSkillMarkdown(relativePath: string, raw: string, option
 
 // Check every rule file, including missing files, and aggregate failures before publishing.
 // Native input still needs per-rule evidence; detecting a native SKILL.md is not a bypass.
-export async function validateSkillTree(sourceRoot: string, options: { mode?: TransformOptions['mode'] } = {}) {
+export async function validateSkillTree(
+  sourceRoot: string,
+  options: { mode?: TransformOptions['mode']; ruleSet?: readonly MarkdownRule[] } = {},
+) {
   const realSource = await realpath(sourceRoot);
   const rules: RuleResult[] = [];
   async function readMarkdown(file: string): Promise<string> {
@@ -118,8 +123,10 @@ export async function validateSkillTree(sourceRoot: string, options: { mode?: Tr
     edition: name === 'oil-ui' ? 'lite' : 'pro',
     input: isHarnessNativeSkillMarkdown(skill) ? 'native' : 'upstream',
     mode: 'lenient',
+    ruleSet:
+      options.ruleSet ?? (await loadMarkdownRules(name === 'oil-ui' ? 'lite' : 'pro', realSource, TRANSFORM_VERSION)),
   };
-  for (const file of new Set(MARKDOWN_RULES.map((rule) => rule.file))) {
+  for (const file of new Set(context.ruleSet!.map((rule) => rule.file))) {
     const raw = file === 'SKILL.md' ? skill : await readMarkdown(file);
     rules.push(...transformSkillMarkdown(file, raw, context).rules);
   }
@@ -128,6 +135,7 @@ export async function validateSkillTree(sourceRoot: string, options: { mode?: Tr
     edition: context.edition,
     input: context.input,
     rules,
+    ruleSet: context.ruleSet,
     unmatchedRules: rules.filter((rule) => rule.required && rule.status === 'unmatched'),
   };
 }
@@ -139,7 +147,7 @@ export function isHarnessNativeSkillMarkdown(raw: string): boolean {
 export async function compileHarnessSkillTree(
   sourceRoot: string,
   targetRoot: string,
-  options: { symlinkBinaryAssets?: boolean; mode?: TransformOptions['mode'] } = {},
+  options: { symlinkBinaryAssets?: boolean; mode?: TransformOptions['mode']; ruleSet?: readonly MarkdownRule[] } = {},
 ) {
   const realSource = await realpath(sourceRoot);
   const report = await validateSkillTree(realSource, options);
@@ -176,7 +184,11 @@ export async function compileHarnessSkillTree(
       await mkdir(dirname(dstPath), { recursive: true });
       if (entry.name.endsWith('.md')) {
         const raw = await readFile(srcPath, 'utf8');
-        const transformed = transformSkillMarkdown(relPath, raw, { ...report, mode: options.mode });
+        const transformed = transformSkillMarkdown(relPath, raw, {
+          ...report,
+          mode: options.mode,
+          ruleSet: report.ruleSet,
+        });
         await writeFile(dstPath, transformed.markdown, 'utf8');
         await chmod(dstPath, info.mode & 0o777);
       } else {
