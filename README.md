@@ -15,6 +15,8 @@
 
 **`dsh-oil-ui` 是 [oil-ui](https://github.com/oil-oil/oil-ui) 的 DeepSeek Harness 原生插件。**
 
+国内 AtomGit 托管：[dsh-oil-ui](https://atomgit.com/oil-oil/dsh-oil-ui)，自动同步 GitHub 仓库。
+
 它把 `oil-ui` 的界面设计流程直接接进 `@deepseek-ai/dsh`：先在同屏对比页里摆开 3 个真正拉开差距的方向，挑定后再在当前目录里写代码、截真图、点交互、查多端，照着真实画面一轮轮把界面改到位。
 
 关于设计方法与作品画廊，可直接看 **[oil-ui 仓库](https://github.com/oil-oil/oil-ui)** 和 **[ui.oiloil.org](https://ui.oiloil.org)**。这里重点说明 `dsh-oil-ui` 在 DeepSeek Harness 里做了什么，以及怎样配合 **Oil UI Pro** 使用。

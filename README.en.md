@@ -15,6 +15,8 @@
 
 **`dsh-oil-ui` is the native [oil-ui](https://github.com/oil-oil/oil-ui) plugin for DeepSeek Harness (`@deepseek-ai/dsh`).**
 
+China mirror: [AtomGit](https://atomgit.com/oil-oil/dsh-oil-ui), synced from GitHub.
+
 It brings the full `oil-ui` design workflow straight into DeepSeek Harness: explore 3 genuinely distinct first-screen directions side by side in a single comparison page, pick the strongest one, and refine the final interface against real browser screenshots, interactive step checks, and multi-viewport captures directly in your working directory.
 
 For the core design workflow and live gallery, see the **[oil-ui repository](https://github.com/oil-oil/oil-ui)** and **[ui.oiloil.org/en](https://ui.oiloil.org/en)**. This README covers how `dsh-oil-ui` works inside DeepSeek Harness and how it pairs with **Oil UI Pro**.
