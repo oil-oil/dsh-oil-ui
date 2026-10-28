@@ -19,6 +19,8 @@ export const publicSkillFiles = Object.freeze([
   'references/reviewer-manual.md',
   'references/scroll-narrative.md',
   'references/style-explorer.md',
+  'references/task-explore.md',
+  'references/task-review.md',
   'references/tools.md',
   'references/ux-review.md',
   'references/ux-reviewer.md',
