@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        dsh: ['0.2.1-rc.2', '0.2.1-rc.3']
+        dsh: ['0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -30,13 +30,17 @@ jobs:
         with:
           python-version: '3.12'
       - run: pnpm install --frozen-lockfile
-      - name: Test against DSH rc.3 dependencies
-        if: matrix.dsh == '0.2.1-rc.3'
-        run: pnpm add -D --save-exact @deepseek-ai/cordis@4.0.5 @deepseek-ai/dsh-agent@0.2.1-rc.3 @deepseek-ai/dsh-fs@0.2.1-rc.3 @deepseek-ai/dsh-llm@0.2.1-rc.3 @deepseek-ai/dsh-ptc-runtime@0.2.1-rc.3 @deepseek-ai/dsh-sandbox@0.2.1-rc.3 @deepseek-ai/dsh-sandbox-policy@0.2.1-rc.3 @deepseek-ai/dsh-scope@0.2.1-rc.3 @deepseek-ai/dsh-session@0.2.1-rc.3 @deepseek-ai/dsh-session-projection@0.2.1-rc.3 @deepseek-ai/dsh-skill@0.2.1-rc.3 @deepseek-ai/dsh-system-prompt@0.2.1-rc.3 @deepseek-ai/dsh-tools@0.2.1-rc.3 @deepseek-ai/dsh-user-approval@0.2.1-rc.3 @deepseek-ai/dsh-working-directory@0.2.1-rc.3
+      - name: Test against newer DSH dependencies
+        if: matrix.dsh != '0.2.1-rc.2'
+        run: |
+          packages=(dsh-agent dsh-fs dsh-llm dsh-ptc-runtime dsh-sandbox dsh-sandbox-policy dsh-scope dsh-session dsh-session-projection dsh-skill dsh-system-prompt dsh-tools dsh-user-approval dsh-working-directory)
+          for package in "${packages[@]}"; do
+            pnpm add -D --save-exact "@deepseek-ai/${package}@${{ matrix.dsh }}"
+          done
       - run: pnpm check
       - run: pnpm pack:plugin
-      - name: Restore manifests after the rc.3 matrix run
-        if: matrix.dsh == '0.2.1-rc.3'
+      - name: Restore manifests after the matrix run
+        if: matrix.dsh != '0.2.1-rc.2'
         run: git checkout -- package.json pnpm-lock.yaml
       - name: Verify validation leaves the checkout unchanged
         run: git diff --exit-code
