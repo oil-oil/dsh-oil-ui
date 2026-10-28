@@ -136,8 +136,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     optionalReason: '0.26 及更早版本的首屏素材规则仍保留在主文件，0.27 起由独立探索模块承接。',
     match:
       /主视觉靠图的方向，生成一张，至多重新生成一次；说服型页面里以图为主视觉的方向，按 \[概念\]\(references\/direction-concept\.md\) 各出一批候选再挑。其余图位先用从页面取色的色块占着。/,
-    replacement:
-      '首屏对比图按方向卡中标注的来源准备；已有专项候选流程时按专项，其余图位用代码占位。',
+    replacement: '首屏对比图按方向卡中标注的来源准备；已有专项候选流程时按专项，其余图位用代码占位。',
   },
   {
     id: 'skill.prototype-images',
@@ -155,8 +154,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     optionalReason: '0.27 起多方向首屏素材规则迁移到独立模块；旧版本没有此文件。',
     match:
       /主视觉靠图的方向按 \[素材\]\(media\.md\) 生成一张，至多重新生成一次；页面已有专项候选流程时按专项，不重复增加生成批次。其余图位先用从页面取色的色块占着。/,
-    replacement:
-      '首屏对比图按方向卡中标注的来源准备；已有专项候选流程时按专项，其余图位用代码占位。',
+    replacement: '首屏对比图按方向卡中标注的来源准备；已有专项候选流程时按专项，其余图位用代码占位。',
   },
   {
     id: 'skill.explore-prototype-images',
