@@ -57,6 +57,7 @@ export interface MarkdownRule {
   match: RegExp;
   replacement: string;
   requiredIn: readonly SkillEdition[];
+  editions?: readonly SkillEdition[];
   optionalReason?: string;
   // Deletions cannot use replacement text as evidence in an already compiled tree.
   nativeSatisfied?: (markdown: string) => boolean;
@@ -150,6 +151,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     id: 'skill.explore-prototype-images.pro',
     file: 'references/task-explore.md',
     requiredIn: [],
+    editions: ['pro'],
     optionalReason: '0.27 起多方向首屏素材规则迁移到独立模块；旧版本没有此文件。',
     match:
       /主视觉靠图的方向按 \[素材\]\(media\.md\) 生成一张，至多重新生成一次；页面已有专项候选流程时按专项，不重复增加生成批次。其余图位先用从页面取色的色块占着。/,
@@ -160,6 +162,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     id: 'skill.explore-prototype-images',
     file: 'references/task-explore.md',
     requiredIn: [],
+    editions: ['lite'],
     optionalReason: '0.27 起多方向首屏素材规则迁移到独立模块；旧版本没有此文件。',
     match:
       /主视觉靠图的方向按 \[素材\]\(media\.md\) 生成一张，至多重新生成一次；页面已有专项候选流程时按专项，不重复增加生成批次。其余图位先用从页面取色的色块占着。/,
