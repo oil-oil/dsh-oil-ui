@@ -4,8 +4,9 @@ import path from 'node:path'
 import { publicSkillFiles } from '../public-skill-files.mjs'
 
 export const excludedSkillNames = new Set(['.git', '.DS_Store', '__pycache__'])
-export const documentationOnlySkillPaths = new Set(['assets/readme', 'README.en.md'])
+export const documentationOnlySkillPaths = new Set(['assets/readme', 'README.en.md', '.github'])
 export const skillExclusionRules = Object.freeze([
+  { name: '.github', reason: 'Repository maintenance and CI configuration are not part of the Skill runtime.' },
   { name: '.git', reason: 'Repository metadata is not part of the Skill runtime.' },
   { name: '.DS_Store', reason: 'macOS Finder metadata is not part of the Skill runtime.' },
   { name: '__pycache__', reason: 'Python bytecode cache is not part of the Skill runtime.' },

@@ -131,6 +131,24 @@ describe('declarative Markdown rewrite validation', () => {
     });
   });
 
+  it.each(['lite', 'pro'] as const)('rewrites imagery for the single-direction flow: %s', (edition) => {
+    const raw = '用三四行写清它给人什么感觉、首屏长什么样、核心动作怎样完成、字体、色彩和主视觉。';
+    const result = transformSkillMarkdown('SKILL.md', raw, { edition, mode: 'lenient' });
+    expect(result.markdown).toContain('oil_ui_image');
+    expect(result.markdown).toContain('oil_ui_media');
+  });
+
+  it('rewrites imagery and prototype guidance in the 0.27 exploration module', () => {
+    const raw = [
+      '先用三四行写清每个方向的感觉、首屏、核心动作、字体、色彩和主视觉，附上推荐及理由，再问用户。',
+      '主视觉靠图的方向按 [素材](media.md) 生成一张，至多重新生成一次；页面已有专项候选流程时按专项，不重复增加生成批次。其余图位先用从页面取色的色块占着。',
+    ].join('\n');
+    const result = transformSkillMarkdown('references/task-explore.md', raw, { edition: 'lite', mode: 'lenient' });
+    expect(result.markdown).toContain('oil_ui_image');
+    expect(result.markdown).toContain('oil_ui_media');
+    expect(result.markdown).toContain('其余图位用代码占位');
+  });
+
   it.each([
     ['用 `--evidence` 一次取齐状态图。', '用 `oil_ui_shoot`（`evidence: true`） 一次取齐状态图。'],
     ['用 `--evidence` 给选定画面生成状态图。', '用 `oil_ui_shoot`（`evidence: true`） 给选定画面生成状态图。'],
