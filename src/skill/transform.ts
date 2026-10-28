@@ -63,6 +63,13 @@ export function transformSkillMarkdown(relativePath: string, raw: string, option
   let markdown = raw;
   for (const rule of MARKDOWN_RULES) {
     if (rule.file !== file) continue;
+    if (
+      (rule.requiredIn.length > 0 && !rule.requiredIn.includes(options.edition)) ||
+      (rule.editions && !rule.editions.includes(options.edition))
+    ) {
+      rules.push({ id: rule.id, file, required: false, matches: 0, status: 'unmatched' });
+      continue;
+    }
     let matches = 0;
     // Inspect the input, not text inserted by an earlier rule, for native evidence.
     const alreadyTransformed =

@@ -147,6 +147,11 @@ describe('declarative Markdown rewrite validation', () => {
     expect(result.markdown).toContain('oil_ui_image');
     expect(result.markdown).toContain('oil_ui_media');
     expect(result.markdown).toContain('其余图位用代码占位');
+    expect(result.markdown).not.toContain('direction-concept.md');
+    expect(result.rules.find((rule) => rule.id === 'skill.explore-prototype-images.pro')).toMatchObject({ matches: 0 });
+    const pro = transformSkillMarkdown('references/task-explore.md', raw, { edition: 'pro', mode: 'lenient' });
+    expect(pro.markdown).not.toContain('direction-concept.md');\n    expect(pro.markdown).toContain('已有专项候选流程');
+    expect(pro.rules.find((rule) => rule.id === 'skill.explore-prototype-images.pro')).toMatchObject({ matches: 1 });
   });
 
   it.each([
