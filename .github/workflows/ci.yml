@@ -32,6 +32,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Test against newer DSH dependencies
         if: matrix.dsh != '0.2.1-rc.2'
+        shell: bash
         run: |
           packages=(dsh-agent dsh-fs dsh-llm dsh-ptc-runtime dsh-sandbox dsh-sandbox-policy dsh-scope dsh-session dsh-session-projection dsh-skill dsh-system-prompt dsh-tools dsh-user-approval dsh-working-directory)
           for package in "${packages[@]}"; do
