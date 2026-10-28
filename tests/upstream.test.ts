@@ -14,6 +14,7 @@ import {
 import { TRANSFORM_VERSION, isHarnessNativeSkillMarkdown, transformSkillMarkdown } from '../src/skill/transform.ts';
 import { createHash } from 'node:crypto';
 import { join, relative, sep } from 'node:path';
+import { writeProAdapter } from './pro-adapter-fixture.ts';
 
 const fixture = vi.hoisted(() => ({ home: '' }));
 vi.mock('node:os', async (original) => ({
@@ -46,6 +47,7 @@ async function pro(path: string, name = 'oil-ui-pro', rawBody = 'Local instructi
     join(path, 'SKILL.md'),
     `---\nname: ${name}\ndescription: Local Skill\nmetadata:\n  version: '9.8.7'\n---\n${rawBody}`,
   );
+  await writeProAdapter(path);
   return path;
 }
 
@@ -165,6 +167,7 @@ describe('bundled open-source Skill and local Pro activation', () => {
     ).markdown;
     const dir = join(root, 'native-pro');
     await mkdir(dir, { recursive: true });
+    await writeProAdapter(dir);
     await writeFile(join(dir, 'SKILL.md'), nativeBody);
     const resolved = await resolveActiveSkill({ proSkillDir: dir });
     expect(resolved.directory).toBe(dir);
@@ -187,6 +190,49 @@ describe('bundled open-source Skill and local Pro activation', () => {
       proSourcePath: dir,
     });
     expect(status.upgradeHint).toContain('npx github:oil-oil/oil-cli install oil-ui-pro');
+  });
+
+  it('reports an unusable Pro adapter and falls back to Lite without leaking its documents', async () => {
+    const dir = await pro(join(root, 'outdated'), 'oil-ui-pro', 'Private fixture instructions');
+    await writeProAdapter(dir, [], '7');
+    const snapshot = await resolveActiveSkill({ proSkillDir: dir });
+    expect(snapshot).toMatchObject({ edition: 'lite', name: 'oil-ui', source: 'bundled-lite' });
+    expect(snapshot.adapterError).toContain('transform 7');
+    const status = await skillStatus(null, { proSkillDir: dir });
+    expect(status).toMatchObject({ edition: 'lite', proInstalled: true, proAdapterReady: false });
+    expect(status.proAdapterError).toContain('transform 7');
+    expect(status.upgradeHint).toContain('当前使用 Lite');
+    expect((await loadUpstreamSkill({ proSkillDir: dir })).content).not.toContain('Private fixture instructions');
+  });
+
+  it('falls back when an adapter-required rule misses and never exposes rule text in status errors', async () => {
+    const dir = await pro(join(root, 'invalid-rules'));
+    await writeProAdapter(dir, [
+      {
+        id: 'fixture.required',
+        file: 'SKILL.md',
+        requiredIn: ['pro'],
+        match: { source: 'REQUIRED_FIXTURE_NOT_PRESENT' },
+        replacement: 'MUST_NOT_LOAD',
+      },
+    ]);
+    const missing = await skillStatus(null, { proSkillDir: dir });
+    expect(missing).toMatchObject({ edition: 'lite', proAdapterReady: false });
+    expect(missing.proAdapterError).toContain('required rules');
+    expect(missing.proAdapterError).not.toContain('REQUIRED_FIXTURE_NOT_PRESENT');
+    await writeProAdapter(dir, [
+      {
+        id: 'fixture.invalid-regexp',
+        file: 'SKILL.md',
+        requiredIn: [],
+        match: { source: 'PRIVATE_FIXTURE_PATTERN(' },
+        replacement: 'Fixture native',
+      },
+    ]);
+    const invalid = await skillStatus(null, { proSkillDir: dir });
+    expect(invalid).toMatchObject({ edition: 'lite', proAdapterReady: false });
+    expect(invalid.proAdapterError).toBe('Pro adapter rule 1 is invalid.');
+    expect(invalid.proAdapterError).not.toContain('PRIVATE_FIXTURE_PATTERN');
   });
 
   it('strictly follows DeepSeek Harness skill roots in priority order and ignores non-DSH hosts', async () => {
@@ -407,6 +453,43 @@ describe('atomic versioned Pro compilation and review fallback', () => {
     expect(await loadReviewerManual({ proSkillDir: dir })).toBe('# Version one');
     await writeFile(join(dir, 'references/reviewer-manual.md'), '# Version two');
     expect(await loadReviewerManual({ proSkillDir: dir })).toBe('# Version two');
+  });
+
+  it('invalidates compiled documents and reviewer manuals when adapter rules change without document edits', async () => {
+    const dir = await pro(join(root, 'adapter-cache'), 'oil-ui-pro', 'Fixture placeholder\n');
+    await mkdir(join(dir, 'references'));
+    await writeFile(join(dir, 'references/tools.md'), 'Fixture tool documentation');
+    await writeFile(join(dir, 'references/reviewer-manual.md'), 'Fixture reviewer placeholder');
+    const skillRule = (replacement: string) => ({
+      id: 'fixture.compiled-marker',
+      file: 'SKILL.md',
+      requiredIn: [],
+      match: { source: 'Fixture placeholder' },
+      replacement,
+    });
+    const reviewerRule = (replacement: string, source = 'Fixture reviewer placeholder') => ({
+      id: 'fixture.reviewer-marker',
+      file: 'references/reviewer-manual.md',
+      requiredIn: [],
+      match: { source },
+      replacement,
+    });
+    await writeProAdapter(dir, [skillRule('Compiled one'), reviewerRule('# Review one')]);
+    const first = await resolveActiveSkill({ proSkillDir: dir });
+    expect(await readFile(join(first.directory, 'SKILL.md'), 'utf8')).toContain('Compiled one');
+    expect(await loadReviewerManual({ proSkillDir: dir })).toBe('# Review one');
+    await writeProAdapter(dir, [skillRule('Compiled two'), reviewerRule('# Review two')]);
+    const second = await resolveActiveSkill({ proSkillDir: dir });
+    expect(second.directory).not.toBe(first.directory);
+    expect(await readFile(join(second.directory, 'SKILL.md'), 'utf8')).toContain('Compiled two');
+    expect(await loadReviewerManual({ proSkillDir: dir })).toBe('# Review two');
+    await writeProAdapter(dir, [skillRule('Compiled two'), reviewerRule('# Must stay old', '# Review one')]);
+    expect(await loadReviewerManual({ proSkillDir: dir }, first)).toBe('# Review one');
+    expect(await loadReviewerManual({ proSkillDir: dir }, second)).toBe('# Review two');
+    await writeFile(join(dir, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Updated\n---\nFixture placeholder\n');
+    const third = await resolveActiveSkill({ proSkillDir: dir });
+    expect(third.directory).not.toBe(second.directory);
+    expect(await readFile(join(third.directory, 'SKILL.md'), 'utf8')).toContain('Compiled two');
   });
 
   it('keeps native docs free of CLI remnants and describes thumbnail scaling without narrowing the viewport', async () => {

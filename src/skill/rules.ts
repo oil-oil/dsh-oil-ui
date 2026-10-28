@@ -43,7 +43,7 @@ const NATIVE_TOOL_COMMANDS_SECTION = `### 常用调用方式（\`oil_ui_shoot\`�
 
 写好三个候选首屏（如 \`explore/a.html\`、\`explore/b.html\`、\`explore/c.html\`）后，调用 \`oil_ui_explorer({ "manifest": "explore/manifest.json", "out": "style-explorer.html" })\` 即可生成内嵌全部本地资源的独立对比页。`;
 
-const hasDirectionImagery = (markdown: string) =>
+export const hasDirectionImagery = (markdown: string) =>
   (markdown.includes('把每个方向用三四行写给用户') || markdown.includes('把方向用三四行写给用户')) &&
   markdown.includes('再列出首屏和关键区块需要的图') &&
   markdown.includes('oil_ui_image') &&
@@ -99,17 +99,6 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     nativeSatisfied: hasDirectionImagery,
   },
   {
-    id: 'skill.direction-images.pro',
-    file: 'SKILL.md',
-    requiredIn: [],
-    optionalReason: '兼容 0.26 及更早版本的 Pro 多方向文案；0.27 单方向由共享规则处理。',
-    match:
-      /把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，(?:核心动作怎样完成，)?用什么字体和色彩，主视觉靠什么；说服型页面再写上标题原文。/,
-    replacement:
-      '把每个方向用三四行写给用户：它给人什么感觉，首屏长什么样，核心动作怎样完成，用什么字体和色彩，主视觉靠什么；再列出首屏和关键区块需要的图，逐张标注来源（检索、生成、代码绘制）。若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，且 `imageSource` 不是 `none`，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。专项标题与素材要求按对应页面的规范保留。',
-    nativeSatisfied: hasDirectionImagery,
-  },
-  {
     id: 'skill.direction-images',
     file: 'SKILL.md',
     requiredIn: [],
@@ -130,31 +119,12 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
       '先用三四行写清每个方向的感觉、首屏、核心动作、字体、色彩和主视觉，再列出首屏和关键区块需要的图，逐张标注来源（检索、生成、代码绘制）。若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，且 `imageSource` 不是 `none`，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。附上推荐及理由',
   },
   {
-    id: 'skill.prototype-images.pro',
-    file: 'SKILL.md',
-    requiredIn: [],
-    optionalReason: '0.26 及更早版本的首屏素材规则仍保留在主文件，0.27 起由独立探索模块承接。',
-    match:
-      /主视觉靠图的方向，生成一张，至多重新生成一次；说服型页面里以图为主视觉的方向，按 \[概念\]\(references\/direction-concept\.md\) 各出一批候选再挑。其余图位先用从页面取色的色块占着。/,
-    replacement: '首屏对比图按方向卡中标注的来源准备；已有专项候选流程时按专项，其余图位用代码占位。',
-  },
-  {
     id: 'skill.prototype-images',
     file: 'SKILL.md',
     requiredIn: [],
     optionalReason: '0.26 及更早版本的首屏素材规则仍保留在主文件，0.27 起由独立探索模块承接。',
     match: /主视觉靠图的方向，生成一张，至多重新生成一次；其余图位先用从页面取色的色块占着。/,
     replacement: '首屏对比图按方向卡中标注的来源准备；其余图位用代码占位。',
-  },
-  {
-    id: 'skill.explore-prototype-images.pro',
-    file: 'references/task-explore.md',
-    requiredIn: [],
-    editions: ['pro'],
-    optionalReason: '0.27 起多方向首屏素材规则迁移到独立模块；旧版本没有此文件。',
-    match:
-      /主视觉靠图的方向按 \[素材\]\(media\.md\) 生成一张，至多重新生成一次；页面已有专项候选流程时按专项，不重复增加生成批次。其余图位先用从页面取色的色块占着。/,
-    replacement: '首屏对比图按方向卡中标注的来源准备；已有专项候选流程时按专项，其余图位用代码占位。',
   },
   {
     id: 'skill.explore-prototype-images',
@@ -368,14 +338,6 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     match: /模板里的路径换成本 Skill 目录下的绝对路径：子 Agent 的工作目录不是本目录。/g,
     replacement:
       '子 Agent 启动时已由插件自动将《视觉与交互评审手册》（`references/reviewer-manual.md`）注入其系统提示词，主 Agent 只需调用 `subagent` 传入下方交接清单与对应模式指令，无需附带手册路径，也无需让子 Agent 再次读取手册。',
-  },
-  {
-    id: 'review-loop.paths',
-    file: 'references/review-loop.md',
-    requiredIn: ['pro'],
-    match: /模板里的路径按 \[派发协议\]\(visual-review\.md\) 换成绝对路径。/g,
-    replacement:
-      '子 Agent 启动时系统提示词中已自动注入本目录（`references/`）的绝对路径，主 Agent 直接使用上表模板即可，子 Agent 可按该路径读取对应的专项评审与游玩文件。',
   },
   {
     id: 'ux-review.paths',

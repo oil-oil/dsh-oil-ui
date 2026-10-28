@@ -8,6 +8,7 @@ import { buildExplorer, Embedder } from '../src/explorer.ts';
 import { bundledSkillDirectory, type ActiveSkill } from '../src/skill/upstream.ts';
 import { ManagedProcesses } from '../src/processes.ts';
 import type { ImageRequest } from '../src/tool-requests.ts';
+import { writeProAdapter } from './pro-adapter-fixture.ts';
 
 vi.mock('node:fs/promises', { spy: true });
 
@@ -66,6 +67,7 @@ async function scriptedWorkbench(script: string, mediaScript?: string) {
   await mkdir(join(skill, 'scripts'), { recursive: true });
   await mkdir(cwd, { recursive: true });
   await writeFile(join(skill, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Test local tools\n---\nInstructions');
+  await writeProAdapter(skill);
   await writeFile(join(skill, 'scripts/shoot.mjs'), script);
   await writeFile(join(skill, 'scripts/curate-media.mjs'), mediaScript ?? script);
   await writeFile(join(cwd, 'index.html'), '<title>Native page</title>');
@@ -487,6 +489,7 @@ it('hot-switches explorer templates and scripts on one workbench after Pro is in
   const pro = join(localHome.path, '.dsh/skills/oil-ui-pro');
   await mkdir(join(pro, 'assets'), { recursive: true });
   await mkdir(join(pro, 'scripts'), { recursive: true });
+  await writeProAdapter(pro);
   await writeFile(join(pro, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Hot Pro\n---\nPro instructions');
   await writeFile(
     join(pro, 'assets/style-explorer.html'),

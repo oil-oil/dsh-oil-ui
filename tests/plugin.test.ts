@@ -8,6 +8,7 @@ import SkillRegistry, { type SkillRegistration, type SkillProvider } from '@deep
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
 import { apply } from '../src/index.ts';
 import { skillStatus } from '../src/skill/upstream.ts';
+import { writeProAdapter } from './pro-adapter-fixture.ts';
 
 const localHome = vi.hoisted(() => ({ path: '' }));
 vi.mock('node:os', async (original) => {
@@ -299,6 +300,7 @@ it('reads the Skill registry from the injected context instead of the apply cont
   vi.stubEnv('OIL_UI_PRO_DIR', '');
   const proDir = join(root, '.dsh/skills/oil-ui-pro');
   await mkdir(join(proDir, 'references'), { recursive: true });
+  await writeProAdapter(proDir);
   await writeFile(
     join(proDir, 'SKILL.md'),
     '---\nname: oil-ui-pro\ndescription: Pro\nmetadata:\n  version: 9.9.9\n---\nPro',
@@ -470,6 +472,7 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
     expect(before).toEqual([expect.objectContaining({ name: 'oil-ui', rank: 20 })]);
 
     await mkdir(pro, { recursive: true });
+    await writeProAdapter(pro);
     await writeFile(
       join(pro, 'SKILL.md'),
       '---\nname: oil-ui-pro\ndescription: Hot-installed Pro\nmetadata:\n  version: hot\n---\nPro body with `scripts/shoot.mjs`',
@@ -634,6 +637,16 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
     expect(subSections[0]!.text).not.toContain('call oil_ui_skill_status first');
 
     await mkdir(join(proDir, 'references'), { recursive: true });
+    await writeProAdapter(proDir, [
+      {
+        id: 'fixture.review-loop.paths',
+        file: 'references/reviewer-manual.md',
+        requiredIn: [],
+        editions: ['pro'],
+        match: { source: '能用截图工具时' },
+        replacement: '能用 `oil_ui_shoot` 时',
+      },
+    ]);
     await writeFile(
       join(proDir, 'SKILL.md'),
       '---\nname: oil-ui-pro\ndescription: Pro\nmetadata:\n  version: 9.9.9\n---\nPro body',

@@ -9,6 +9,8 @@ import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
 import type { SkillRegistration, SkillDefinition, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill';
 import { OilApiError, readOilCredits, readOilToken } from '../oil-api.ts';
+import { loadProAdapter, ProAdapterError } from './adapter.ts';
+import type { ProAdapter } from './adapter.ts';
 import {
   TRANSFORM_VERSION,
   compileHarnessSkillTree,
@@ -288,6 +290,8 @@ export interface ActiveSkill {
   directory: string;
   sourceDirectory?: string;
   source: 'local-pro' | 'bundled-lite';
+  adapter?: ProAdapter;
+  adapterError?: string;
 }
 
 function frontmatter(raw: string) {
@@ -352,14 +356,24 @@ async function findPro(options: SkillOptions): Promise<string | null> {
   return null;
 }
 
+async function assertProAdapterDocuments(sourceDirectory: string, adapter: ProAdapter): Promise<void> {
+  const report = await validateSkillTree(sourceDirectory, { mode: 'lenient', ruleSet: adapter.rules });
+  if (report.unmatchedRules.some((rule) => adapter.requiredRuleIds.has(rule.id))) {
+    throw new ProAdapterError('Pro adapter required rules do not match the installed Pro documents.');
+  }
+}
+
 const pendingCompiles = new Map<string, Promise<string>>();
-export async function ensureHarnessProDirectory(sourceDir: string): Promise<string> {
-  const pending = pendingCompiles.get(sourceDir);
+export async function ensureHarnessProDirectory(sourceDir: string, snapshot?: ProAdapter): Promise<string> {
+  const adapter = snapshot ?? (await loadProAdapter(sourceDir, TRANSFORM_VERSION));
+  await assertProAdapterDocuments(sourceDir, adapter);
+  const pendingKey = `${sourceDir}\0${adapter.fingerprint}`;
+  const pending = pendingCompiles.get(pendingKey);
   if (pending) return pending;
   const compile = (async () => {
     const toolsRaw = await readFile(join(sourceDir, 'references/tools.md'), 'utf8').catch(() => null);
     if (toolsRaw === null) return sourceDir;
-    const hash = createHash('sha256').update(TRANSFORM_VERSION).update(sourceDir);
+    const hash = createHash('sha256').update(TRANSFORM_VERSION).update(sourceDir).update(adapter.fingerprint);
     const ancestors = new Set<string>();
     async function fingerprint(directory: string, prefix = ''): Promise<void> {
       const actual = await realpath(directory);
@@ -410,7 +424,11 @@ export async function ensureHarnessProDirectory(sourceDir: string): Promise<stri
     await mkdir(cacheRoot, { recursive: true });
     const staging = await mkdtemp(join(cacheRoot, '.oil-ui-pro-'));
     try {
-      await compileHarnessSkillTree(sourceDir, staging, { symlinkBinaryAssets: true, mode: 'lenient' });
+      await compileHarnessSkillTree(sourceDir, staging, {
+        symlinkBinaryAssets: true,
+        mode: 'lenient',
+        ruleSet: adapter.rules,
+      });
       await writeFile(join(staging, '.complete'), digest);
       if (await ready()) return compiledDir;
       if (incomplete) {
@@ -432,11 +450,11 @@ export async function ensureHarnessProDirectory(sourceDir: string): Promise<stri
     }
     return compiledDir;
   })();
-  pendingCompiles.set(sourceDir, compile);
+  pendingCompiles.set(pendingKey, compile);
   try {
     return await compile;
   } finally {
-    pendingCompiles.delete(sourceDir);
+    pendingCompiles.delete(pendingKey);
   }
 }
 
@@ -447,23 +465,48 @@ export interface SkillSnapshot {
 }
 export async function discoverSkill(options: SkillOptions = {}): Promise<SkillSnapshot> {
   const pro = options.preferPro !== false ? await findPro(options) : null;
-  const active: ActiveSkill = pro
-    ? { edition: 'pro', name: 'oil-ui-pro', directory: pro, sourceDirectory: pro, source: 'local-pro' }
-    : {
-        edition: 'lite',
-        name: 'oil-ui',
-        directory: bundledSkillDirectory,
-        sourceDirectory: bundledSkillDirectory,
-        source: 'bundled-lite',
-      };
+  let adapter: ProAdapter | undefined;
+  let adapterError: string | undefined;
+  if (pro) {
+    try {
+      adapter = await loadProAdapter(pro, TRANSFORM_VERSION);
+      await assertProAdapterDocuments(pro, adapter);
+    } catch (error) {
+      adapter = undefined;
+      adapterError =
+        error instanceof ProAdapterError ? error.message : 'Pro adapter or installed Pro documents are invalid.';
+    }
+  }
+  const active: ActiveSkill =
+    pro && adapter
+      ? {
+          edition: 'pro',
+          name: 'oil-ui-pro',
+          directory: pro,
+          sourceDirectory: pro,
+          source: 'local-pro',
+          adapter,
+        }
+      : {
+          edition: 'lite',
+          name: 'oil-ui',
+          directory: bundledSkillDirectory,
+          sourceDirectory: bundledSkillDirectory,
+          source: 'bundled-lite',
+          ...(adapterError ? { adapterError } : {}),
+        };
   const header = await readHeader(join(active.directory, 'SKILL.md'));
-  return { active, header, fingerprint: `${active.directory}:${header.fingerprint}` };
+  return {
+    active,
+    header,
+    fingerprint: `${active.directory}:${header.fingerprint}:${adapter?.fingerprint ?? 'unavailable'}`,
+  };
 }
 
 export async function resolveActiveSkill(options: SkillOptions = {}, snapshot?: SkillSnapshot): Promise<ActiveSkill> {
   const { active } = snapshot ?? (await discoverSkill(options));
   return active.edition === 'pro'
-    ? { ...active, directory: await ensureHarnessProDirectory(active.directory) }
+    ? { ...active, directory: await ensureHarnessProDirectory(active.directory, active.adapter) }
     : active;
 }
 
@@ -475,6 +518,19 @@ export async function loadReviewerManual(options: SkillOptions = {}, activeSkill
   } catch {
     /* Use the bundled manual on discovery/compile failure. */
   }
+  const compiled = Boolean(
+    active?.edition === 'pro' && active.sourceDirectory && active.directory !== active.sourceDirectory,
+  );
+  let adapter = active?.adapter;
+  if (active?.edition === 'pro' && !compiled && !adapter) {
+    try {
+      adapter = await loadProAdapter(active.sourceDirectory ?? active.directory, TRANSFORM_VERSION);
+    } catch {
+      active = undefined;
+    }
+  }
+  const adapterHash = active?.adapter?.fingerprint ?? adapter?.fingerprint ?? '';
+  const ruleSet = active?.edition === 'pro' && !compiled ? adapter?.rules : undefined;
   for (const path of [
     ...new Set([
       ...(active ? [join(active.directory, 'references', 'reviewer-manual.md')] : []),
@@ -483,15 +539,17 @@ export async function loadReviewerManual(options: SkillOptions = {}, activeSkill
   ]) {
     try {
       const info = await stat(path);
-      const key = `${TRANSFORM_VERSION}:${path}:${info.ino}:${info.mtimeMs}:${info.ctimeMs}:${info.size}`;
+      const key = `${TRANSFORM_VERSION}:${adapterHash}:${path}:${info.ino}:${info.mtimeMs}:${info.ctimeMs}:${info.size}`;
       let manual = reviewerManuals.get(key);
       if (!manual) {
-        manual = readFile(path, 'utf8').then(
-          (raw) =>
-            transformSkillMarkdown('references/reviewer-manual.md', raw, {
-              edition: active?.edition ?? 'lite',
-              mode: 'lenient',
-            }).markdown,
+        manual = readFile(path, 'utf8').then((raw) =>
+          compiled
+            ? raw
+            : transformSkillMarkdown('references/reviewer-manual.md', raw, {
+                edition: active?.edition ?? 'lite',
+                mode: 'lenient',
+                ruleSet,
+              }).markdown,
         );
         reviewerManuals.set(key, manual);
       }
@@ -510,9 +568,15 @@ export async function loadUpstreamSkill(
   const active = await resolveActiveSkill(options, snapshot);
   const path = join(active.directory, 'SKILL.md');
   const raw = await readFile(path, 'utf8');
-  const compiled = isHarnessNativeSkillMarkdown(raw)
+  const native = isHarnessNativeSkillMarkdown(raw);
+  const ruleSet =
+    active.adapter?.rules ??
+    (!native && active.edition === 'pro'
+      ? (await loadProAdapter(active.sourceDirectory ?? active.directory, TRANSFORM_VERSION)).rules
+      : undefined);
+  const compiled = native
     ? raw
-    : transformSkillMarkdown('SKILL.md', raw, { edition: active.edition, mode: 'lenient' }).markdown;
+    : transformSkillMarkdown('SKILL.md', raw, { edition: active.edition, mode: 'lenient', ruleSet }).markdown;
   const { data, content } = frontmatter(compiled);
   if (data.name !== active.name) throw new Error('Invalid active Skill identity');
   return {
@@ -629,7 +693,10 @@ export async function skillStatus(
   // Read only the rule files; no compilation or extra cache is needed for diagnostics.
   const transformDiagnostics =
     active.edition === 'pro'
-      ? await validateSkillTree(active.sourceDirectory ?? active.directory, { mode: 'lenient' })
+      ? await validateSkillTree(active.sourceDirectory ?? active.directory, {
+          mode: 'lenient',
+          ruleSet: active.adapter?.rules,
+        })
           .then((report) => ({
             sourceDirectory: active.sourceDirectory ?? active.directory,
             unmatchedRules: report.unmatchedRules,
@@ -671,6 +738,8 @@ export async function skillStatus(
     bundledVersion: manifest.version,
     proInstalled: pro !== null,
     proSourcePath: pro,
+    proAdapterReady: active.edition === 'pro' && !active.adapterError,
+    proAdapterError: active.adapterError ?? null,
     activeResourceBase: effectiveBase ?? active.directory,
     name: effectiveName,
     version: activeVersion,
@@ -686,8 +755,9 @@ export async function skillStatus(
         (active.edition === 'pro' &&
           visible.path === join(await ensureHarnessProDirectory(active.directory), 'SKILL.md'))),
     ),
-    upgradeHint:
-      active.edition === 'lite'
+    upgradeHint: active.adapterError
+      ? `Pro 适配器未就绪：${active.adapterError} 当前使用 Lite。`
+      : active.edition === 'lite'
         ? '可通过 npx github:oil-oil/oil-cli install oil-ui-pro 安装 Pro 版，再调用 oil_ui_skill_status 刷新目录，无需重启即可解锁。'
         : '已激活本机 Pro 版。',
     note: 'Manifest hashes are offline packaging evidence. No hash gate is enforced during loading or execution.',

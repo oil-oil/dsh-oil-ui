@@ -100,6 +100,8 @@ It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoi
 
 Once `oil-ui-pro` is installed locally (in `~/.agents/skills/oil-ui-pro` or `~/.dsh/skills/oil-ui-pro`), you do not need to restart DeepSeek Harness. When the agent calls `oil_ui_skill_status`, the plugin scans your local Skill directories, compiles `oil-ui-pro` and its reference manuals into native tool instructions, and registers them above the built-in filesystem loader. When the main agent spawns a `subagent` for visual and interaction review, the plugin automatically injects the compiled `reviewer-manual.md` and `references/` directory path into the subagent's system prompt.
 
+Pro-specific transformation rules ship as declarative JSON data in the Pro package under `adapters/dsh/`, not in the public plugin. The plugin loads only compatible rules and does not execute JavaScript from this data. If the adapter is missing, invalid, or incompatible with the current transformation protocol, the plugin uses the bundled Lite edition only. Inspect `proAdapterReady`, `proAdapterError`, and `upgradeHint` in `oil_ui_skill_status` to determine whether a compatible Pro package is needed.
+
 ### Version Check & One-Time Pro Notice
 
 The update check and one-time Pro prompt from upstream `oil-ui` are built directly into `oil_ui_skill_status`:
