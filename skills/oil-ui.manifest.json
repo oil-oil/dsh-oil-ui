@@ -1,10 +1,10 @@
 {
   "name": "oil-ui",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "transformVersion": "8",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "215324365c5b36c61c6ccf09bb751708716a773d",
+    "commit": "9dbecf3e8cd44f03c5d06c79387534b22e8eac64",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -14,6 +14,10 @@
   },
   "exclusions": {
     "rules": [
+      {
+        "name": ".github",
+        "reason": "Repository maintenance and CI configuration are not part of the Skill runtime."
+      },
       {
         "name": ".git",
         "reason": "Repository metadata is not part of the Skill runtime."
@@ -45,24 +49,20 @@
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       },
       {
+        "path": ".github",
+        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
+      },
+      {
         "path": "assets/readme",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       },
       {
         "path": "README.en.md",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
-        "path": "scripts/__pycache__",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
-        "path": "tests/__pycache__",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       }
     ]
   },
-  "fileCount": 41,
+  "fileCount": 43,
   "files": [
     {
       "path": ".gitignore",
@@ -108,20 +108,20 @@
     },
     {
       "path": "README.md",
-      "sha256": "fc56ce6a6bb83c58941a1ca587f0ac727bf252b4fd38680e11581ec68133c3f2",
-      "size": 8907,
+      "sha256": "3f82a6edc50951bb2cc64c56344fe1619bf61b47ece776037639856bb4d44f90",
+      "size": 9024,
       "mode": "0644"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "777ca72c34430770e1b5e2cd3d5e51c9ff90c35bf6e1223d3fac6956d52ef4e1",
-      "size": 8016,
+      "sha256": "692722a5f4b8f433ae99e078b264daa5feefeb2316350d79403c2f3374ba77f3",
+      "size": 8133,
       "mode": "0644"
     },
     {
       "path": "references/design-direction.md",
-      "sha256": "6301162b11dcdb5eada264cfead85fcc3984a2fd6717fc65f093b9a55fb2b616",
-      "size": 26100,
+      "sha256": "5a0aeafd695e9a0436f06ede24abc70d925e5957130e0cc6d559eaadf2793886",
+      "size": 26327,
       "mode": "0644"
     },
     {
@@ -170,6 +170,18 @@
       "path": "references/style-explorer.md",
       "sha256": "9d2697e100b9242203a07f8475464c9e39c1ee7930b5227509b6ab51ff608ae1",
       "size": 3993,
+      "mode": "0644"
+    },
+    {
+      "path": "references/task-explore.md",
+      "sha256": "be9cd0f3d7613c078dc74d7b9a2078495defc41113b2c1cdb8761847c965b1ed",
+      "size": 3541,
+      "mode": "0644"
+    },
+    {
+      "path": "references/task-review.md",
+      "sha256": "f7aa2861f851ebeb378cca45ab7a29eb2f46da089a53c656497dd9ee35cfe869",
+      "size": 1238,
       "mode": "0644"
     },
     {
@@ -240,8 +252,8 @@
     },
     {
       "path": "scripts/oiloil-image.mjs",
-      "sha256": "477491ce4ab9005a4e904652994f232052d2b89f78b868f0c4b6a9399f4e878d",
-      "size": 23043,
+      "sha256": "9def8ef07485436207db85a97f4a8b2a5b8ccd7b3d381547834cfcb7ed6d0164",
+      "size": 23069,
       "mode": "0755"
     },
     {
@@ -264,14 +276,14 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "87f9dbaec5d111a6bc1f167514a85a81431a96ef55e4bfa6c1f03b794480bdc9",
-      "size": 20603,
+      "sha256": "9df1913ad5213f9be907c7aa0dbb4f9d26b3b4e481d261f54c29267e317dfa1b",
+      "size": 18224,
       "mode": "0644"
     },
     {
       "path": "tests/test_build_explorer.py",
-      "sha256": "c6487711564830f30e71f3c17037859cc96cd523d617a6ba95f480e322d02606",
-      "size": 65111,
+      "sha256": "79bf92ffe465186289ec3de77fa632c6cda15954ad75f72a450be57b2928f6a9",
+      "size": 65257,
       "mode": "0644"
     },
     {
@@ -288,8 +300,8 @@
     },
     {
       "path": "tests/test_oiloil_image.py",
-      "sha256": "8a28fe5e6a3e35c3a308c8b20385f142d57e1eef8b89d7c434b07f4979933d49",
-      "size": 33116,
+      "sha256": "a59a0e0cb66bcff4c81472c18e220cf5c07efea5b94ab78cb1115eda672c7c15",
+      "size": 33127,
       "mode": "0644"
     },
     {
