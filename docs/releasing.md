@@ -14,7 +14,7 @@ pnpm install --frozen-lockfile
 pnpm release:check
 ```
 
-`release:check` 会执行完整检查、生成并解包验证 tarball，再核对发布元数据。需要模拟 tag 校验时运行：
+`release:check` 会执行完整检查、生成并解包验证 tarball，再核对发布元数据。打包测试会实际加载解包后的 Lite，调用 `oil_ui_skill_status`、`oil_ui_explorer` 和 `oil_ui_shoot` 的离线解析，防止源码目录与安装目录不同造成运行时路径失效。发布后还要下载正式附件，核对安装和实际加载。需要模拟 tag 校验时运行：
 
 ```bash
 node scripts/release-check.mjs --tag vX.Y.Z
