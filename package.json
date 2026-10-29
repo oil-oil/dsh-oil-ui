@@ -1,6 +1,6 @@
 {
   "name": "dsh-oil-ui",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Oil UI 的 DeepSeek Harness 原生插件，支持自动切换本地安装的 Oil UI Pro",
   "license": "MIT",
   "author": "oil-oil",
