@@ -25,7 +25,11 @@ const INSTALL_REPO = 'github:oil-oil/oil-cli#52e0bb4d2d994ae0b72c2c0b7c1bc0fe5b8
 const CHECK_INTERVAL_MS = 600_000;
 const FETCH_TIMEOUT_MS = 2_000;
 
-export const bundledSkillDirectory = fileURLToPath(new URL('../../skills/oil-ui', import.meta.url));
+const packagedSkillDirectory = fileURLToPath(new URL('../skills/oil-ui', import.meta.url));
+const sourceSkillDirectory = fileURLToPath(new URL('../../skills/oil-ui', import.meta.url));
+export const bundledSkillDirectory = existsSync(join(packagedSkillDirectory, 'SKILL.md'))
+  ? packagedSkillDirectory
+  : sourceSkillDirectory;
 export const skillDirectory = bundledSkillDirectory;
 
 export interface SkillOptions {
@@ -644,7 +648,7 @@ export async function skillStatus(
   snapshot ??= await discoverSkill(options);
   let active = snapshot.active;
   let expected = snapshot.header.data;
-  const manifestPath = fileURLToPath(new URL('../../skills/oil-ui.manifest.json', import.meta.url));
+  const manifestPath = join(bundledSkillDirectory, '../oil-ui.manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: string; files: unknown[] };
   const pro = active.edition === 'pro' ? (active.sourceDirectory ?? active.directory) : await findPro(options);
   let activeVersion = String((expected.metadata as Record<string, unknown> | undefined)?.version ?? 'unknown');

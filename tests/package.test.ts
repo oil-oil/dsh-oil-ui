@@ -1,15 +1,32 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
+import type { SkillCandidate } from '@deepseek-ai/dsh-skill';
+import type { createSkillProvider } from '../src/skill/upstream.ts';
 
 const exec = promisify(execFile);
+const isolatedHome = vi.hoisted(() => ({ path: '' }));
+vi.mock('node:os', async (original) => ({
+  ...(await original<typeof import('node:os')>()),
+  homedir: () => isolatedHome.path,
+}));
 
-it('rebuilds stale lib before producing and verifying the plugin archive', async () => {
+it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpacked archive', async () => {
   const root = await mkdtemp(join(tmpdir(), 'oil-package-contract-'));
   const repository = process.cwd();
+  const disposers: (() => void | Promise<void>)[] = [];
+  const previousEnv = {
+    DSH_HOME: process.env.DSH_HOME,
+    OIL_NO_UPDATE_CHECK: process.env.OIL_NO_UPDATE_CHECK,
+    OIL_TOKEN: process.env.OIL_TOKEN,
+    OIL_UI_PRO_DIR: process.env.OIL_UI_PRO_DIR,
+    OIL_UI_IMAGE_GEN_SCRIPT: process.env.OIL_UI_IMAGE_GEN_SCRIPT,
+  };
   try {
     for (const entry of ['src', 'scripts', 'skills', 'tsdown.config.ts', 'tsconfig.json', 'package.json', 'LICENSE']) {
       await cp(join(repository, entry), join(root, entry), { recursive: true });
@@ -27,7 +44,95 @@ it('rebuilds stale lib before producing and verifying the plugin archive', async
     expect(bundled).not.toContain('STALE_BUILD_SENTINEL');
     expect(bundled).toContain('oil-ui-subagent-reviewer');
     expect(bundled).toBe(await readFile(join(root, 'lib/index.js'), 'utf8'));
+
+    isolatedHome.path = root;
+    process.env.DSH_HOME = join(root, '.dsh');
+    process.env.OIL_NO_UPDATE_CHECK = '1';
+    process.env.OIL_TOKEN = '';
+    process.env.OIL_UI_PRO_DIR = '';
+    process.env.OIL_UI_IMAGE_GEN_SCRIPT = '';
+    const { apply } = await import(pathToFileURL(join(unpack, 'package/lib/index.js')).href);
+    const tools = new Map<string, ToolDefinition>();
+    const pending: Promise<unknown>[] = [];
+    let provider: ReturnType<typeof createSkillProvider> | undefined;
+    let candidate: SkillCandidate | undefined;
+    const ctx = {
+      effect(register: () => () => void | Promise<void>) {
+        disposers.push(register());
+      },
+      on() {
+        return () => {};
+      },
+      inject(services: string[], register: (ctx: unknown) => unknown) {
+        const child = Object.create(ctx);
+        if (services.includes('tools')) {
+          child.tools = {
+            register(tool: ToolDefinition) {
+              tools.set(tool.name, tool);
+            },
+          };
+        }
+        if (services.includes('commands')) child.commands = { register: () => () => {} };
+        if (services.includes('skills')) {
+          child.skills = {
+            get: async () => candidate,
+            registerProvider: ctx.skills.registerProvider,
+          };
+        }
+        if (services.includes('systemPrompt')) child.systemPrompt = { section: () => () => {} };
+        pending.push(Promise.resolve(register(child)));
+      },
+      skills: {
+        registerProvider(create: (control: { signal: AbortSignal; invalidate: () => void }) => typeof provider) {
+          provider = create({ signal: new AbortController().signal, invalidate() {} });
+          return () => {};
+        },
+      },
+    };
+    apply(ctx, { preferPro: false, previewPort: 0 });
+    await Promise.all(pending);
+    if (!provider) throw new Error('Packaged Skill provider was not registered');
+    const candidates = await provider.list({});
+    expect(candidates).toHaveLength(1);
+    candidate = candidates[0];
+    if (!candidate) throw new Error('Packaged Lite candidate is missing');
+    expect(candidate.name).toBe('oil-ui');
+    const skill = await provider.get(candidate, {});
+    if (!skill) throw new Error('Packaged Lite Skill could not be loaded');
+    expect(skill.name).toBe('oil-ui');
+    expect(skill.resourceBase).toEqual({ kind: 'directory', path: join(unpack, 'package/skills/oil-ui') });
+    expect(skill.content).toContain('oil_ui_shoot');
+
+    const cwd = join(root, 'workspace');
+    await mkdir(join(cwd, 'explore'), { recursive: true });
+    for (const name of ['a', 'b', 'c']) {
+      await writeFile(join(cwd, `explore/${name}.html`), `<title>${name}</title><main>Direction ${name}</main>`);
+    }
+    const run = {
+      agent: { session: { id: 'package-smoke', header: { cwd } } },
+      signal: new AbortController().signal,
+    } as unknown as ToolRunContext;
+    expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
+      edition: 'lite',
+      activeSkillName: 'oil-ui',
+      bundledVersion: '0.27.1',
+      visibleMatchesOriginal: true,
+    });
+    expect(await tools.get('oil_ui_explorer')!.execute({ out: 'style-explorer.html' }, run)).toMatchObject({
+      ok: true,
+    });
+    expect(
+      await tools
+        .get('oil_ui_shoot')!
+        .execute({ target: 'style-explorer.html', out: 'shots/explorer.png', dryRun: true }, run),
+    ).toMatchObject({ ok: true, outputFiles: [] });
   } finally {
+    await Promise.all(disposers.map((dispose) => dispose()));
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    isolatedHome.path = '';
     await rm(root, { recursive: true, force: true });
   }
 }, 30000);
