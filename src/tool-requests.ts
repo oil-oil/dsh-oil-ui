@@ -10,6 +10,8 @@ export interface ExplorerRequest {
 export interface StitchItem {
   path: string;
   label?: string;
+  matchWidth?: number | string;
+  scale?: number | string;
 }
 
 export interface ShootRequest {
@@ -39,6 +41,7 @@ export interface ShootRequest {
   before?: string;
   after?: string;
   stitch?: (string | StitchItem)[];
+  crop?: string;
   columns?: number;
   frames?: number | string;
   waitMs?: number;

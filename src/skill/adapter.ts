@@ -153,7 +153,7 @@ export async function loadProAdapter(sourceDirectory: string, transformVersion: 
 export async function loadMarkdownRules(
   edition: SkillEdition,
   sourceDirectory?: string,
-  transformVersion = '8',
+  transformVersion = '9',
 ): Promise<readonly MarkdownRule[]> {
   if (edition === 'lite') return MARKDOWN_RULES;
   if (!sourceDirectory) throw new ProAdapterError('Pro adapter is missing from the installed Pro Skill.');

@@ -1,7 +1,7 @@
 {
   "name": "oil-ui",
   "version": "0.27.1",
-  "transformVersion": "8",
+  "transformVersion": "9",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
     "commit": "e3334bd5f6e700d21ac275b169ceee6495db9391",
@@ -45,10 +45,6 @@
     ],
     "paths": [
       {
-        "path": ".git",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
         "path": ".github",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       },
@@ -58,10 +54,6 @@
       },
       {
         "path": "README.en.md",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
-        "path": "tests/__pycache__",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       }
     ]
@@ -190,8 +182,8 @@
     },
     {
       "path": "references/tools.md",
-      "sha256": "9d7effee81210ae8bfc642246bdc5a76783551d3d37d7b07ba519749c8e38aaa",
-      "size": 8904,
+      "sha256": "fcd2de5546eda271b03ff2119036f0ce3ab82487282cd0d04d79388118a3c06c",
+      "size": 9260,
       "mode": "0644"
     },
     {
@@ -280,8 +272,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "0af9e12edb68ecaa6c21e6f8a911a04603542a2ddffc53fb0b9c8cb15ea757b2",
-      "size": 18224,
+      "sha256": "b922fad9616ba2463320c9431bdcad04bffc3fe74bc8184ca17781824c2d8242",
+      "size": 18255,
       "mode": "0644"
     },
     {

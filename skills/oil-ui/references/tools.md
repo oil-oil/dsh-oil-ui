@@ -8,7 +8,7 @@
 截图分两种用途，不要混在一起：
 
 - **看一眼**：改完一批，想看效果。只截当前这一屏，一次 `oil_ui_shoot` 调用。把一批改动攒在一起改完再截，不是每改一处截一次；页面没有变，就不重复截。
-- **取证**：只在送评审之前、交付之前，用 `oil_ui_shoot`（`evidence: true`） 给选定画面生成状态图、2 倍图和录屏；多状态出并排图和遮字图，单状态需要遮字图时设 `mask: true`。默认覆盖主视口的代表状态和一个最复杂或最危险的状态；风险状态已包含在代表状态里的，不重复截。任务未限定单端或固定视口时，另一端只补一张主要状态的普通截图，不重复整套证据。除任务或专项规范明确要求外，不做全语言 × 全页面 × 全状态矩阵。方向首屏那一轮每个方向只截一张，不取证。
+- **取证**：只在送评审之前、交付之前，调用 `oil_ui_shoot`，用 `oil_ui_shoot`（`evidence: true`） 给选定画面生成状态图、2 倍图和录屏；多状态出并排图和遮字图，单状态需要遮字图时设 `mask: true`。默认覆盖主视口的代表状态和一个最复杂或最危险的状态；风险状态已包含在代表状态里的，不重复截。任务未限定单端或固定视口时，另一端只补一张主要状态的普通截图，不重复整套证据。除任务或专项规范明确要求外，不做全语言 × 全页面 × 全状态矩阵。方向首屏那一轮每个方向只截一张，不取证。
 
 每一轮评审只重新取这一轮改动影响到的证据。没有动过的状态和动效，沿用上一轮的文件，交接时注明哪些是沿用的；拿不准有没有被影响到，例如改了共享样式，就重取那一项。评审者只提出扩大覆盖、却说不清哪条判断缺少依据时，不补图也不加一轮。
 
@@ -23,13 +23,15 @@
 | 只看改过的局部组件或区域 | `{ "target": "index.html", "size": "desktop", "selector": ".card", "out": "shots/card.png" }`（自动滚入视口并只截该元素区域） |
 | 操作几步再截 | `{ "target": "index.html", "size": "desktop", "steps": "click .open; wait 300", "out": "shots/open.png" }` |
 | 按地址参数切多状态连拍 | `{ "target": "index.html", "size": "desktop", "states": ["idle", "done"], "out": "shots" }`（状态参数名默认 `state`，可用 `param` 修改；额外查询串用 `query: "a=1&b=2"`） |
-| 送评审或交付前取证 | `{ "target": "index.html", "size": "desktop", "evidence": true, "states": ["idle", "done"], "steps": ["send: click .send"], "out": "evidence" }` |
+| 送评审或交付前取状态图 | `{ "target": "index.html", "size": "desktop", "states": ["idle", "done"], "sheet": true, "out": "evidence" }` |
 | 2 倍高清截图（@2x） | `{ "target": "index.html", "size": "desktop", "zoom": 2, "out": "shots/desktop-2x.png" }`（或 `zoom: "1,2"`） |
-| 落地页录一段从头滚到底 | `{ "target": "index.html", "size": "desktop", "record": true, "steps": "scroll 600; scroll 600; scroll 600", "out": "evidence" }` |
+| 核对长页滚动动效 | `{ "target": "index.html", "size": "desktop", "frames": 8, "steps": "scroll 600; scroll 600; scroll 600", "out": "evidence" }` |
 | 截图还原：和参考图比对 | `{ "target": "index.html", "size": "1440x900", "compare": "refs/target.png", "out": "shots/compare.png" }` |
 | 给元素画框、标编号 | `{ "target": "index.html", "size": "desktop", "mark": "1=.page-head .btn; 2=.toggle-row", "fullPage": true, "out": "shots/marked.png" }` |
-| 看清一段过渡序列帧 | `{ "target": "index.html", "size": "desktop", "record": true, "frames": 8, "steps": "click .open", "out": "evidence" }` |
+| 看清一段过渡序列帧 | `{ "target": "index.html", "size": "desktop", "frames": 8, "steps": "click .open", "out": "evidence" }` |
 | 把几张图拼成一张对比图 | `{ "stitch": [{ "path": "shots/a.png", "label": "修改前" }, { "path": "shots/b.png", "label": "修改后" }], "out": "shots/stitch.png" }` |
+
+动效默认使用 `frames` 序列图或直接操作；只有需要判断正常速度下的手感且评审能播放视频时才传 `record: true`。拼图可在各项设置 `matchWidth`（共有元素在原图里的像素宽）或 `scale`（数值、百分比或分数），两者不混用；全局 `crop`（如 `"0,0,800,600"`）在统一比例后裁切，超出任一图片时报错。
 
 状态靠地址参数进入，所以页面要能用 `?state=<名字>` 直接打开每个状态。`steps` 动作写法（分号分隔）：`click <选择器>`、`hover <选择器>`、`dblclick <选择器>`、`waitfor <选择器>`、`drag <选择器> <dx> <dy>`、`type <选择器> <文字>`、`fill <选择器> <文字>`、`select <选择器> <值>`、`key <按键>`、`scroll <dy>`、`wait <毫秒>`。
 
