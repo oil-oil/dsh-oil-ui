@@ -14,7 +14,7 @@ import { createChrome } from "./chrome.mjs";
 const HELP = `常用命令：
   node scripts/shoot.mjs page.html --size desktop --out shots
   node scripts/shoot.mjs page.html --size desktop --steps "click .nav button; wait 300" --out shots
-  node scripts/shoot.mjs page.html --size desktop --states idle,done --evidence --steps "send: click text=Send" --out evidence
+  node scripts/shoot.mjs page.html --size desktop --frames 8 --steps "send: click text=Send" --out evidence
 
 用法：node shoot.mjs <页面地址、文件、manifest.json 或目录> [...] [选项]
 多个本地 HTML 也可用逗号分隔；多目标共用服务器和浏览器，默认生成带名称的 sheet.png。
@@ -27,7 +27,7 @@ const HELP = `常用命令：
   --query <查询参数>    给地址加参数，例如 --query "a=1&b=2"；可和 --states 一起用
   --zoom <倍数,...>     默认 1；例如 --zoom 1,2，每个倍数各出一套；配 --evidence 时覆盖默认截图倍数
   --full                截整页，默认只截视口
-  --selector <选择器>   只截匹配元素的区域，自动滚入视口；不与 --full、--record、--motion、--entry、--evidence 同用
+  --selector <选择器>   只截匹配元素的区域，自动滚入视口；不与 --full、--record、--frames、--motion、--entry、--evidence 同用
   --thumb               快速缩略图：按 0.5 倍分辨率截视口，缩短等待并跳过默认做法检查
   --mask                另截一份遮掉全部文字的版本
   --sheet               把状态拼成并排图，配合 --mask 再拼遮字版
@@ -35,7 +35,7 @@ const HELP = `常用命令：
   --mark "1=<选择器>;..." 给匹配的元素画框和编号，另出标注版；不写编号时按顺序编号
   --steps "<动作>"      可写多次，每组从重新打开的页面开始；组名前可写任意文字和冒号："编辑并保存: click .save"
   --record              每组录屏并留最后一个变化动作的三帧；无名组沿用 record.mp4、motion-start/mid/end.jpg
-  --entry               配合 --record，先开录再打开页面，录首次出场
+  --entry               配合 --record 或 --frames，先取帧再打开页面，捕捉首次出场
   --hold <毫秒>         动作结束后再录多久，默认 1200
   --motion              探测首次进入、动作反馈、首屏滚动和从头滚到底的动效；单屏跳过滚动
   --evidence            一次取齐状态截图、并排图和遮字并排图、首状态 2 倍图、动效探测、
@@ -45,7 +45,19 @@ const HELP = `常用命令：
   --timeout-scale <倍数> 整体放宽协议、启动和编码超时，例如 --timeout-scale 2；默认 1
   --dry-run             只检查选项和动作写法，输出解析 JSON，不启动浏览器
   --stitch <图片>       拼图，不需要页面：可写多次，每张后面可接 --label <标注>；输出 stitch.png，--columns <列数> 默认 2
-  --frames <帧数>       配合 --record，另出 motion[-组名]-sequence.png：均匀取 2–120 帧并标时间，默认最多 4 列，--columns 可改
+  --match-width <像素>  跟在各张 --stitch 后，填同一共有元素在该原图里的像素宽；统一到首图元素宽，所有图都要填
+  --scale <倍数>        跟在 --stitch 后，显式缩放该图，未填的为 1；不与 --match-width 混用
+  --crop <x,y,宽,高>   拼图统一缩放后，从每张图左上角起裁同一矩形；全局只写一次，不含标注，超出任一图时报错
+  --frames <帧数>       只出 motion[-组名]-sequence.png：均匀取 2–120 帧并标时间，不编码视频；加 --record 才同时出视频
+                        默认最多 4 列，--columns 可改；--evidence 配 --frames 也用序列图代替视频
+
+同一比例并排对照（图片路径有空格时加引号）：
+  node scripts/shoot.mjs --stitch ref.png --match-width 240px --label 参考 --stitch shot.png --match-width 300 --label 当前 --crop "0,0,800,600" --out shots
+  node scripts/shoot.mjs --stitch ref.png --scale 1 --stitch shot.png --scale 80% --crop "0 0 800 600" --out shots
+  --match-width 量的是原图中的共有元素，不是整张图片宽；工具不自动识别元素。
+  --scale 接受 0.8、0.8x、80% 或 4/5；--crop 接受逗号、空格或 × 分隔，数值可带 px。
+  先统一比例，再按 --crop 裁切，最后整组一起缩小到预览尺寸；不会把每张图各自拉成等宽。
+  不写 --match-width / --scale / --crop 时保留原拼图方式：每张图各自等比缩小。report.json 记录实际缩放与裁切。
 
 动作写法（用分号分隔；引号、方括号、圆括号里的分号不拆）：
   click <选择器> | hover <选择器> | dblclick <选择器> | waitfor <选择器>
@@ -69,7 +81,7 @@ const HELP = `常用命令：
   选择器只在主文档里找，不进入 iframe 或 Shadow DOM；找不到时报告 iframe 和开放 shadow root 数量。
 
 选项都可写成 --名字=值 或 --名字 值；开关不带值。重复状态、尺寸和倍数会去重；文件名冲突会自动加编号。
-数值选项 --hold、--wait、--zoom、--timeout-scale 也可连写，例如 --hold1000。
+数值选项 --hold、--wait、--zoom、--timeout-scale、--match-width、--scale 也可连写，例如 --hold1000、--scale0.8。
 元素匹配多个时取第一个可见的；匹配到但隐藏时说明原因，并给可见元素的写法。
 点击、双击和悬停前检查中心点遮挡和禁用状态；提示写进输出和 report.json 的问题汇总，动作照常执行，返回码不变。
 截图单次最多等 90 秒，其他 CDP 请求默认等 30 秒。
@@ -118,6 +130,30 @@ const HELP = `常用命令：
   WebGL 页面在没有显卡的机器上改用软件渲染；画布没能创建绘图上下文时会记为问题，这时截图是空的。`;
 
 function fail(message) { console.error(`shoot：${message}`); process.exit(1); }
+const STITCH_EXAMPLE = 'node scripts/shoot.mjs --stitch ref.png --match-width 240 --stitch shot.png --match-width 300 --crop "0,0,800,600" --out shots';
+const SCALE_EXAMPLE = 'node scripts/shoot.mjs --stitch ref.png --scale 1 --stitch shot.png --scale 80% --out shots';
+function stitchNumber(value, key) {
+  let text = value.trim().toLowerCase(), factor = 1;
+  const example = key === "scale" ? SCALE_EXAMPLE : STITCH_EXAMPLE;
+  if (key === "scale") {
+    if (text.endsWith("%")) { factor = .01; text = text.slice(0, -1).trim(); }
+    else text = text.replace(/\s*(?:x|×|倍)$/, "").trim();
+  } else text = text.replace(/\s*px$/, "").trim();
+  const number = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+  const parts = key === "scale" ? text.split("/").map((part) => part.trim()) : [text];
+  const n = parts.every((part) => number.test(part)) && parts.length <= 2 ? Number(parts[0]) / (parts.length === 2 ? Number(parts[1]) : 1) * factor : NaN;
+  if (!Number.isFinite(n) || n <= 0) fail(`--${key} 需要正数，收到 ${value}；例如 ${example}`);
+  return n;
+}
+function stitchCrop(value) {
+  const parts = value.trim().replace(/(\d)\s*px(?=\s|[,，x×)\]]|$)/gi, "$1").replace(/^[[(]\s*|\s*[\])]$/g, "").trim().split(/[\s,，x×]+/i);
+  const numbers = parts.map(Number);
+  if (parts.length !== 4 || parts.some((part) => !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(part)) || numbers.some((n) => !Number.isFinite(n)) || numbers[2] <= 0 || numbers[3] <= 0) {
+    fail(`--crop 需要非负 x、y 和正的宽、高，收到 ${value}；例如 ${STITCH_EXAMPLE}`);
+  }
+  const [x, y, width, height] = numbers;
+  return { x, y, width, height };
+}
 function distance(a, b) {
   let row = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 0; i < a.length; i++) {
@@ -236,14 +272,14 @@ const flags = new Set(), stepsInputs = [], positional = [], suppliedOptions = ne
 let lastFlag = null;
 for (let i = 0; i < args.length; i++) {
   // Only numeric options accept a glued value; --out123 and switches keep their old errors.
-  const gluedNumber = args[i].match(/^(--(?:hold|wait|zoom|timeout-scale|columns|frames))((?:\d|\.\d)[\s\S]*)$/);
+  const gluedNumber = args[i].match(/^(--(?:hold|wait|zoom|timeout-scale|columns|frames|match-width|scale))((?:\d|\.\d)[\s\S]*)$/);
   const a = gluedNumber ? `${gluedNumber[1]}=${gluedNumber[2]}` : args[i];
   if (a.startsWith("--")) {
     const equal = a.indexOf("="), option = equal < 0 ? a : a.slice(0, equal), key = option.slice(2);
     if (!options.includes(option) && key !== "force") {
       const glued = options.find((o) => a.startsWith(o) && /^\d/.test(a.slice(o.length)));
       const suggestion = glued ? `${glued} ${a.slice(glued.length)}` : closest(option, options);
-      const examples = { out: "shots", size: "desktop", states: "idle,done", param: "state", query: '"a=1&b=2"', zoom: "1,2", mark: '"1=.open"', steps: '"click .open"', hold: "1000", compare: "ref.png", wait: "400", stitch: "before.png", label: '"修改前"', columns: "2", frames: "8" };
+      const examples = { out: "shots", size: "desktop", states: "idle,done", param: "state", query: '"a=1&b=2"', zoom: "1,2", mark: '"1=.open"', steps: '"click .open"', hold: "1000", compare: "ref.png", wait: "400", stitch: "before.png", label: '"修改前"', columns: "2", frames: "8", "match-width": "240", scale: "80%", crop: '"0,0,800,600"' };
       const example = glued ? suggestion : `${suggestion}${examples[suggestion.slice(2)] ? " " + examples[suggestion.slice(2)] : ""}`;
       fail(`不认识的选项 ${a}；是不是想写 ${example}？\n可用选项：${options.join(" ")}`);
     }
@@ -253,17 +289,24 @@ for (let i = 0; i < args.length; i++) {
     } else {
       lastFlag = null;
       if (equal < 0 && (i + 1 >= args.length || args[i + 1].startsWith("--"))) {
-        const example = { stitch: "--stitch before.png --stitch after.png --out shots", label: '--stitch before.png --label "修改前"', columns: "--stitch before.png --columns 2", frames: "page.html --record --frames 8" }[key];
+        const example = { stitch: "--stitch before.png --stitch after.png --out shots", label: '--stitch before.png --label "修改前"', columns: "--stitch before.png --columns 2", frames: "page.html --record --frames 8", "match-width": STITCH_EXAMPLE, scale: SCALE_EXAMPLE, crop: STITCH_EXAMPLE }[key];
         fail(`${option} 需要一个值${example ? `，收到 ${a}；例如 ${example}` : ""}`);
       }
       const value = equal < 0 ? args[++i] : a.slice(equal + 1);
-      if (!value) fail(`${option} 需要一个值，收到 ${a}；例如 ${option} 值`);
+      if (!value) fail(`${option} 需要一个值，收到 ${a}；例如 ${{ "match-width": STITCH_EXAMPLE, scale: SCALE_EXAMPLE, crop: STITCH_EXAMPLE }[key] || `${option} 值`}`);
       suppliedOptions.add(key);
       if (key === "steps") stepsInputs.push(value);
       else if (key === "stitch") stitchInputs.push({ path: value });
       else if (key === "label") {
         if (!stitchInputs.length || stitchInputs.at(-1).label !== undefined) fail(`--label 要跟在一张 --stitch 图片后，收到 ${a} ${value}；例如 --stitch before.png --label "修改前" --stitch after.png --label "修改后"`);
         stitchInputs.at(-1).label = value;
+      } else if (key === "match-width" || key === "scale") {
+        const image = stitchInputs.at(-1), field = key === "match-width" ? "matchWidth" : "scale";
+        if (!image || image[field] !== undefined) fail(`--${key} 要跟在一张 --stitch 图片后且每张只写一次，收到 ${a} ${value}；例如 ${key === "scale" ? SCALE_EXAMPLE : STITCH_EXAMPLE}`);
+        image[field] = stitchNumber(value, key);
+      } else if (key === "crop") {
+        if (opt.crop !== undefined) fail(`--crop 是所有图片共用的区域，只写一次，收到 ${value}；例如 ${STITCH_EXAMPLE}`);
+        opt.crop = stitchCrop(value);
       } else opt[key] = value;
     }
   } else {
@@ -314,24 +357,29 @@ const targetStem = (candidate) => {
   return String(source).replace(/[<>:"/\\|?*\x00-\x1f]/g, "-").replace(/^[. ]+|[. ]+$/g, "") || "page";
 };
 const stitching = stitchInputs.length > 0;
+if (opt.crop !== undefined && !stitching) fail(`--crop 需要 --stitch 图片，收到 ${args.join(" ")}；例如 ${STITCH_EXAMPLE}`);
 if (!target && !stitching) {
   if (opt.frames !== undefined || opt.columns !== undefined) fail(`缺少页面或拼图输入，收到 ${args.join(" ")}；例如 page.html --record --frames 8 --columns 4，或 --stitch before.png --stitch after.png --columns 2`);
   fail("缺少页面地址或文件。");
 }
 if (stitching) {
-  const incompatible = [...suppliedOptions].filter((key) => !["stitch", "label", "columns", "out", "timeout-scale"].includes(key));
+  const incompatible = [...suppliedOptions].filter((key) => !["stitch", "label", "columns", "out", "timeout-scale", "match-width", "scale", "crop"].includes(key));
   if (target || incompatible.length || [...flags].some((key) => key !== "dry-run" && key !== "force")) fail(`拼图不需要页面或截图/录屏选项，收到 ${target || incompatible.map((key) => "--" + key).join("、") || [...flags].join("、")}；例如 --stitch before.png --label "修改前" --stitch after.png --label "修改后" --columns 2 --out shots`);
   for (const [i, image] of stitchInputs.entries()) {
     try { if (!statSync(image.path).isFile()) throw new Error("不是文件"); }
     catch { fail(`拼图第 ${i + 1} 张图片不存在或不是文件，收到 ${image.path}；例如 --stitch before.png --label "修改前" --out shots`); }
   }
+  if (stitchInputs.some((image) => image.matchWidth !== undefined)) {
+    if (stitchInputs.some((image) => image.scale !== undefined)) fail(`--match-width 与 --scale 不能混用，收到两种比例声明；例如 ${STITCH_EXAMPLE}；或 ${SCALE_EXAMPLE}`);
+    if (stitchInputs.some((image) => image.matchWidth === undefined)) fail(`使用 --match-width 时每张图都要声明共有元素宽，收到未声明的图片；例如 ${STITCH_EXAMPLE}`);
+  }
 }
 if (opt.frames !== undefined && (!/^\d+$/.test(opt.frames) || !Number.isSafeInteger(+opt.frames) || +opt.frames < 2 || +opt.frames > 120)) fail(`--frames 需要 2–120 的整数，收到 ${opt.frames}；例如 page.html --record --frames 8`);
-if (opt.frames !== undefined && !flags.has("record") && !flags.has("evidence")) fail(`--frames 需要配合录屏，收到 --frames ${opt.frames}；例如 page.html --record --frames 8`);
+const captureMotion = flags.has("record") || opt.frames !== undefined;
 if (opt.columns !== undefined && (!/^\d+$/.test(opt.columns) || !Number.isSafeInteger(+opt.columns) || +opt.columns < 1)) fail(`--columns 需要正整数，收到 ${opt.columns}；例如 --stitch before.png --stitch after.png --columns 2`);
 if (opt.columns !== undefined && !stitching && opt.frames === undefined) fail(`--columns 需要配合 --stitch 或 --frames，收到 --columns ${opt.columns}；例如 page.html --record --frames 8 --columns 4`);
 if (flags.has("thumb")) {
-  const badThumb = [...["full", "mask", "record", "motion", "entry", "evidence"].filter((k) => flags.has(k)).map((k) => "--" + k), ...(opt.mark ? ["--mark"] : []), ...(opt.compare ? ["--compare"] : [])];
+  const badThumb = [...["full", "mask", "record", "motion", "entry", "evidence"].filter((k) => flags.has(k)).map((k) => "--" + k), ...(opt.frames !== undefined ? ["--frames"] : []), ...(opt.mark ? ["--mark"] : []), ...(opt.compare ? ["--compare"] : [])];
   if (badThumb.length) fail(`--thumb 只用于快速缩略图，不和 ${badThumb.join("、")} 一起用，收到 ${badThumb.join("、")}；例如 page.html --size desktop --thumb --out shots`);
   if (!suppliedOptions.has("wait")) opt.wait = "150";
 }
@@ -346,7 +394,7 @@ function deduplicate(values, key, label) {
 }
 let groups, sizes, zooms, marks, selector = null;
 if (opt.selector) {
-  const conflicts = ["full", "record", "motion", "entry", "evidence"].filter((key) => flags.has(key));
+  const conflicts = [...["full", "record", "motion", "entry", "evidence"].filter((key) => flags.has(key)), ...(opt.frames !== undefined ? ["frames"] : [])];
   if (conflicts.length) fail(`--selector 不与 ${conflicts.map((key) => "--" + key).join("、")} 同用`);
 }
 try {
@@ -401,7 +449,7 @@ const stateIds = states.map((s, i) => !s ? "page" : /^[A-Za-z0-9_-]{1,80}$/.test
 const refImage = opt.compare ? resolve(opt.compare) : null;
 if (refImage && !existsSync(refImage)) fail(`找不到参考图：${opt.compare}`);
 if (refImage && !/\.(png|jpe?g|webp)$/i.test(refImage)) fail("--compare 只接受 png、jpg 或 webp");
-if (refImage && (flags.has("record") || flags.has("evidence"))) fail("--compare 用在截图上，不和 --record 或 --evidence 一起用；例如 --compare ref.png");
+if (refImage && (captureMotion || flags.has("evidence"))) fail("--compare 用在截图上，不和 --record、--frames 或 --evidence 一起用；例如 --compare ref.png");
 if (flags.has("dry-run")) {
   console.log(JSON.stringify({ target, ...(targets.length > 1 ? { targets: targets.map((t) => t.target) } : {}), selector, options: opt, flags: [...flags], sizes, zooms, states, groups, marks, notices, ...(stitching ? { stitch: stitchInputs } : {}) }, null, 2));
   process.exit(0);
@@ -720,7 +768,7 @@ async function check() {
 function lintPage() {
   const LABELS = {
     eyebrow: "标题上方的眉标", numbered: "标题上方的编号标签", sideStripe: "彩色单侧边线",
-    gradientText: "渐变文字", nestedCards: "卡片里套卡片", emojiIcon: "表情符号当图标",
+    gradientText: "渐变文字", emojiIcon: "表情符号当图标",
     englishLabel: "中文界面里的英文大写标签", contrastLow: "文字对比度不达标（正文低于 4.5:1，大字低于 3:1）", grayOnColor: "有色底上的灰字",
     smallText: "正文小于 13px", tightLeading: "多行正文行高过紧", longMeasure: "正文行太长",
     stuck: "首屏有内容停在透明状态（出场动画没触发？）", headingSpacing: "标题离上文比离下文还近",
@@ -881,40 +929,6 @@ function lintPage() {
     }
 
     if (/text/.test(s.backgroundClip + " " + s.getPropertyValue("-webkit-background-clip")) && /gradient/.test(s.backgroundImage) && (el.textContent || "").trim()) add("gradientText", el);
-  }
-
-  // 卡片里套卡片：有边框或阴影的圆角块，放在另一个圆角块里
-  const boundary = (el) => {
-    if (el.matches('[role="listbox"],[role="menu"],[role="dialog"],[role="tooltip"],[popover]')) return true;
-    const position = css(el).position;
-    if (position === "fixed") return true;
-    if (position !== "absolute" || !el.parentElement) return false;
-    const r = el.getBoundingClientRect(), parent = el.parentElement.getBoundingClientRect();
-    // A positioned card inside a panel is still a card; a popup crosses its DOM parent's boundary.
-    return r.left < parent.left - 1 || r.top < parent.top - 1 || r.right > parent.right + 1 || r.bottom > parent.bottom + 1;
-  };
-  const content = (el) => (el.textContent || "").trim() || el.querySelector("img,svg,canvas,video,input,select,textarea,button,a,[contenteditable]");
-  const card = (el, inner) => {
-    const s = css(el), r = el.getBoundingClientRect();
-    if (boundary(el) || !content(el)) return false;
-    if (r.width < 120 || r.height < 56 || /^(BUTTON|A|INPUT|SELECT|TEXTAREA|IMG|VIDEO|CANVAS|LABEL|SUMMARY|PRE|CODE)$/.test(el.tagName)) return false;
-    if (parseFloat(s.borderTopLeftRadius) < 6) return false;
-    const border = ["Top", "Right", "Bottom", "Left"].every((k) => parseFloat(s["border" + k + "Width"]) >= 1 && rgba(s["border" + k + "Color"]).a > 0.05);
-    const shadow = s.boxShadow !== "none";
-    const fill = rgba(s.backgroundColor).a > 0.05;
-    if (inner) return border || (shadow && fill);
-    return (border || shadow || fill) && r.width * r.height < innerWidth * innerHeight * 0.6;
-  };
-  const rCompact = (el) => el.getBoundingClientRect().height <= 100;
-  for (const el of all) {
-    if (!card(el, true)) continue;
-    for (let up = el.parentElement, depth = 0; up && up !== document.body && depth < 8; up = up.parentElement, depth++) {
-      if (boundary(up)) break;
-      // A compact attachment with its own removal/retry control is editor content, not another panel.
-      const editor = up.matches("form,[role='textbox']") || up.querySelector("textarea,[contenteditable='true'],[contenteditable='']");
-      if (editor && rCompact(el) && el.querySelector("button,a,[role='button']") && !el.querySelector("h1,h2,h3,h4,section,article,textarea,[contenteditable]")) break;
-      if (card(up, false)) { add("nestedCards", el, "外层 " + describe(up).split("「")[0]); break; }
-    }
   }
 
   const emoji = /^(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️)(?:‍\p{Extended_Pictographic}️?)*$/u;
@@ -1487,7 +1501,7 @@ async function runSteps(steps = [], observer = {}) {
 }
 
 // ---------- 本地拼图和录屏序列：共享同一份等比例排版 ----------
-async function composeImages(items, file, columns) {
+async function composeImages(items, file, columns, crop = null) {
   const example = stitching ? '--stitch before.png --stitch after.png --columns 2 --out shots' : 'page.html --record --frames 8 --columns 4 --out shots';
   const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".bmp": "image/bmp", ".svg": "image/svg+xml" };
   const inputs = items.map((item, i) => {
@@ -1496,14 +1510,28 @@ async function composeImages(items, file, columns) {
   });
   // Render off the recorded page so its scripts, styles and fonts cannot alter the composition.
   await open("data:text/html,<meta charset=utf-8><meta http-equiv=Content-Security-Policy content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\">", 0);
-  const result = await evaluate(`(async (items, columns) => {
+  const result = await evaluate(`(async (items, columns, crop) => {
     const images = await Promise.all(items.map((item, i) => new Promise((ok, no) => {
       const image = new Image(); image.onload = () => ok(image);
       image.onerror = () => no(new Error('拼图第 ' + (i + 1) + ' 张图片无法解码，收到 ' + item.path + '；例如 --stitch before.png --label "修改前" --out shots'));
       image.src = item.data;
     })));
     const margin = 24, gap = 16, lineHeight = 24;
-    const cell = Math.min(640, Math.max(items.some((item) => item.label) ? 160 : 1, ...images.map((image) => image.naturalWidth)));
+    const normalized = !!crop || items.some((item) => item.matchWidth !== undefined || item.scale !== undefined);
+    const regions = images.map((image, i) => {
+      const scale = items[i].matchWidth !== undefined ? items[0].matchWidth / items[i].matchWidth : (items[i].scale ?? 1);
+      const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+      if (![scale, width, height].every((n) => Number.isFinite(n) && n > 0)) throw new Error('拼图第 ' + (i + 1) + ' 张图片的比例过大或过小，收到 ' + scale + '；例如 ' + ${JSON.stringify(SCALE_EXAMPLE)});
+      if (items[i].matchWidth > image.naturalWidth) throw new Error('拼图第 ' + (i + 1) + ' 张共有元素宽超出原图宽，收到 ' + items[i].matchWidth + '，原图宽 ' + image.naturalWidth + '；例如 ' + ${JSON.stringify(STITCH_EXAMPLE)});
+      if (crop && (crop.x + crop.width > width + 1e-7 || crop.y + crop.height > height + 1e-7)) throw new Error('拼图第 ' + (i + 1) + ' 张裁切超出图片，收到 ' + JSON.stringify(crop) + '，统一比例后为 ' + width + '×' + height + '；缩小裁切范围或先去掉 --crop 查看整图，例如 ' + ${JSON.stringify(SCALE_EXAMPLE)});
+      const region = crop || { x: 0, y: 0, width, height };
+      return { scale, width: region.width, height: region.height,
+        sourceCrop: { x: region.x / scale, y: region.y / scale, width: region.width / scale, height: region.height / scale } };
+    });
+    const widest = Math.max(...regions.map((region) => region.width));
+    const cell = Math.ceil(Math.min(640, Math.max(items.some((item) => item.label) ? 160 : 1, widest)));
+    // A single preview factor preserves the declared relationship, even for different image widths.
+    const commonFit = Math.min(1, cell / widest);
     columns = Math.min(columns, images.length);
     const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
     const font = '18px "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
@@ -1520,9 +1548,11 @@ async function composeImages(items, file, columns) {
       });
     });
     const dimensions = images.map((image, i) => {
-      const scale = Math.min(1, cell / image.naturalWidth);
+      const region = regions[i], fit = normalized ? commonFit : Math.min(1, cell / region.width);
       return { naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight,
-        width: Math.max(1, Math.round(image.naturalWidth * scale)), height: Math.max(1, Math.round(image.naturalHeight * scale)),
+        scale: region.scale, renderScale: region.scale * fit, sourceCrop: region.sourceCrop,
+        ...(items[i].matchWidth !== undefined ? { matchWidth: items[i].matchWidth } : {}),
+        width: Math.max(1, Math.round(region.width * fit)), height: Math.max(1, Math.round(region.height * fit)),
         labelHeight: labels[i].length ? 8 + labels[i].length * lineHeight : 0 };
     });
     const heights = [];
@@ -1537,15 +1567,16 @@ async function composeImages(items, file, columns) {
       const row = Math.floor(i / columns), column = i % columns;
       if (i && !column) top += heights[row - 1] + gap;
       const x = margin + column * (cell + gap) + Math.floor((cell - item.width) / 2);
-      ctx.drawImage(images[i], x, top, item.width, item.height);
+      const source = item.sourceCrop;
+      ctx.drawImage(images[i], source.x, source.y, source.width, source.height, x, top, item.width, item.height);
       ctx.fillStyle = '#333';
       labels[i].forEach((line, index) => ctx.fillText(line, margin + column * (cell + gap), top + item.height + 8 + index * lineHeight));
       return { ...item, x, y: top, label: items[i].label || '', labelY: top + item.height + 8 };
     });
     const data = canvas.toDataURL('image/png').split(',')[1];
     if (!data) throw new Error('拼图无法导出 PNG；请减少图片/帧数，例如 ' + ${JSON.stringify(example)});
-    return { data, width: canvas.width, height: canvas.height, columns, items: layout };
-  })(${JSON.stringify(inputs)}, ${columns})`);
+    return { data, width: canvas.width, height: canvas.height, columns, ...(crop ? { crop } : {}), items: layout };
+  })(${JSON.stringify(inputs)}, ${columns}, ${JSON.stringify(crop)})`);
   writeFileSync(file, Buffer.from(result.data, "base64"));
   const { data, ...layout } = result;
   return { file: basename(file), ...layout };
@@ -1826,6 +1857,7 @@ async function record(url, w, h, { steps = [], name = "", entry = flags.has("ent
       details.sequence = { ...sequence, frames: samples.map(({ path, ...time }) => time) };
       sequenceMessage = ` 和 ${sequence.file}`;
     }
+    if (opt.frames !== undefined && !flags.has("record")) return { issues, ...details, message: `序列图：${details.sequence.file}（${(finished - frames[0].t).toFixed(1)} 秒），未编码视频` };
     const ffmpeg = (await runFfmpeg(["-version"], 5000)).status === 0;
     if (!ffmpeg) return { issues, ...details, failed: true, message: `录屏：没装 ffmpeg，只留了 ${motion}-start/mid/end.jpg 三帧${sequenceMessage}` };
     // Generated basenames are safe for concat's quoting, even when --out contains an apostrophe.
@@ -1993,7 +2025,7 @@ const withState = (s) => {
 const report = [], lines = [];
 const usedFiles = new Set();
 const targetShots = [];
-const autoSheet = targets.length > 1 && !flags.has("no-sheet") && (!flags.has("record") || flags.has("evidence"));
+const autoSheet = targets.length > 1 && !flags.has("no-sheet") && (!captureMotion || flags.has("evidence"));
 if (autoSheet) usedFiles.add("sheet.png");
 const candidatePrefix = () => batchMode ? targetStem(activeTarget) : "";
 function reserveFamily(preferred, files) {
@@ -2142,19 +2174,19 @@ async function recording(group, entry, zoom, multipleZooms = false) {
     for (const warning of result.warnings || []) lines.push(`⚠ ${warning}`);
     report.push({ file, ...meta, issues: result.issues, frames: result.frames, sampling: result.sampling, durationMs: result.durationMs, ...(result.sequence ? { sequence: result.sequence } : {}), ...(result.consistency ? { consistency: result.consistency } : {}), ...(result.warnings?.length ? { warnings: result.warnings } : {}), ...(result.failed ? { failed: true } : {}) });
     if (evidence && result.failed) { report.at(-1).issues.push(result.message); process.exitCode = 1; }
-  }, ` --record${entry ? " --entry" : ""}`);
+  }, `${opt.frames !== undefined ? ` --frames ${opt.frames}` : ""}${flags.has("record") || opt.frames === undefined ? " --record" : ""}${entry ? " --entry" : ""}`);
 }
 const shotCount = (n, z, g, mask, sheet) => sizes.length * z * g * (n * (1 + Number(mask) + Number(marks.length > 0) + Number(!!refImage)) + (sheet && !flags.has("no-sheet") && n > 1 ? 1 + Number(mask) : 0));
 const batchMask = states.length > 1 || flags.has("mask");
 progressTotal = evidence
   ? (suppliedOptions.has("zoom") ? shotCount(states.length, zooms.length, 1, batchMask, states.length > 1) : shotCount(states.length, 1, 1, batchMask, states.length > 1) + shotCount(1, 1, 1, flags.has("mask"), false)) + Math.max(1, groups.length) + 1 + groups.length
-  : (flags.has("motion") ? Math.max(1, groups.length) : 0) + (flags.has("record") ? zooms.length * Math.max(1, groups.length) : shotCount(states.length, zooms.length, Math.max(1, groups.length), flags.has("mask"), flags.has("sheet")));
+  : (flags.has("motion") ? Math.max(1, groups.length) : 0) + (captureMotion ? zooms.length * Math.max(1, groups.length) : shotCount(states.length, zooms.length, Math.max(1, groups.length), flags.has("mask"), flags.has("sheet")));
 progressTotal = progressTotal * Math.max(1, targets.length) + Number(autoSheet);
 try {
   if (stitching) {
     progressTotal = 1;
     await item("stitch.png", {}, async () => {
-      const result = await composeImages(stitchInputs, join(out, "stitch.png"), Number(opt.columns || 2));
+      const result = await composeImages(stitchInputs, join(out, "stitch.png"), Number(opt.columns || 2), opt.crop);
       report.push({ ...result, issues: [] });
       lines.push(`拼图：${result.file}（${result.width}×${result.height}，${result.columns} 列）`);
     });
@@ -2177,7 +2209,7 @@ try {
         for (const group of groups) await recording(group, false, 1);
       } else {
         if (flags.has("motion")) await motionBatch();
-        if (flags.has("record")) {
+        if (captureMotion) {
           for (const zoom of zooms) for (const group of groups.length ? groups : [{ id: "", reportName: "", steps: [] }]) await recording(group, flags.has("entry"), zoom, zooms.length > 1);
         } else await captureBatch(states.map((_, i) => i), zooms, groups.length ? groups : [{ id: "", reportName: "", steps: [] }], flags.has("mask"), flags.has("sheet"));
       }

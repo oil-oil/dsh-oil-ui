@@ -79,7 +79,7 @@ export function createChrome({ timeoutMs = ms => ms, prefix = "oil-browser-", la
   async function launchChrome() {
     profile = mkdtempSync(join(tmpdir(), prefix)); handedOff = false;
     chrome = spawn(chromePath, ["--headless=new", "--enable-unsafe-swiftshader", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run",
-      "--no-default-browser-check", "--hide-scrollbars", "--mute-audio", "--disable-extensions", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+      "--no-default-browser-check", "--use-mock-keychain", "--password-store=basic", "--hide-scrollbars", "--mute-audio", "--disable-extensions", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
     const portFile = join(profile, "DevToolsActivePort");
     const fromPortFile = () => {
       try {
