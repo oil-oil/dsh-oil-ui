@@ -4,7 +4,7 @@
   "transformVersion": "8",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "e3334bd5f6e700d21ac275b169ceee6495db9391",
+    "commit": "f552479863a4a2da89a2a3977556345f6546958e",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -59,10 +59,6 @@
       {
         "path": "README.en.md",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
-      },
-      {
-        "path": "tests/__pycache__",
-        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       }
     ]
   },
@@ -112,14 +108,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "3f82a6edc50951bb2cc64c56344fe1619bf61b47ece776037639856bb4d44f90",
-      "size": 9024,
+      "sha256": "9044ad2c67c05a5fd936f96055c26f3478800f065a7e1139004619e2321b2983",
+      "size": 11243,
       "mode": "0644"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "692722a5f4b8f433ae99e078b264daa5feefeb2316350d79403c2f3374ba77f3",
-      "size": 8133,
+      "sha256": "adf0a1437d07ac9800cee4eb0aa5b9f5785a33434133698ed2bf900bf13ab00f",
+      "size": 10312,
       "mode": "0644"
     },
     {

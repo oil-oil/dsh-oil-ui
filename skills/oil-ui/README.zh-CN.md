@@ -5,10 +5,10 @@
 </p>
 
 <p align="center">
-  <a href="https://ui.oiloil.org/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh"><img src="./assets/readme/showcase.webp" width="100%" alt="先看效果：画廊里的部分作品，包括学英语 App、音乐年度报告、硬件官网、组件库官网、项目管理工具、打车 App、语音助手、结账流程和胶片相机"></a>
+  <a href="https://ui.oiloil.org/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=showcase-banner"><img src="./assets/readme/showcase.webp" width="100%" alt="先看效果：画廊里的部分作品，包括学英语 App、音乐年度报告、硬件官网、组件库官网、项目管理工具、打车 App、语音助手、结账流程和胶片相机"></a>
 </p>
 
-Oil UI 是给 AI Agent 用的界面设计 Skill：默认推荐一个方向并照着真实画面打磨；你想比较时，再把几种真正不同的方向放在一起挑。网站、App、后台和组件都能做。想看更多效果，可以去 [ui.oiloil.org](https://ui.oiloil.org/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh)。
+Oil UI 是给 AI Agent 用的界面设计 Skill：默认推荐一个方向并照着真实画面打磨；你想比较时，再把几种真正不同的方向放在一起挑。网站、App、后台和组件都能做。想看更多效果，可以去 [ui.oiloil.org](https://ui.oiloil.org/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=intro-text)。
 
 ## 它怎么设计
 
@@ -21,7 +21,14 @@ Oil UI 是给 AI Agent 用的界面设计 Skill：默认推荐一个方向并照
 7. **好不好看由你来定。** 默认推荐一个方向给你确认；你明确要求比较时，才把几份小样放进同一个对比页，由你挑一个，再说说具体喜欢和不喜欢哪里。它按你的意见收紧之后，再往下做。
 8. **以真实画面为准。** 做完会在电脑和手机尺寸下打开页面截图检查，也可以请一位没看过制作过程的评审来挑问题。最后做一轮减法：一页只留一个主角，删掉不影响理解的文字、重复的线和多余的框。
 
-想让界面更好用、改造老项目，或者做流光、点阵这类特效，可以看看 [Oil UI Pro](https://ui.oiloil.org/pro/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh)，区别见[下文](#开源版和-pro)。
+想让界面更好用、改造老项目，或者做流光、点阵这类特效，可以看看 [Oil UI Pro](https://ui.oiloil.org/pro/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=how-it-designs)，区别见[下文](#开源版和-pro)。
+
+## 实测横评与实战指南
+
+- **[4 款 UI 设计 Skill 真实横评（同一模型 15 次生成 + 在线 Demo）](https://ui.oiloil.org/guide/ui-design-skills-tested/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=guide-benchmark)**：同题测试 Oil UI、`frontend-design`、`UI UX Pro Max`、`Impeccable` 与无 Skill 对照，公开 15 次匿名视觉评分、功能验收失败细节与可点开的真机演示。
+- **[已有项目 UI 改造与体验翻新指南](https://ui.oiloil.org/guide/existing-project-ui-renovation/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=guide-renovation)**：在不改坏原有接口和表单校验的前提下，按「清噪音、调布局、省步骤」分三步翻新老项目，并提炼全站共用的 `DESIGN.md`。
+- **[如何去掉 AI 界面的“塑料感”](https://ui.oiloil.org/guide/fix-ai-ui-slop/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=guide-antislop)**：逐项拆解胶囊眉标、左侧粗彩条、三层套娃卡片与生造假指标，附可直接放进提示词的减法清单。
+- **Agent 与场景实战**：[Claude Code 指南](https://ui.oiloil.org/guide/claude-code-ui-design/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=guide-claude) · [OpenAI Codex 指南](https://ui.oiloil.org/guide/codex-ui-design/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=guide-codex) · [官网与落地页实战](https://ui.oiloil.org/guide/landing-page-design/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=guide-landing) · [后台与桌面工作台实战](https://ui.oiloil.org/guide/dashboard-workspace-design/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=guide-dashboard) · [交互式方法与实样展厅](https://ui.oiloil.org/intro/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=intro)
 
 ## 安装
 
@@ -88,7 +95,7 @@ npx skills add oil-oil/oil-ui
 | 流光、点阵、流动渐变这类特效 | | ✓ |
 | 小游戏的场景布局、视觉和状态检查 | | ✓ |
 
-Oil UI Pro 69 元，一次买断，永久更新，在 [ui.oiloil.org/pro](https://ui.oiloil.org/pro/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh) 购买。
+Oil UI Pro 69 元，一次买断，永久更新，在 [ui.oiloil.org/pro](https://ui.oiloil.org/pro/?utm_source=github&utm_medium=referral&utm_campaign=readme-zh&utm_content=comparison-table) 购买，或运行 `npx github:oil-oil/oil-cli install oil-ui-pro` 由 Agent 带你登录、付款并装好。
 
 ## 版本检查
 

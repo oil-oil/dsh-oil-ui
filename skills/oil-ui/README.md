@@ -5,10 +5,10 @@ English · [中文](README.zh-CN.md)
 </p>
 
 <p align="center">
-  <a href="https://ui.oiloil.org/en/?utm_source=github&utm_medium=referral&utm_campaign=readme-en"><img src="./assets/readme/showcase.en.webp" width="100%" alt="Gallery highlights: an English learning app, a music year in review, hardware and component library websites, a project management tool, a ride-hailing app, a voice assistant, a checkout flow, and a film camera"></a>
+  <a href="https://ui.oiloil.org/en/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=showcase-banner"><img src="./assets/readme/showcase.en.webp" width="100%" alt="Gallery highlights: an English learning app, a music year in review, hardware and component library websites, a project management tool, a ride-hailing app, a voice assistant, a checkout flow, and a film camera"></a>
 </p>
 
-Oil UI is an interface design skill for AI agents. It recommends one direction and refines it against real screenshots, or explores several side by side when you ask to compare. It works for websites, apps, dashboards, and components. See more designs at [ui.oiloil.org](https://ui.oiloil.org/en/?utm_source=github&utm_medium=referral&utm_campaign=readme-en).
+Oil UI is an interface design skill for AI agents. It recommends one direction and refines it against real screenshots, or explores several side by side when you ask to compare. It works for websites, apps, dashboards, and components. See more designs at [ui.oiloil.org](https://ui.oiloil.org/en/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=intro-text).
 
 ## How it designs
 
@@ -21,7 +21,14 @@ Oil UI is an interface design skill for AI agents. It recommends one direction a
 7. **You decide what looks right.** It recommends one direction for your confirmation by default. When you ask to compare, the previews go on one comparison page; you pick one and say what you like and dislike, and it tightens the design around your feedback before going further.
 8. **Trust the real screen.** When a page is done, it opens it at desktop and mobile sizes and checks screenshots. You can also bring in a reviewer who hasn't seen the work in progress. Last comes a round of subtraction: one focal point per page, and no copy, lines, or boxes that don't help you understand it.
 
-For more usable interfaces, existing project redesigns, or effects such as light trails and dot patterns, see [Oil UI Pro](https://ui.oiloil.org/en/pro/?utm_source=github&utm_medium=referral&utm_campaign=readme-en). The differences are listed [below](#open-source-and-pro).
+For more usable interfaces, existing project redesigns, or effects such as light trails and dot patterns, see [Oil UI Pro](https://ui.oiloil.org/en/pro/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=how-it-designs). The differences are listed [below](#open-source-and-pro).
+
+## Benchmarks & Playbooks
+
+- **[4 UI Design Skills Tested (15 Blind Runs & Live Demos)](https://ui.oiloil.org/en/guide/ui-design-skills-tested/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=guide-benchmark)**: Same model, same task brief, 15 independent generations across Oil UI, `frontend-design`, `UI UX Pro Max`, `Impeccable`, and a no-Skill control, with full desktop/mobile screenshots and working HTML demos.
+- **[Refreshing Existing Project UI Without Breaking Logic](https://ui.oiloil.org/en/guide/existing-project-ui-renovation/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=guide-renovation)**: How to diagnose live screens, renovate across three controlled steps (tidy noise, upgrade layout, rework flow), count clicks, and extract a repo-wide `DESIGN.md`.
+- **[Fixing Generic "AI Slop" UI](https://ui.oiloil.org/en/guide/fix-ai-ui-slop/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=guide-antislop)**: A subtraction checklist for stripping out glowing eyebrow pills, 4px left accent bars, triple-nested cards, and invented KPI metrics.
+- **Agent & Scenario Guides**: [Claude Code UI Design](https://ui.oiloil.org/en/guide/claude-code-ui-design/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=guide-claude) · [OpenAI Codex UI Design](https://ui.oiloil.org/en/guide/codex-ui-design/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=guide-codex) · [SaaS Landing Pages](https://ui.oiloil.org/en/guide/landing-page-design/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=guide-landing) · [Dashboards & Workspaces](https://ui.oiloil.org/en/guide/dashboard-workspace-design/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=guide-dashboard) · [Interactive How-It-Works Walkthrough](https://ui.oiloil.org/en/intro/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=intro)
 
 ## Installation
 
@@ -88,7 +95,7 @@ The open-source version takes a new page from a blank start to a good-looking de
 | Effects such as light trails, dot patterns, and flowing gradients | | ✓ |
 | Scene layouts, visuals, and state checks for mini-games | | ✓ |
 
-Oil UI Pro costs $9.99: a one-time purchase with lifetime updates. Purchase it at [ui.oiloil.org/pro](https://ui.oiloil.org/en/pro/?utm_source=github&utm_medium=referral&utm_campaign=readme-en).
+Oil UI Pro costs $9.99: a one-time purchase with lifetime updates. Purchase it at [ui.oiloil.org/pro](https://ui.oiloil.org/en/pro/?utm_source=github&utm_medium=referral&utm_campaign=readme-en&utm_content=comparison-table), or run `npx github:oil-oil/oil-cli install oil-ui-pro` to let your agent guide you through sign-in, payment, and installation.
 
 ## Version checks
 
