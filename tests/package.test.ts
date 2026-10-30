@@ -115,7 +115,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
       edition: 'lite',
       activeSkillName: 'oil-ui',
-      bundledVersion: '0.27.1',
+      bundledVersion: '0.28.0',
       visibleMatchesOriginal: true,
     });
     expect(await tools.get('oil_ui_explorer')!.execute({ out: 'style-explorer.html' }, run)).toMatchObject({

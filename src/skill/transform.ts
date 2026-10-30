@@ -20,7 +20,7 @@ import type { MarkdownRule, SkillEdition } from './rules.ts';
 export { MARKDOWN_RULES } from './rules.ts';
 export type { MarkdownRule, SkillEdition } from './rules.ts';
 
-export const TRANSFORM_VERSION = '8';
+export const TRANSFORM_VERSION = '9';
 
 const EXCLUDED_NAMES = new Set(['.git', '.DS_Store', '__pycache__']);
 const DOC_ONLY_PATHS = new Set(['assets/readme', 'README.en.md']);
@@ -65,10 +65,7 @@ export function transformSkillMarkdown(relativePath: string, raw: string, option
   let markdown = raw;
   for (const rule of options.ruleSet ?? MARKDOWN_RULES) {
     if (rule.file !== file) continue;
-    if (
-      (rule.requiredIn.length > 0 && !rule.requiredIn.includes(options.edition)) ||
-      (rule.editions && !rule.editions.includes(options.edition))
-    ) {
+    if (rule.editions && !rule.editions.includes(options.edition)) {
       rules.push({ id: rule.id, file, required: false, matches: 0, status: 'unmatched' });
       continue;
     }

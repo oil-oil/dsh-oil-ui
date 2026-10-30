@@ -4,7 +4,7 @@ import { join } from 'node:path';
 export async function writeProAdapter(
   directory: string,
   rules: readonly Record<string, unknown>[] = [],
-  transformVersion = '8',
+  transformVersion = '9',
 ) {
   const adapterDirectory = join(directory, 'adapters', 'dsh');
   await mkdir(adapterDirectory, { recursive: true });

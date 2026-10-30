@@ -43,7 +43,7 @@ describe('installed Pro adapter protocol', () => {
     expect(await loadMarkdownRules('lite')).toBe(MARKDOWN_RULES);
     expect(await loadMarkdownRules('lite', directory)).toBe(MARKDOWN_RULES);
     await writeProAdapter(directory, [fixtureRule()]);
-    const rules = await loadMarkdownRules('pro', directory, '8');
+    const rules = await loadMarkdownRules('pro', directory, '9');
     expect(rules).toHaveLength(MARKDOWN_RULES.length + 1);
     const transformed = transformSkillMarkdown('SKILL.md', 'Fixture placeholder', {
       edition: 'pro',
@@ -51,30 +51,30 @@ describe('installed Pro adapter protocol', () => {
       ruleSet: rules,
     });
     expect(transformed.markdown).toBe('Native fixture marker');
-    const first = await adapterFingerprint(directory, '8');
-    expect(await adapterFingerprint(directory, '8')).toBe(first);
+    const first = await adapterFingerprint(directory, '9');
+    expect(await adapterFingerprint(directory, '9')).toBe(first);
     await writeProAdapter(directory, [fixtureRule('Updated fixture marker')]);
-    expect(await adapterFingerprint(directory, '8')).not.toBe(first);
+    expect(await adapterFingerprint(directory, '9')).not.toBe(first);
   });
 
   it('rejects incompatible metadata, invalid rules and IDs that collide with shared rules', async () => {
     const directory = await tempDirectory();
     await writeProAdapter(directory, [], '7');
-    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('requires transform 7');
+    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('requires transform 7');
     await writeProAdapter(directory, [{ ...fixtureRule(), id: 'skill.startup' }]);
-    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('must be unique');
+    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('must be unique');
     await writeProAdapter(directory, [{ ...fixtureRule(), match: { source: 'x', flags: 'gg' } }]);
-    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('rule 1 is invalid');
+    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('rule 1 is invalid');
     await writeProAdapter(directory, [{ ...fixtureRule(), nativeSatisfied: { operation: 'eval' } }]);
-    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('rule 1 is invalid');
+    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('rule 1 is invalid');
     await writeProAdapter(directory, [{ ...fixtureRule(), match: { source: 'Fixture secret(' } }]);
-    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('rule 1 is invalid');
+    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('rule 1 is invalid');
     await writeProAdapter(directory, [{ ...fixtureRule(), file: '../outside.md' }]);
-    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('rule 1 is invalid');
+    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('rule 1 is invalid');
     const metadataPath = join(directory, 'adapters/dsh/adapter.json');
     const metadata = JSON.parse(await readFile(metadataPath, 'utf8'));
     await writeFile(metadataPath, JSON.stringify({ ...metadata, protocolVersion: 2 }));
-    await expect(loadMarkdownRules('pro', directory, '8')).rejects.toThrow('protocol is unsupported');
+    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('protocol is unsupported');
   });
 
   it('rejects traversal and symlink escapes in both loading and fingerprinting', async () => {
@@ -85,22 +85,22 @@ describe('installed Pro adapter protocol', () => {
     await writeFile(join(directory, 'outside.json'), '[]');
     await writeFile(
       metadataPath,
-      JSON.stringify({ protocolVersion: 1, transformVersion: '8', rules: '../../../outside.json' }),
+      JSON.stringify({ protocolVersion: 1, transformVersion: '9', rules: '../../../outside.json' }),
     );
-    await expect(loadMarkdownRules('pro', source, '8')).rejects.toThrow('inside adapters/dsh');
-    await expect(adapterFingerprint(source, '8')).rejects.toThrow('inside adapters/dsh');
+    await expect(loadMarkdownRules('pro', source, '9')).rejects.toThrow('inside adapters/dsh');
+    await expect(adapterFingerprint(source, '9')).rejects.toThrow('inside adapters/dsh');
     await symlink(join(directory, 'outside.json'), join(source, 'adapters/dsh/linked.json'));
     await writeFile(
       metadataPath,
-      JSON.stringify({ protocolVersion: 1, transformVersion: '8', rules: './linked.json' }),
+      JSON.stringify({ protocolVersion: 1, transformVersion: '9', rules: './linked.json' }),
     );
-    await expect(loadMarkdownRules('pro', source, '8')).rejects.toThrow('inside adapters/dsh');
+    await expect(loadMarkdownRules('pro', source, '9')).rejects.toThrow('inside adapters/dsh');
     await writeFile(
       metadataPath,
-      JSON.stringify({ protocolVersion: 1, transformVersion: '8', rules: '../outside.json' }),
+      JSON.stringify({ protocolVersion: 1, transformVersion: '9', rules: '../outside.json' }),
     );
     await writeFile(join(source, 'adapters/outside.json'), '[]');
-    await expect(loadMarkdownRules('pro', source, '8')).rejects.toThrow('inside adapters/dsh');
+    await expect(loadMarkdownRules('pro', source, '9')).rejects.toThrow('inside adapters/dsh');
   });
 });
 
@@ -232,7 +232,7 @@ describe('declarative Markdown rewrite validation', () => {
   ])('rewrites evidence wording: %s', (raw, expected) => {
     const result = transformSkillMarkdown('references/tools.md', raw, { edition: 'lite', mode: 'lenient' });
     expect(result.markdown).toBe(expected);
-    expect(result.rules.find((rule) => rule.id === 'tools.evidence')).toMatchObject({
+    expect(result.rules.find((rule) => rule.id === 'tools.evidence.legacy')).toMatchObject({
       matches: 1,
       status: 'matched',
     });

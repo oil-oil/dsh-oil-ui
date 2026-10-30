@@ -138,14 +138,15 @@ export function registerTools(ctx: Context, options: ToolRegistrationOptions): v
           mark: { type: 'string', description: '截图标注规则，如 1=.open。' },
           selector: {
             type: 'string',
-            description: '只截取匹配元素的区域，自动滚入视口；不与 fullPage、record、motion、entry、evidence 同用。',
+            description:
+              '只截取匹配元素的区域，自动滚入视口；不与 fullPage、record、frames、motion、entry、evidence 同用。',
           },
           steps: { ...stringOrStrings, description: '交互动作字符串或动作组数组，组内用分号分隔。' },
           record: { ...boolOrString, description: '是否录屏，兼容字符串 true/false。' },
           entry: { type: 'boolean', description: '是否在打开页面前开始录屏。' },
           holdMs: { type: 'integer', description: '交互后的停留时长，单位毫秒，范围 0–120000。' },
           motion: { ...boolOrString, description: '是否探测动效，兼容字符串 true/false。' },
-          evidence: { type: 'boolean', description: '是否生成状态、截图和录屏证据集。' },
+          evidence: { type: 'boolean', description: '是否生成整套证据；配合 frames 用序列图代替视频。' },
           stitch: {
             type: 'array',
             items: {
@@ -157,14 +158,26 @@ export function registerTools(ctx: Context, options: ToolRegistrationOptions): v
                   properties: {
                     path: { type: 'string', required: true, description: '本地图像路径。' },
                     label: { type: 'string', description: '图像标签。' },
+                    matchWidth: {
+                      oneOf: [{ type: 'number' }, { type: 'string' }],
+                      description: '共有元素在原图里的像素宽；使用时每张都填，不与 scale 混用。',
+                    },
+                    scale: {
+                      oneOf: [{ type: 'number' }, { type: 'string' }],
+                      description: '该图缩放比例，支持 0.8、80% 或 4/5。',
+                    },
                   },
                 },
               ],
             },
-            description: '拼图输入，每项是本地图像路径或含 path、label 的对象。',
+            description: '拼图输入，每项是本地图像路径或含 path、label、matchWidth 或 scale 的对象。',
           },
+          crop: { type: 'string', description: '拼图统一比例后裁切的公共区域，格式 x,y,width,height。' },
           columns: { type: 'integer', description: '拼图或录屏帧序列的列数。' },
-          frames: { oneOf: [{ type: 'integer' }, { type: 'string' }], description: '录屏帧序列的帧数，范围 2–120。' },
+          frames: {
+            oneOf: [{ type: 'integer' }, { type: 'string' }],
+            description: '动效序列图帧数，范围 2–120；仅加 record 时同时编码视频。',
+          },
           waitMs: { type: 'integer', description: '截图前等待时长，单位毫秒，范围 0–120000。' },
           timeoutScale: { type: 'number', description: '截图引擎内部超时倍数。' },
           dryRun: { type: 'boolean', description: '仅验证截图参数，不启动截图。' },

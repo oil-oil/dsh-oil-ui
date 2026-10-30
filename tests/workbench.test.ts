@@ -948,3 +948,55 @@ it('reuses candidate bytes across inferred metadata and embedding, and caches th
   await embed.path('explore/b.html', cwd);
   expect(paths.mock.calls.filter(([path]) => path === cwd)).toHaveLength(1);
 });
+
+it('forwards normalized stitch geometry and dry-run without opening a page', async () => {
+  const { w, cwd } = await scriptedWorkbench('console.log(JSON.stringify(process.argv.slice(2)))');
+  await writeFile(join(cwd, 'reference.png'), 'reference');
+  await writeFile(join(cwd, 'current.png'), 'current');
+  const result = await w.shoot(cwd, {
+    stitch: [
+      { path: 'reference.png', label: 'Reference', matchWidth: '240px' },
+      { path: 'current.png', matchWidth: 300 },
+    ],
+    crop: '0,0,800,600',
+    dryRun: true,
+  });
+  expect(result.ok).toBe(true);
+  expect(JSON.parse(result.stdout)).toEqual([
+    '--stitch',
+    join(cwd, 'reference.png'),
+    '--label',
+    'Reference',
+    '--match-width',
+    '240px',
+    '--stitch',
+    join(cwd, 'current.png'),
+    '--match-width',
+    '300',
+    '--crop',
+    '0,0,800,600',
+    '--dry-run',
+    '--out',
+    expect.any(String),
+  ]);
+  const scaled = await w.shoot(cwd, {
+    stitch: [
+      { path: 'reference.png', scale: '80%' },
+      { path: 'current.png', scale: '4/5' },
+    ],
+    dryRun: true,
+  });
+  expect(JSON.parse(scaled.stdout)).toEqual(expect.arrayContaining(['--scale', '80%', '4/5']));
+  await expect(w.shoot(cwd, { crop: '0,0,1,1', dryRun: true })).rejects.toThrow('crop requires stitch');
+});
+
+it('uses a directory for frame sequences and preserves the frame-only request', async () => {
+  const { w, cwd } = await scriptedWorkbench('console.log(JSON.stringify(process.argv.slice(2)))');
+  const result = await w.shoot(cwd, { frames: 8, dryRun: true });
+  expect(result.ok).toBe(true);
+  const args = JSON.parse(result.stdout) as string[];
+  expect(args).toContain('--frames');
+  expect(args).not.toContain('--record');
+  expect(args.at(-1)).toBe(join(cwd, 'shots'));
+  await expect(w.shoot(cwd, { frames: 8, out: 'sequence.png' })).rejects.toThrow('require a directory');
+});

@@ -442,6 +442,10 @@ export class DesignWorkbench {
     const timeoutMs = timeout(input.timeoutMs, 90_000);
     const sizeStr = this.validateSizeToken(input.size ?? input.viewport ?? '1440x900');
 
+    if (input.crop !== undefined && !input.stitch?.length) {
+      throw new Error('crop requires stitch inputs');
+    }
+
     if (input.waitMs !== undefined && (!Number.isInteger(input.waitMs) || input.waitMs < 0 || input.waitMs > 120_000)) {
       throw new Error('waitMs must be between 0 and 120000');
     }
@@ -516,6 +520,7 @@ export class DesignWorkbench {
       sizeStr.includes(',') ||
       Boolean(Array.isArray(input.states) ? input.states.length : input.states?.trim()) ||
       record ||
+      input.frames !== undefined ||
       motion ||
       Boolean(input.zoom !== undefined && String(input.zoom).includes(','));
     const defaultOut = mode === 'evidence' ? 'evidence' : multiOutput ? 'shots' : 'shots/desktop.png';
@@ -556,8 +561,12 @@ export class DesignWorkbench {
           } else {
             args.push('--stitch', await localFile(item.path));
             if (item.label) args.push('--label', item.label);
+            if (item.matchWidth !== undefined) args.push('--match-width', String(item.matchWidth));
+            if (item.scale !== undefined) args.push('--scale', String(item.scale));
           }
         }
+        if (input.crop !== undefined) args.push('--crop', input.crop);
+        if (input.dryRun) args.push('--dry-run');
         if (input.columns !== undefined) args.push('--columns', String(input.columns));
       } else if (mode === 'compare' && compareRef && input.after) {
         args.push(
