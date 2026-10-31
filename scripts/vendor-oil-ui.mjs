@@ -227,6 +227,12 @@ async function buildSnapshot(sourceRoot, stageDirectory, stagedManifest) {
     })),
   };
 
+  const compiledReport = await validateSkillTree(stageDirectory, { mode: 'strict' });
+  if (compiledReport.unmatchedRules.length > 0) {
+    throw new Error(
+      `Compiled Skill tree still has unmatched required rules: ${compiledReport.unmatchedRules.map((rule) => `${rule.id} (${rule.file})`).join(', ')}`,
+    );
+  }
   await verifySkillEntries(stageDirectory, entries);
   await writeFile(stagedManifest, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
   return manifest;

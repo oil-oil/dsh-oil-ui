@@ -4,7 +4,7 @@ import { lstat, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TRANSFORM_VERSION } from '../src/skill/transform.ts';
+import { TRANSFORM_VERSION, validateSkillTree } from '../src/skill/transform.ts';
 import { runBuild } from './lib/build.mjs';
 import { verifySkillSnapshot } from './lib/skill-distribution.mjs';
 
@@ -51,6 +51,12 @@ async function main() {
     throw new Error('Skill manifest must record the full upstream commit. Run pnpm sync:skill.');
   }
   const skill = await verifySkillSnapshot(path.join(root, 'skills/oil-ui'), manifest);
+  const compiledReport = await validateSkillTree(path.join(root, 'skills/oil-ui'), { mode: 'strict' });
+  if (compiledReport.unmatchedRules.length > 0) {
+    throw new Error(
+      `Bundled Skill snapshot has unmatched required rules: ${compiledReport.unmatchedRules.map((rule) => `${rule.id} (${rule.file})`).join(', ')}`,
+    );
+  }
 
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'dsh-oil-ui-generated-'));
   try {

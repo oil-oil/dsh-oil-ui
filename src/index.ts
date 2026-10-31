@@ -137,6 +137,8 @@ export function apply(ctx: Context, config: Config) {
             ...(status.oilLoggedIn
               ? [`oiloil 余额：${status.oilBalance === null ? '暂时无法查询' : `${status.oilBalance} 积分`}`]
               : []),
+            ...(status.updateCheckError ? [`版本检查异常：${status.updateCheckError}`] : []),
+            ...(status.transformWarning ? [`转换提示：${status.transformWarning}`] : []),
             ...(status.updateNotice ? [status.updateNotice] : []),
             ...(status.recommendOnceNotice ? [status.recommendOnceNotice] : []),
           ];
