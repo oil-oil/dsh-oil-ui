@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import type { SkillCandidate } from '@deepseek-ai/dsh-skill';
 import type { createSkillProvider } from '../src/skill/upstream.ts';
+import { writeProAdapter } from './pro-adapter-fixture.ts';
 
 const exec = promisify(execFile);
 const isolatedHome = vi.hoisted(() => ({ path: '' }));
@@ -89,7 +90,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
         },
       },
     };
-    apply(ctx, { preferPro: false, previewPort: 0 });
+    apply(ctx, { preferPro: true, previewPort: 0 });
     await Promise.all(pending);
     if (!provider) throw new Error('Packaged Skill provider was not registered');
     const candidates = await provider.list({});
@@ -116,6 +117,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
       edition: 'lite',
       activeSkillName: 'oil-ui',
       bundledVersion: '0.28.0',
+      manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       visibleMatchesOriginal: true,
     });
     expect(await tools.get('oil_ui_explorer')!.execute({ out: 'style-explorer.html' }, run)).toMatchObject({
@@ -126,6 +128,30 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
         .get('oil_ui_shoot')!
         .execute({ target: 'style-explorer.html', out: 'shots/explorer.png', dryRun: true }, run),
     ).toMatchObject({ ok: true, outputFiles: [] });
+
+    // Verify packaged layout with local Pro installed as well (#12).
+    const proDir = join(root, '.dsh/skills/oil-ui-pro');
+    await mkdir(join(proDir, 'references'), { recursive: true });
+    await writeProAdapter(proDir);
+    await writeFile(
+      join(proDir, 'SKILL.md'),
+      '---\nname: oil-ui-pro\ndescription: Packaged Pro\nmetadata:\n  version: "0.28.0"\n---\nUse `scripts/shoot.mjs`\n',
+    );
+    await writeFile(join(proDir, 'references/tools.md'), '# 工具\n`node scripts/shoot.mjs index.html`\n');
+    const proCandidates = await provider.list({});
+    expect(proCandidates).toHaveLength(1);
+    candidate = proCandidates[0];
+    expect(candidate?.name).toBe('oil-ui-pro');
+    expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
+      edition: 'pro',
+      activeSkillName: 'oil-ui-pro',
+      activeVersion: '0.28.0',
+      bundledVersion: '0.28.0',
+      manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
+      proInstalled: true,
+      proAdapterReady: true,
+      visibleMatchesOriginal: true,
+    });
   } finally {
     await Promise.all(disposers.map((dispose) => dispose()));
     for (const [key, value] of Object.entries(previousEnv)) {

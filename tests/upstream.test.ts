@@ -150,10 +150,24 @@ describe('bundled open-source Skill and local Pro activation', () => {
     });
     expect(status.note).toContain('No hash gate is enforced during loading or execution.');
     expect(status.transformDiagnostics?.sourceDirectory).toBe(dir);
+    expect(status.transformDiagnostics?.newerThanBaseline).toBe(true);
+    expect(status.transformDiagnostics?.warning).toContain('当前 Pro Skill 版本新于插件转换基线');
+    expect(status.transformWarning).toContain('当前 Pro Skill 版本新于插件转换基线');
+    expect(status.upgradeHint).toContain('当前 Pro Skill 版本新于插件转换基线');
     expect(status.transformDiagnostics?.unmatchedRules).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'skill.compatibility', file: 'SKILL.md', required: true }),
-        expect.objectContaining({ id: 'media.sheet', file: 'references/media.md', required: true }),
+        expect.objectContaining({
+          id: 'skill.compatibility',
+          file: 'SKILL.md',
+          required: true,
+          severity: 'warning',
+        }),
+        expect.objectContaining({
+          id: 'media.sheet',
+          file: 'references/media.md',
+          required: true,
+          severity: 'warning',
+        }),
       ]),
     );
     expect(status.transformDiagnostics?.unmatchedRules.some((rule) => rule.id === 'skill.pro-notice')).toBe(false);
@@ -401,13 +415,32 @@ describe('discovery snapshots, arbitration and update backoff', () => {
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
     const fetcher = vi
       .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ skills: { 'oil-ui': { version: '2.0.0' } } })))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            skills: {
+              'oil-ui': {
+                latest: '2.0.0',
+                published_at: '2026-10-28T00:00:00Z',
+                history: [{ version: '2.0.0', published_at: '2026-10-28T00:00:00Z', notes: '' }],
+              },
+            },
+          }),
+        ),
+      )
       .mockRejectedValue(new Error('offline'));
     vi.stubGlobal('fetch', fetcher);
     const active = await resolveActiveSkill({ preferPro: false });
-    expect(await checkSkillUpdate(active, '1.0.0')).toMatchObject({ latestVersion: '2.0.0', updateAvailable: true });
+    expect(await checkSkillUpdate(active, '1.0.0')).toMatchObject({
+      latestVersion: '2.0.0',
+      updateAvailable: true,
+      lastError: null,
+    });
     clock.mockReturnValue(now + 600_001);
-    expect(await checkSkillUpdate(active, '1.0.0')).toMatchObject({ latestVersion: '2.0.0' });
+    expect(await checkSkillUpdate(active, '1.0.0')).toMatchObject({
+      latestVersion: '2.0.0',
+      lastError: 'offline',
+    });
     await checkSkillUpdate(active, '1.0.0');
     expect(fetcher).toHaveBeenCalledTimes(2);
     clock.mockReturnValue(now + 630_002);
@@ -416,6 +449,62 @@ describe('discovery snapshots, arbitration and update backoff', () => {
     clock.mockReturnValue(now + 660_002);
     await checkSkillUpdate(active, '1.0.0');
     expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it('reads skills[name].latest from the real API schema, recovers poisoned legacy caches, and surfaces lastError', async () => {
+    vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
+    const stateDir = join(root, 'state-latest');
+    vi.stubEnv('XDG_STATE_HOME', stateDir);
+    await mkdir(join(stateDir, 'oil'), { recursive: true });
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Simulate a poisoned v0.4.1 cache where `version` was misread (`succeededAt: 0, failures: 3`).
+    await writeFile(
+      join(stateDir, 'oil', 'oil-ui-pro-update.json'),
+      JSON.stringify({ attemptedAt: nowSec, succeededAt: 0, failures: 3, latest: '0.26.0' }),
+    );
+    const proDir = await pro(join(root, 'pro-latest'));
+    const active = await resolveActiveSkill({ proSkillDir: proDir });
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            skills: {
+              'oil-ui-pro': {
+                latest: '0.28.0',
+                published_at: '2026-10-30T00:00:00Z',
+                history: [{ version: '0.28.0', published_at: '2026-10-30T00:00:00Z', notes: '' }],
+              },
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(new Response('gateway timeout', { status: 504 }));
+    vi.stubGlobal('fetch', fetcher);
+
+    const first = await checkSkillUpdate(active, '0.27.0');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(first).toMatchObject({
+      latestVersion: '0.28.0',
+      updateAvailable: true,
+      lastError: null,
+    });
+    expect(first.updateNotice).toContain('0.27.0 -> 0.28.0');
+    const saved = JSON.parse(await readFile(join(stateDir, 'oil', 'oil-ui-pro-update.json'), 'utf8'));
+    expect(saved).toMatchObject({
+      succeededAt: saved.attemptedAt,
+      failures: 0,
+      latest: '0.28.0',
+      lastError: null,
+    });
+
+    // When local Skill is already upgraded past the cached latest and an explicit check fails with HTTP 504:
+    const second = await checkSkillUpdate(active, '0.29.0', true);
+    expect(second).toMatchObject({
+      latestVersion: '0.29.0',
+      updateAvailable: false,
+      lastError: 'HTTP 504',
+    });
   });
 });
 

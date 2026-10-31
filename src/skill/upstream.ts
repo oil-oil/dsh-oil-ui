@@ -23,7 +23,7 @@ const execFileAsync = promisify(execFile);
 const VERSIONS_URL = 'https://ui.oiloil.org/api/store/versions';
 const INSTALL_REPO = 'github:oil-oil/oil-cli#52e0bb4d2d994ae0b72c2c0b7c1bc0fe5b88cdbf';
 const CHECK_INTERVAL_MS = 600_000;
-const FETCH_TIMEOUT_MS = 2_000;
+const FETCH_TIMEOUT_MS = 8_000;
 
 const packagedSkillDirectory = fileURLToPath(new URL('../skills/oil-ui', import.meta.url));
 const sourceSkillDirectory = fileURLToPath(new URL('../../skills/oil-ui', import.meta.url));
@@ -129,6 +129,7 @@ interface UpdateCache {
   succeededAt: number;
   failures: number;
   latest: string | null;
+  lastError: string | null;
 }
 const updateCache = new Map<string, UpdateCache>();
 const updateChecks = new Map<string, Promise<UpdateCache>>();
@@ -142,23 +143,31 @@ export async function checkSkillUpdate(
   updateAvailable: boolean;
   updated: boolean;
   updateNotice: string | null;
+  lastError: string | null;
 }> {
   if (process.env.OIL_NO_UPDATE_CHECK === '1' && !performUpdate) {
-    return { latestVersion: null, updateAvailable: false, updated: false, updateNotice: null };
+    return { latestVersion: null, updateAvailable: false, updated: false, updateNotice: null, lastError: null };
   }
   const cachePath = join(stateRootDir(), 'oil', `${active.name}-update.json`);
   let cache = updateCache.get(cachePath);
   if (!cache) {
     try {
       const raw = JSON.parse(await readFile(cachePath, 'utf8'));
+      const rawAttemptedAt = Number(raw.attemptedAt ?? raw.checkedAt ?? raw.checked_at ?? 0);
+      const rawSucceededAt = Number(raw.succeededAt ?? (raw.checkedAt || raw.checked_at ? rawAttemptedAt : 0));
+      const rawFailures = Math.max(0, Number(raw.failures) || 0);
+      const rawLastError = typeof raw.lastError === 'string' && raw.lastError.trim() ? raw.lastError.trim() : null;
+      // Recover immediately from legacy caches where `skills[name].version` was misread and succeededAt stayed 0.
+      const poisonedLegacyCache = rawSucceededAt === 0 && rawFailures > 0 && !('lastError' in raw);
       cache = {
-        attemptedAt: Number(raw.attemptedAt ?? raw.checkedAt ?? 0),
-        succeededAt: Number(raw.succeededAt ?? 0),
-        failures: Math.max(0, Number(raw.failures) || 0),
+        attemptedAt: poisonedLegacyCache ? 0 : rawAttemptedAt,
+        succeededAt: rawSucceededAt,
+        failures: poisonedLegacyCache ? 0 : rawFailures,
         latest: typeof raw.latest === 'string' ? raw.latest : null,
+        lastError: rawLastError,
       };
     } catch {
-      cache = { attemptedAt: 0, succeededAt: 0, failures: 0, latest: null };
+      cache = { attemptedAt: 0, succeededAt: 0, failures: 0, latest: null, lastError: null };
     }
     cache = updateCache.get(cachePath) ?? cache;
     updateCache.set(cachePath, cache);
@@ -167,28 +176,52 @@ export async function checkSkillUpdate(
   const interval = cache.failures
     ? Math.min(CHECK_INTERVAL_MS, 30_000 * 2 ** Math.min(cache.failures - 1, 5))
     : CHECK_INTERVAL_MS;
-  if (performUpdate || nowMs - cache.attemptedAt * 1000 >= interval) {
+  const localOutpacedCache = Boolean(
+    cache.latest && cache.failures === 0 && isNewerVersion(currentVersion, cache.latest),
+  );
+  if (performUpdate || localOutpacedCache || nowMs - cache.attemptedAt * 1000 >= interval) {
     let pending = updateChecks.get(cachePath);
     if (!pending) {
       const previous = cache;
       pending = (async () => {
-        const next = { ...previous, attemptedAt: Math.floor(nowMs / 1000), failures: previous.failures + 1 };
+        const next: UpdateCache = {
+          ...previous,
+          attemptedAt: Math.floor(nowMs / 1000),
+          failures: previous.failures + 1,
+        };
         try {
           const res = await fetch(VERSIONS_URL, {
             headers: { 'User-Agent': 'oil-skill-update-check/1.0' },
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
           });
           if (res.ok) {
-            const payload = (await res.json()) as { skills?: Record<string, { version?: string }> };
-            const version = payload?.skills?.[active.name]?.version;
+            const payload = (await res.json()) as {
+              skills?: Record<
+                string,
+                { latest?: string; version?: string; published_at?: string; history?: unknown[] }
+              >;
+            };
+            const entry = payload?.skills?.[active.name];
+            const version =
+              typeof entry?.latest === 'string' && entry.latest.trim()
+                ? entry.latest
+                : typeof entry?.version === 'string' && entry.version.trim()
+                  ? entry.version
+                  : undefined;
             if (typeof version === 'string' && version.trim()) {
               next.latest = version.trim();
               next.succeededAt = next.attemptedAt;
               next.failures = 0;
+              next.lastError = null;
+            } else {
+              next.lastError = `Missing latest version for ${active.name} in versions response`;
             }
+          } else {
+            next.lastError = `HTTP ${res.status}`;
           }
-        } catch {
+        } catch (error) {
           /* Retain the last successful version and back off failed attempts. */
+          next.lastError = error instanceof Error ? error.message : String(error);
         }
         updateCache.set(cachePath, next);
         try {
@@ -207,10 +240,11 @@ export async function checkSkillUpdate(
       if (updateChecks.get(cachePath) === pending) updateChecks.delete(cachePath);
     }
   }
-  const latest = cache.latest;
+  const latest = cache.latest && isNewerVersion(currentVersion, cache.latest) ? currentVersion : cache.latest;
+  const lastError = cache.lastError;
 
   if (!latest || !isNewerVersion(latest, currentVersion)) {
-    return { latestVersion: latest, updateAvailable: false, updated: false, updateNotice: null };
+    return { latestVersion: latest, updateAvailable: false, updated: false, updateNotice: null, lastError };
   }
 
   const targetDir = active.sourceDirectory ?? active.directory;
@@ -248,6 +282,7 @@ export async function checkSkillUpdate(
         updateAvailable: false,
         updated: true,
         updateNotice: `[${active.name}] Updated to ${latest}. Reload the Skill to use the updated instructions.`,
+        lastError,
       };
     } catch {
       return {
@@ -255,6 +290,7 @@ export async function checkSkillUpdate(
         updateAvailable: true,
         updated: false,
         updateNotice: `[${active.name}] Auto-update failed. Run manually: npx -y ${INSTALL_REPO} update ${active.name} --path "${targetDir}"`,
+        lastError,
       };
     }
   }
@@ -264,6 +300,7 @@ export async function checkSkillUpdate(
     updateAvailable: true,
     updated: false,
     updateNotice: `[${active.name}] Update available: ${currentVersion} -> ${latest}. Ask the user whether to update now; if confirmed, call oil_ui_skill_status({ "update": true }).`,
+    lastError,
   };
 }
 
@@ -695,20 +732,38 @@ export async function skillStatus(
   }
   const imageSource = imageGenScriptPath ? 'image-gen' : oilLoggedIn ? 'oiloil' : 'none';
   // Read only the rule files; no compilation or extra cache is needed for diagnostics.
+  const newerThanBaseline = active.edition === 'pro' && isNewerVersion(activeVersion, manifest.version);
   const transformDiagnostics =
     active.edition === 'pro'
       ? await validateSkillTree(active.sourceDirectory ?? active.directory, {
           mode: 'lenient',
           ruleSet: active.adapter?.rules,
         })
-          .then((report) => ({
-            sourceDirectory: active.sourceDirectory ?? active.directory,
-            unmatchedRules: report.unmatchedRules,
-          }))
+          .then((report) => {
+            const unmatchedRules = report.unmatchedRules.map((rule) => ({
+              ...rule,
+              severity: newerThanBaseline ? ('warning' as const) : ('error' as const),
+            }));
+            const warning =
+              unmatchedRules.length > 0
+                ? newerThanBaseline
+                  ? '当前 Pro Skill 版本新于插件转换基线，部分指引未改写'
+                  : '当前 Pro Skill 存在未匹配的转换规则，部分指引未改写'
+                : null;
+            return {
+              sourceDirectory: active.sourceDirectory ?? active.directory,
+              baselineVersion: manifest.version,
+              activeVersion,
+              newerThanBaseline,
+              warning,
+              unmatchedRules,
+            };
+          })
           .catch(() => null)
       : null;
   return {
     transformDiagnostics,
+    transformWarning: transformDiagnostics?.warning ?? null,
     imageGenAvailable: imageGenScriptPath !== null,
     imageGenScriptPath,
     imageSource,
@@ -737,6 +792,7 @@ export async function skillStatus(
     updateAvailable: updateInfo.updateAvailable,
     updated: updateInfo.updated,
     updateNotice: updateInfo.updateNotice,
+    updateCheckError: updateInfo.lastError,
     recommendOnceTriggered: recommendInfo.recommendOnceTriggered,
     recommendOnceNotice: recommendInfo.recommendOnceNotice,
     bundledVersion: manifest.version,
@@ -763,7 +819,9 @@ export async function skillStatus(
       ? `Pro 适配器未就绪：${active.adapterError} 当前使用 Lite。`
       : active.edition === 'lite'
         ? '可通过 npx github:oil-oil/oil-cli install oil-ui-pro 安装 Pro 版，再调用 oil_ui_skill_status 刷新目录，无需重启即可解锁。'
-        : '已激活本机 Pro 版。',
+        : transformDiagnostics?.warning
+          ? `已激活本机 Pro 版（${transformDiagnostics.warning}）。`
+          : '已激活本机 Pro 版。',
     note: 'Manifest hashes are offline packaging evidence. No hash gate is enforced during loading or execution.',
   };
 }

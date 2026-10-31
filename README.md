@@ -113,7 +113,7 @@ Pro 的专用转换规则作为声明式 JSON 数据随 Pro 安装包的 `adapte
 
 ## 安装
 
-当前插件声明支持 DeepSeek Harness `0.2.1-rc.2`、`0.2.1-rc.3` 与 `0.2.1-rc.4`，Node.js 需要 22.19.0 或更高版本。其他 Harness 版本需要先核对兼容性。桌面版通过安装目录提供的 `dsh` 命令，将下方示例中的 `--profile web` 换成 `--profile desktop`；管理桌面插件前先完全退出桌面程序。
+当前插件声明支持 DeepSeek Harness `0.2.1-rc.2`、`0.2.1-rc.3`、`0.2.1-rc.4` 与 `0.2.1-rc.5`，Node.js 需要 22.19.0 或更高版本。其他 Harness 版本需要先核对兼容性。桌面版通过安装目录提供的 `dsh` 命令，将下方示例中的 `--profile web` 换成 `--profile desktop`；管理桌面插件前先完全退出桌面程序。
 
 ### 1. 一行命令安装到 DeepSeek Harness
 
@@ -121,6 +121,12 @@ Pro 的专用转换规则作为声明式 JSON 数据随 Pro 安装包的 `adapte
 
 ```bash
 dsh plugin --profile web add github:oil-oil/dsh-oil-ui
+```
+
+国内网络可直接使用 AtomGit 镜像一行安装：
+
+```bash
+dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
 若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#58fe551130e416dcdae3118d7ed61138c1601010`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。

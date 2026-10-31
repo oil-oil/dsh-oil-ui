@@ -397,7 +397,7 @@ it('reads the Skill registry from the injected context instead of the apply cont
       }),
     ).resolves.toMatchObject({
       kind: 'success',
-      text: expect.stringContaining('oil-ui-pro（Pro）'),
+      text: expect.stringMatching(/oil-ui-pro（Pro）[\s\S]*转换提示：当前 Pro Skill 版本新于插件转换基线/),
     });
     const subSections: { name: string; text: string }[] = [];
     for (const listener of createdListeners) {
@@ -495,7 +495,7 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
     expect(invalidate).toHaveBeenCalledTimes(1);
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(new Response(JSON.stringify({ skills: { 'oil-ui-pro': { version: '0.0.0' } } }))),
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ skills: { 'oil-ui-pro': { latest: '0.0.0' } } }))),
     );
     await tools.get('oil_ui_skill_status')!.execute({ update: true }, exec);
     expect(invalidate).toHaveBeenCalledTimes(2);
