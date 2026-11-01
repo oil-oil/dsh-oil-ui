@@ -1,10 +1,10 @@
 {
   "name": "oil-ui",
-  "version": "0.29.0",
+  "version": "0.29.1",
   "transformVersion": "9",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "24f7daa9d14dca435a97e85342468db6265e162e",
+    "commit": "29085f117c5b9bf00ddc53de9386a3bb6c01f017",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -62,7 +62,7 @@
       }
     ]
   },
-  "fileCount": 43,
+  "fileCount": 46,
   "files": [
     {
       "path": ".gitignore",
@@ -120,14 +120,20 @@
     },
     {
       "path": "references/design-direction.md",
-      "sha256": "4235b295c445ce00008096ce9e0ec556b93a765fed3af4da113a4fa313469d60",
-      "size": 26094,
+      "sha256": "89b999d0b8a1a6402f0fd2329ead16aad2a562fb3c7bb1689f3197647910080d",
+      "size": 26378,
       "mode": "0644"
     },
     {
       "path": "references/direction-persuasion.md",
       "sha256": "f229766bf763be2628c50ce9045c052d87018ffc91aea4a7964eb8a215cd146c",
       "size": 2120,
+      "mode": "0644"
+    },
+    {
+      "path": "references/image-ideation.md",
+      "sha256": "831cd1e2db8758adbffcca893c6dd8772e899258b25f8d4cfc18940bd2a4eb1e",
+      "size": 20330,
       "mode": "0644"
     },
     {
@@ -251,6 +257,12 @@
       "mode": "0644"
     },
     {
+      "path": "scripts/measure_reference.py",
+      "sha256": "7a10a0f87c2b1434d5047dea1903e7b0ec324ba539c68a448c0808c3a2aac536",
+      "size": 23122,
+      "mode": "0644"
+    },
+    {
       "path": "scripts/oiloil-image.mjs",
       "sha256": "9def8ef07485436207db85a97f4a8b2a5b8ccd7b3d381547834cfcb7ed6d0164",
       "size": 23069,
@@ -276,8 +288,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "fd9b140eea99ed4480f72fd802b517f391ce41e42148cb0bdfa87f7c90fbcd71",
-      "size": 18033,
+      "sha256": "c9336876e4e0cfa223e8df940f53d102c86205339bff43172b89fe596ac4340c",
+      "size": 19030,
       "mode": "0644"
     },
     {
@@ -296,6 +308,12 @@
       "path": "tests/test_curate_media.py",
       "sha256": "20244105f024df559569c56caae0977af50d15c4eeee2fc9571e66000fd1981d",
       "size": 28795,
+      "mode": "0644"
+    },
+    {
+      "path": "tests/test_measure_reference.py",
+      "sha256": "a16ebe5ea0b4321d22267f61e5cbea92e30fc79513a626bac7678ec36333b9ce",
+      "size": 4674,
       "mode": "0644"
     },
     {
