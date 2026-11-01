@@ -4,7 +4,7 @@
   "transformVersion": "9",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "651c4845483ae181936c7301e8d0336b2af92877",
+    "commit": "24f7daa9d14dca435a97e85342468db6265e162e",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
