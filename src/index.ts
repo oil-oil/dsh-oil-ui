@@ -20,14 +20,14 @@ export { Config };
 export const name = 'dsh-oil-ui';
 
 export const MAIN_AGENT_SYSTEM_PROMPT =
-  'For UI tasks, call oil_ui_skill_status first to refresh discovery and read activeSkillName (local oil-ui-pro installs unlock without restarting), then load that Skill using the skill tool. Read and write project files directly in the current working directory. Use oil_ui_explorer for style-explorer.html comparison pages, oil_ui_shoot for screenshots/interactions/responsive checks/recordings, oil_ui_media for public-domain and museum media search/preview/fetch, and oil_ui_image for generating or editing visual assets. Use subagent for independent visual and lightweight UX walkthroughs, with deeper Pro risk probes and same-path rechecks when active.';
+  'For UI tasks, call oil_ui_skill_status first to refresh discovery and read activeSkillName (local oil-ui-pro installs unlock without restarting), then load that Skill using the skill tool. Read and write project files directly in the current working directory. Use oil_ui_explorer for style-explorer.html comparison pages, oil_ui_shoot for screenshots/interactions/responsive checks/recordings, oil_ui_media for public-domain and museum media search/preview/fetch, and oil_ui_image for generating or editing visual assets. For standard single-page prototypes or small edits, verify directly with oil_ui_shoot and read_image; only dispatch subagent for independent visual/UX review on complex multi-page revamps or when explicitly requested.';
 
 export function buildSubagentSystemPrompt(reviewerManual: string, referencesPath?: string): string {
   return [
     '当主 Agent 委派你执行界面视觉或交互评审（UI/UX Review）时，请直接按下方已内置的《视觉与交互评审手册》（`references/reviewer-manual.md`）执行，无需调用 `read_file`、`skill` 或 `oil_ui_skill_status` 重复读取该手册，评审过程中只提供客观评审意见、不修改项目文件。查看图片请用 `read_image`；需要补充 480px/180px 缩略图、遮字图（`mask: true`）或实际操作验证时请用 `oil_ui_shoot`。（若主 Agent 委派的是非评审类的常规子任务，则直接按主 Agent 的任务指令执行。）',
     ...(referencesPath
       ? [
-          `当前生效 Skill 的 references/ 绝对路径：${referencesPath}。轻量 UX 走查按需读取 ${referencesPath}/ux-reviewer.md；Pro 另读 ${referencesPath}/review-modes.md 与 ${referencesPath}/play-craft.md。`,
+          `当前生效 Skill 的 references/ 绝对路径：${referencesPath}。仅当主 Agent 明确指派轻量 UX 走查、多方向/流程专项或游玩类评审时，才按指令读取对应文件（如 ${referencesPath}/ux-reviewer.md、${referencesPath}/review-modes.md 或 ${referencesPath}/play-craft.md），常规单页视觉评审无需额外读取。`,
         ]
       : []),
     '',

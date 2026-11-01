@@ -1,6 +1,6 @@
 const NATIVE_TOOL_COMMANDS_SECTION = `### 常用调用方式（\`oil_ui_shoot\`）
 
-\`oil_ui_shoot\` 对工作目录内的本地 HTML 文件（包括子目录如 \`explore/a.html\`）会自动通过工作区根目录的本地 HTTP 服务打开，\`assets/...\`、\`../assets/...\` 与 \`?state=...\` 地址参数都能直接解析，无需自己起静态服务器。
+\`oil_ui_shoot\` 对工作目录内的本地 HTML 文件（包括子目录如 \`explore/a.html\`）会自动通过工作区根目录的本地 HTTP 服务打开，\`assets/...\` 与 \`../assets/...\` 相对路径都能直接解析，无需自己起静态服务器。
 
 | 要什么 | \`oil_ui_shoot\` 参数 |
 | --- | --- |
@@ -8,18 +8,16 @@ const NATIVE_TOOL_COMMANDS_SECTION = `### 常用调用方式（\`oil_ui_shoot\`�
 | 一次截完多个候选并出并排图 | \`{ "target": "explore", "size": "desktop", "thumb": true, "out": "shots/explore" }\`（也可传 \`["explore/a.html", "explore/b.html", "explore/c.html"]\`，同一次浏览器会话截完并自动出 \`sheet.png\`） |
 | 只看改过的局部组件或区域 | \`{ "target": "index.html", "size": "desktop", "selector": ".card", "out": "shots/card.png" }\`（自动滚入视口并只截该元素区域） |
 | 操作几步再截 | \`{ "target": "index.html", "size": "desktop", "steps": "click .open; wait 300", "out": "shots/open.png" }\` |
-| 按地址参数切多状态连拍 | \`{ "target": "index.html", "size": "desktop", "states": ["idle", "done"], "out": "shots" }\`（状态参数名默认 \`state\`，可用 \`param\` 修改；额外查询串用 \`query: "a=1&b=2"\`） |
-| 送评审或交付前取状态图 | \`{ "target": "index.html", "size": "desktop", "states": ["idle", "done"], "sheet": true, "out": "evidence" }\` |
+| 同时截桌面与手机标准视口 | \`{ "target": "index.html", "size": "desktop,mobile", "out": "shots" }\` |
 | 2 倍高清截图（@2x） | \`{ "target": "index.html", "size": "desktop", "zoom": 2, "out": "shots/desktop-2x.png" }\`（或 \`zoom: "1,2"\`） |
 | 核对长页滚动动效 | \`{ "target": "index.html", "size": "desktop", "frames": 8, "steps": "scroll 600; scroll 600; scroll 600", "out": "evidence" }\` |
-| 截图还原：和参考图比对 | \`{ "target": "index.html", "size": "1440x900", "compare": "refs/target.png", "out": "shots/compare.png" }\` |
-| 给元素画框、标编号 | \`{ "target": "index.html", "size": "desktop", "mark": "1=.page-head .btn; 2=.toggle-row", "fullPage": true, "out": "shots/marked.png" }\` |
+| 给元素画框、标编号 | \`{ "target": "index.html", "size": "desktop", "mark": "1=.page-head .btn; 2=.toggle-row", "out": "shots/marked.png" }\` |
 | 看清一段过渡序列帧 | \`{ "target": "index.html", "size": "desktop", "frames": 8, "steps": "click .open", "out": "evidence" }\` |
 | 把几张图拼成一张对比图 | \`{ "stitch": [{ "path": "shots/a.png", "label": "修改前" }, { "path": "shots/b.png", "label": "修改后" }], "out": "shots/stitch.png" }\` |
 
 动效默认使用 \`frames\` 序列图或直接操作；只有需要判断正常速度下的手感且评审能播放视频时才传 \`record: true\`。拼图可在各项设置 \`matchWidth\`（共有元素在原图里的像素宽）或 \`scale\`（数值、百分比或分数），两者不混用；全局 \`crop\`（如 \`"0,0,800,600"\`）在统一比例后裁切，超出任一图片时报错。
 
-状态靠地址参数进入，所以页面要能用 \`?state=<名字>\` 直接打开每个状态。\`steps\` 动作写法（分号分隔）：\`click <选择器>\`、\`hover <选择器>\`、\`dblclick <选择器>\`、\`waitfor <选择器>\`、\`drag <选择器> <dx> <dy>\`、\`type <选择器> <文字>\`、\`fill <选择器> <文字>\`、\`select <选择器> <值>\`、\`key <按键>\`、\`scroll <dy>\`、\`wait <毫秒>\`。
+常规单页工作台或原型直接截取桌面与手机标准视口（\`size: "desktop,mobile"\`），并用 \`steps\` 验证 1–2 个核心交互即可交付；不要为了截图专门给页面编写 \`?state=\` 地址参数路由，不要使用 \`fullPage: true\` 截整页长图，也不要对每个局部卡片单独跑 \`selector\` 截图。\`steps\` 动作写法（分号分隔）：\`click <选择器>\`、\`hover <选择器>\`、\`dblclick <选择器>\`、\`waitfor <选择器>\`、\`drag <选择器> <dx> <dy>\`、\`type <选择器> <文字>\`、\`fill <选择器> <文字>\`、\`select <选择器> <值>\`、\`key <按键>\`、\`scroll <dy>\`、\`wait <毫秒>\`。
 
 ### 检索和下载真实素材（\`oil_ui_media\`）
 
@@ -89,7 +87,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     file: 'SKILL.md',
     requiredIn: ['lite', 'pro'],
     match: /## 开始前\r?\n\r?\n[\s\S]*?(?=\r?\n## 选择范围)/,
-    replacement: `## 开始前\n\n先调用 \`oil_ui_skill_status\` 查看当前激活版本、更新提示（\`updateNotice\`）与生图来源（\`imageSource\`）。若 \`updateNotice\` 非空，照常完成任务并在最终回复末尾转述一次；只有用户明确要求更新时才调用 \`oil_ui_skill_status({ "update": true })\`。截图录屏用 \`oil_ui_shoot\`，素材检索与下载用 \`oil_ui_media\`，需要图片时用 \`oil_ui_image\`，风格对比页用 \`oil_ui_explorer\`，看图用 \`read_image\`，独立视觉与 UX 走查用 \`subagent\`。`,
+    replacement: `## 开始前\n\n截图录屏用 \`oil_ui_shoot\`，素材检索与下载用 \`oil_ui_media\`，需要图片时用 \`oil_ui_image\`，风格对比页用 \`oil_ui_explorer\`，看图用 \`read_image\`；独立单页直接写代码并用 \`oil_ui_shoot\` + \`read_image\` 自查，复杂改版才按需用 \`subagent\`。仅当需要确认生图来源（\`imageSource\`）或用户询问版本状态时调用 \`oil_ui_skill_status\`（用户明确要求更新时传 \`{ "update": true }\`）。`,
   },
   {
     id: 'skill.single-direction-images',
