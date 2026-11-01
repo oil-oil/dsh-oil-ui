@@ -231,6 +231,7 @@ describe('native explorer and managed scripts in cwd', () => {
     expect(await w.scopedPath(cwd, `${cwd}\\explore\\manifest.json`)).toBe(join(cwd, 'explore/manifest.json'));
     await expect(w.scopedPath(cwd, '..\\outside.html')).rejects.toThrow('within the current workspace');
     await expect(w.scopedPath(cwd, '.hidden\\secret.txt')).rejects.toThrow('hidden segments');
+    expect(await w.scopedPath(cwd, '.oil-ui/task/shots/desktop.png')).toBe(join(cwd, '.oil-ui/task/shots/desktop.png'));
     const winResult = await w.explorer(cwd, {
       manifest: 'explore\\manifest.json',
       out: 'explore\\win-explorer.html',
@@ -855,15 +856,37 @@ it('uses real shoot.mjs dry-run parsing for uppercase presets, dimensions and st
   }
   for (const input of [
     { states: ['idle', 'done'] },
+    { states: '["drawer", "route"]' },
     { evidence: true },
     { size: 'desktop,mobile' },
     { record: true },
   ]) {
     await expect(w.shoot(cwd, { ...input, out: 'shots/single.png' })).rejects.toThrow('directory');
   }
+  const jsonArrayStates = await w.shoot(cwd, { states: '["drawer", "route"]', out: 'shots', dryRun: true });
+  expect(jsonArrayStates.ok, jsonArrayStates.stderr).toBe(true);
+  expect(JSON.parse(jsonArrayStates.stdout).states).toEqual(['drawer', 'route']);
+
+  const singleState = await w.shoot(cwd, { states: '["drawer"]', out: 'shots/drawer.png', dryRun: true });
+  expect(singleState.ok, singleState.stderr).toBe(true);
+  expect(JSON.parse(singleState.stdout).states).toEqual(['drawer']);
+
   const single = await w.shoot(cwd, { out: 'shots/single.png', record: 'false', motion: 'false', dryRun: true });
   expect(single.ok, single.stderr).toBe(true);
   expect((await readdir(join(cwd, 'shots'))).some((name) => name.startsWith('.shoot-tmp-'))).toBe(false);
+});
+
+it('renames report.json to <stem>-report.json in single-PNG output and updates stdout and domHints', async () => {
+  const { w, cwd } = await scriptedWorkbench(
+    `import{writeFile,mkdir}from'node:fs/promises';import{join}from'node:path';const args=process.argv.slice(2),dir=args[args.indexOf('--out')+1];await mkdir(dir,{recursive:true});await writeFile(join(dir,'index-desktop.png'),'png');await writeFile(join(dir,'report.json'),'{"ok":true}');console.log('index-desktop.png 默认做法提示（不是报错，按设计意图判断）：字号过小×1（详见 report.json 的 lint 字段）');`,
+  );
+  const result = await w.shoot(cwd, { states: 'drawer', out: 'shots/drawer.png' });
+  expect(result.ok).toBe(true);
+  expect(result.outputFiles).toEqual([join(cwd, 'shots/drawer.png')]);
+  expect(await readFile(join(cwd, 'shots/drawer-report.json'), 'utf8')).toBe('{"ok":true}');
+  expect(result.stdout).toContain('drawer-report.json');
+  expect(result.stdout).not.toContain('详见 report.json');
+  expect(result.domHints[0]).toContain('drawer-report.json');
 });
 
 it('maps preview and array options through the real media parser, surfaces failed copies, and ignores unrelated output symlinks', async () => {

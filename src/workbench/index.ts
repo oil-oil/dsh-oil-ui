@@ -62,7 +62,8 @@ function isPrivateSegment(relPath: string): boolean {
     .split(/[\\/]/)
     .some(
       (part) =>
-        part.startsWith('.') || /^(?:credentials?|secrets?|id_(?:rsa|dsa|ecdsa|ed25519))(?:[._-]|$)/i.test(part),
+        (part.startsWith('.') && part !== '.oil-ui') ||
+        /^(?:credentials?|secrets?|id_(?:rsa|dsa|ecdsa|ed25519))(?:[._-]|$)/i.test(part),
     );
 }
 
@@ -118,7 +119,11 @@ export class DesignWorkbench {
         if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
           throw new Error('Path must remain within the current workspace');
         }
-        if (rel && !allowDotFile && rel.split(sep).some((part) => part === '..' || part.startsWith('.'))) {
+        if (
+          rel &&
+          !allowDotFile &&
+          rel.split(sep).some((part) => part === '..' || (part.startsWith('.') && part !== '.oil-ui'))
+        ) {
           throw new Error('Use a workspace path without hidden segments');
         }
         let current = full;
@@ -513,12 +518,32 @@ export class DesignWorkbench {
             .join('/') + suffix;
       }
     }
+    const parsedStates: string[] = (() => {
+      if (input.states === undefined) return [];
+      if (Array.isArray(input.states)) {
+        return input.states.map((s) => String(s).trim()).filter(Boolean);
+      }
+      const raw = String(input.states).trim();
+      if (!raw) return [];
+      if (raw.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed.map((s) => String(s).trim()).filter(Boolean);
+          }
+        } catch {}
+      }
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    })();
     const multiOutput =
       batchTargets ||
       mode === 'evidence' ||
       input.evidence ||
       sizeStr.includes(',') ||
-      Boolean(Array.isArray(input.states) ? input.states.length : input.states?.trim()) ||
+      parsedStates.length > 1 ||
       record ||
       input.frames !== undefined ||
       motion ||
@@ -590,9 +615,8 @@ export class DesignWorkbench {
         args.push('--size', sizeStr);
         if (mode === 'compare' && compareRef) args.push('--compare', await localFile(compareRef));
         if (mode === 'evidence' || input.evidence) args.push('--evidence');
-        if (input.states !== undefined) {
-          const states = Array.isArray(input.states) ? input.states.join(',') : String(input.states);
-          if (states.trim()) args.push('--states', states.trim());
+        if (parsedStates.length) {
+          args.push('--states', parsedStates.join(','));
         }
         if (input.param) args.push('--param', input.param.trim());
         if (input.query) args.push('--query', input.query.trim());
@@ -641,6 +665,7 @@ export class DesignWorkbench {
 
       const generatedRel = await this.collectFiles(runOutDir);
       const outputFiles: string[] = [];
+      let stdout = result.stdout;
 
       if (isSinglePngOut) {
         const fullPaths = generatedRel.map((name) => join(runOutDir, name));
@@ -658,6 +683,9 @@ export class DesignWorkbench {
               const dest = `${stem}-${basename(f)}`;
               await copyFile(f, dest);
               if (/\.(?:png|webp|jpe?g|mp4|webm)$/i.test(dest)) outputFiles.push(dest);
+              if (basename(f) === 'report.json') {
+                stdout = stdout.replace(/\breport\.json\b/g, basename(dest));
+              }
             }
           }
         }
@@ -668,7 +696,7 @@ export class DesignWorkbench {
         }
       }
 
-      const domHints = result.stdout
+      const domHints = stdout
         .split(/\r?\n/)
         .filter((line) => /默认做法提示|DOM|横向溢出|加载失败|控制台错误|可读性/.test(line));
 
@@ -677,7 +705,7 @@ export class DesignWorkbench {
         mode,
         outputFiles,
         domHints,
-        stdout: result.stdout,
+        stdout,
         stderr: result.stderr,
         ...(input.selector ? { selectorMode: 'crop', message: '已截取 selector 对应元素的区域。' } : {}),
         ...((mode === 'compare' && input.after) || input.stitch?.length ? { comparison: 'side-by-side' } : {}),

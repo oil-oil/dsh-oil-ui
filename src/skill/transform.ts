@@ -22,7 +22,7 @@ export type { MarkdownRule, SkillEdition } from './rules.ts';
 
 export const TRANSFORM_VERSION = '9';
 
-const EXCLUDED_NAMES = new Set(['.git', '.DS_Store', '__pycache__']);
+const EXCLUDED_NAMES = new Set(['.git', '.DS_Store', '__pycache__', '.oil-ui']);
 const DOC_ONLY_PATHS = new Set(['assets/readme', 'README.en.md']);
 
 export type TransformInput = 'upstream' | 'native';

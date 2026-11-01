@@ -116,7 +116,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
       edition: 'lite',
       activeSkillName: 'oil-ui',
-      bundledVersion: '0.28.0',
+      bundledVersion: '0.29.0',
       manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       visibleMatchesOriginal: true,
     });
@@ -135,7 +135,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     await writeProAdapter(proDir);
     await writeFile(
       join(proDir, 'SKILL.md'),
-      '---\nname: oil-ui-pro\ndescription: Packaged Pro\nmetadata:\n  version: "0.28.0"\n---\nUse `scripts/shoot.mjs`\n',
+      '---\nname: oil-ui-pro\ndescription: Packaged Pro\nmetadata:\n  version: "0.29.0"\n---\nUse `scripts/shoot.mjs`\n',
     );
     await writeFile(join(proDir, 'references/tools.md'), '# 工具\n`node scripts/shoot.mjs index.html`\n');
     const proCandidates = await provider.list({});
@@ -145,8 +145,8 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
       edition: 'pro',
       activeSkillName: 'oil-ui-pro',
-      activeVersion: '0.28.0',
-      bundledVersion: '0.28.0',
+      activeVersion: '0.29.0',
+      bundledVersion: '0.29.0',
       manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       proInstalled: true,
       proAdapterReady: true,

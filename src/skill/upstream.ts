@@ -426,7 +426,7 @@ export async function ensureHarnessProDirectory(sourceDir: string, snapshot?: Pr
         for (const entry of (await readdir(actual, { withFileTypes: true })).sort((a, b) =>
           a.name.localeCompare(b.name),
         )) {
-          if (['.git', '.DS_Store', '__pycache__'].includes(entry.name)) continue;
+          if (['.git', '.DS_Store', '__pycache__', '.oil-ui'].includes(entry.name)) continue;
           const path = join(actual, entry.name);
           const info = await stat(path);
           const name = `${prefix}${entry.name}`;
