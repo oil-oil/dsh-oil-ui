@@ -1,10 +1,10 @@
 {
   "name": "oil-ui",
-  "version": "0.29.1",
+  "version": "0.30.0",
   "transformVersion": "9",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "29085f117c5b9bf00ddc53de9386a3bb6c01f017",
+    "commit": "4e8d25f91727b3b08a3bbf60bac84d81f6ff6574",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -108,14 +108,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "3f82a6edc50951bb2cc64c56344fe1619bf61b47ece776037639856bb4d44f90",
-      "size": 9024,
+      "sha256": "e49fe6da730712fbdab7416022e2cc74aa60b01aa0f9b6de4daf5da28e6d59c7",
+      "size": 9144,
       "mode": "0644"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "692722a5f4b8f433ae99e078b264daa5feefeb2316350d79403c2f3374ba77f3",
-      "size": 8133,
+      "sha256": "0fc631e0ec2df1e665d71904d3b9aea976782d51bef39ef5967fd2d081f21174",
+      "size": 8247,
       "mode": "0644"
     },
     {
@@ -288,8 +288,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "c9336876e4e0cfa223e8df940f53d102c86205339bff43172b89fe596ac4340c",
-      "size": 19030,
+      "sha256": "9d1e83c9d2e66300faab621647eb33d0867b776ea88228e8b20387ad1b011fa6",
+      "size": 19576,
       "mode": "0644"
     },
     {
