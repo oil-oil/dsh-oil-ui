@@ -1,10 +1,10 @@
 {
   "name": "oil-ui",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "transformVersion": "9",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "5b03da0997e0c57650880c521bf5462696d3efe9",
+    "commit": "0d64a00f3a5c45bf7a30d35bded9b7c0fdff2128",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -198,8 +198,8 @@
     },
     {
       "path": "references/ux-review.md",
-      "sha256": "ec75113741360a7ce49060c229d6d8f5e95f7be395f4c499592559ed5a2b7084",
-      "size": 2725,
+      "sha256": "16d4813cb371228c5d5a67a51e1e6ab5ffe8f86493eaef93de88a75d49cddc1f",
+      "size": 2803,
       "mode": "0644"
     },
     {
@@ -288,8 +288,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "f4146fc3eeb90fd41433d8011e3fbf8838aa0319fcb9a8a488dbfa969190e82d",
-      "size": 19576,
+      "sha256": "8662cb992470fb5ce3955ddd61b7f8ed5874528fcd56de2d142b431102b10164",
+      "size": 21273,
       "mode": "0644"
     },
     {
