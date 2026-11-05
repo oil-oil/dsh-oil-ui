@@ -136,6 +136,19 @@ export async function loadProAdapter(sourceDirectory: string, transformVersion: 
     throw new ProAdapterError('Pro adapter rule IDs must be unique across the combined rule set.');
   }
   const hash = createHash('sha256').update(String(PROTOCOL_VERSION)).update('\0').update(transformVersion).update('\0');
+  // Shared rewrites also affect compiled Pro documents and their reviewer manual.
+  // Include their behavior so a plugin upgrade cannot reuse a pre-upgrade cache.
+  hash
+    .update(
+      JSON.stringify(
+        MARKDOWN_RULES.map((rule) => ({
+          ...rule,
+          match: [rule.match.source, rule.match.flags],
+          nativeSatisfied: rule.nativeSatisfied?.toString(),
+        })),
+      ),
+    )
+    .update('\0');
   for (const file of [metadataFile, rulesFile]) {
     hash.update(file.path).update('\0').update(file.bytes).update('\0');
   }

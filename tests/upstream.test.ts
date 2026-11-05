@@ -11,7 +11,12 @@ import {
   checkSkillUpdate,
   loadReviewerManual,
 } from '../src/skill/upstream.ts';
-import { TRANSFORM_VERSION, isHarnessNativeSkillMarkdown, transformSkillMarkdown } from '../src/skill/transform.ts';
+import {
+  MARKDOWN_RULES,
+  TRANSFORM_VERSION,
+  isHarnessNativeSkillMarkdown,
+  transformSkillMarkdown,
+} from '../src/skill/transform.ts';
 import { createHash } from 'node:crypto';
 import { join, relative, sep } from 'node:path';
 import { writeProAdapter } from './pro-adapter-fixture.ts';
@@ -579,6 +584,30 @@ describe('atomic versioned Pro compilation and review fallback', () => {
     const third = await resolveActiveSkill({ proSkillDir: dir });
     expect(third.directory).not.toBe(second.directory);
     expect(await readFile(join(third.directory, 'SKILL.md'), 'utf8')).toContain('Compiled two');
+  });
+
+  it('invalidates the Pro cache when a shared rewrite changes', async () => {
+    const dir = await pro(join(root, 'shared-rule-cache'));
+    await mkdir(join(dir, 'references'));
+    await writeFile(join(dir, 'references/tools.md'), 'Fixture tool documentation');
+    const rule = MARKDOWN_RULES.find((item) => item.id === 'image-ideation.detect')!;
+    const input =
+      '1. **宿主原生生图工具**：检查当前环境是否已挂载可直接调用的图像生成工具。\n2. **Oil 生图脚本**：若无宿主生图工具，静默调用 `oiloil-image.mjs` 的 `balance` 子命令检查积分状态；退出码为 `0` 且输出余额 `>= 2` 积分时，视为生图能力可用。';
+    await writeFile(join(dir, 'references/image-ideation.md'), input);
+    const original = rule.replacement;
+    try {
+      rule.replacement = original.replaceAll('oilBalance', 'oiloilBalance');
+      const before = await resolveActiveSkill({ proSkillDir: dir });
+      expect(await readFile(join(before.directory, 'references/image-ideation.md'), 'utf8')).toContain('oiloilBalance');
+      rule.replacement = original;
+      const after = await resolveActiveSkill({ proSkillDir: dir });
+      expect(after.directory).not.toBe(before.directory);
+      const output = await readFile(join(after.directory, 'references/image-ideation.md'), 'utf8');
+      expect(output).toContain('oilBalance');
+      expect(output).not.toContain('oiloilBalance');
+    } finally {
+      rule.replacement = original;
+    }
   });
 
   it('keeps native docs free of CLI remnants and describes thumbnail scaling without narrowing the viewport', async () => {

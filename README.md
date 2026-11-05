@@ -106,14 +106,14 @@ Pro 的专用转换规则作为声明式 JSON 数据随 Pro 安装包的 `adapte
 
 原来在 `oil-ui` 脚本里的版本更新检查和一次性 Pro 推荐，在 `dsh-oil-ui` 里直接合进了 `oil_ui_skill_status`：
 
-- **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件每天最多向 `https://ui.oiloil.org/api/store/versions` 静默核对一次版本号（结果缓存在 `~/.local/state/oil/<name>-update.json`，断网或超时会自动跳过并进入退避冷却，不会阻塞任务）。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）可直接把当前生效的 Skill 更新到最新。
+- **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件通常每 10 分钟最多向 `https://ui.oiloil.org/api/store/versions` 核对一次版本号，结果缓存在 `~/.local/state/oil/<name>-update.json`。请求最多等待 8 秒；失败后自动退避，显式更新或发现本地版本高于缓存时会提前检查。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）可直接把当前生效的 Skill 更新到最新。
 - **一次性 Pro 提醒**：当本机只装了免费版 `oil-ui` 时，首次调用 `oil_ui_skill_status` 会在 `~/.local/state/oil-ui/recommended-oil-ui-pro` 写下标记，并返回一次 `recommendOnceNotice`，让 Agent 在任务收尾时顺带提一句 [ui.oiloil.org/pro](https://ui.oiloil.org/pro/)，之后不再重复打扰。
 
 ---
 
 ## 安装
 
-当前插件声明支持 DeepSeek Harness `0.2.1-rc.2`、`0.2.1-rc.3`、`0.2.1-rc.4` 与 `0.2.1-rc.5`，Node.js 需要 22.19.0 或更高版本。其他 Harness 版本需要先核对兼容性。桌面版通过安装目录提供的 `dsh` 命令，将下方示例中的 `--profile web` 换成 `--profile desktop`；管理桌面插件前先完全退出桌面程序。
+当前插件声明支持 DeepSeek Harness `0.2.1-rc.2`、`0.2.1-rc.3`、`0.2.1-rc.4`、`0.2.1-rc.5` 与 `0.2.2-rc.1`，Node.js 需要 22.19.0 或更高版本。其他 Harness 版本需要先核对兼容性。桌面版通过安装目录提供的 `dsh` 命令，将下方示例中的 `--profile web` 换成 `--profile desktop`；管理桌面插件前先完全退出桌面程序。
 
 ### 1. 一行命令安装到 DeepSeek Harness
 

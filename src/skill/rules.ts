@@ -423,7 +423,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
     match:
       /1\. \*\*宿主原生生图工具\*\*：检查当前环境是否已挂载可直接调用的图像生成工具。\r?\n2\. \*\*Oil 生图脚本\*\*：若无宿主生图工具，静默调用 `oiloil-image\.mjs` 的 `balance` 子命令检查积分状态；退出码为 `0` 且输出余额 `>= 2` 积分时，视为生图能力可用。/,
     replacement:
-      '1. **检查 `oil_ui_skill_status`**：查看 `oil_ui_skill_status` 返回的 `imageSource` 与 `oiloilBalance`；当 `imageSource` 为 `"image-gen"`，或 `imageSource` 为 `"oiloil"` 且 `oiloilBalance >= 2` 时，直接调用原生工具 `oil_ui_image` 生成或编辑 UI 设计图。',
+      '1. **检查 `oil_ui_skill_status`**：查看 `oil_ui_skill_status` 返回的 `imageSource` 与 `oilBalance`；当 `imageSource` 为 `"image-gen"`，或 `imageSource` 为 `"oiloil"` 且 `oilBalance >= 2` 时，直接调用原生工具 `oil_ui_image` 生成或编辑 UI 设计图。',
   },
   {
     id: 'image-ideation.concurrency',

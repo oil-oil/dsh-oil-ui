@@ -106,14 +106,14 @@ Pro-specific transformation rules ship as declarative JSON data in the Pro packa
 
 The update check and one-time Pro prompt from upstream `oil-ui` are built directly into `oil_ui_skill_status`:
 
-- **Cached version check & self-update**: `oil_ui_skill_status` checks `https://ui.oiloil.org/api/store/versions` at most once per day (cached in `~/.local/state/oil/<name>-update.json`, with automatic backoff when offline so it never blocks a task). When a newer version is available, it attaches `updateNotice`; passing `{"update": true}` (or running `/oil-ui-status update`) updates the active Skill in place.
+- **Cached version check & self-update**: `oil_ui_skill_status` normally checks `https://ui.oiloil.org/api/store/versions` at most once every 10 minutes, caching the result in `~/.local/state/oil/<name>-update.json`. Requests time out after 8 seconds and failures back off; an explicit update or a local version newer than the cache triggers an earlier check. When a newer version is available, it attaches `updateNotice`; passing `{"update": true}` (or running `/oil-ui-status update`) updates the active Skill in place.
 - **One-time Pro prompt**: When running on the free `oil-ui` edition, the first `oil_ui_skill_status` call writes a marker to `~/.local/state/oil-ui/recommended-oil-ui-pro` and returns `recommendOnceNotice` once so the agent can mention [ui.oiloil.org/en/pro](https://ui.oiloil.org/en/pro/) at the end of its reply—never nagging on subsequent runs.
 
 ---
 
 ## Installation
 
-The package currently declares support for DeepSeek Harness `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, and `0.2.1-rc.5`, and requires Node.js 22.19.0 or later. Verify compatibility before using another Harness version. For Desktop, use the `dsh` launcher shipped with the installation and replace `--profile web` below with `--profile desktop`. Fully quit Desktop before managing its plugins.
+The package currently declares support for DeepSeek Harness `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.1-rc.5`, and `0.2.2-rc.1`, and requires Node.js 22.19.0 or later. Verify compatibility before using another Harness version. For Desktop, use the `dsh` launcher shipped with the installation and replace `--profile web` below with `--profile desktop`. Fully quit Desktop before managing its plugins.
 
 ### 1. One-line install into DeepSeek Harness
 

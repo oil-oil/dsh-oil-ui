@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        dsh: ['0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4', '0.2.1-rc.5']
+        dsh: ['0.2.1-rc.2', '0.2.1-rc.3', '0.2.1-rc.4', '0.2.1-rc.5', '0.2.2-rc.1']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -31,9 +31,14 @@ jobs:
           python-version: '3.12'
       - run: pnpm install --frozen-lockfile
       - name: Test against supported DSH dependency versions
-        if: matrix.dsh != '0.2.1-rc.5'
+        if: matrix.dsh != '0.2.2-rc.1'
         shell: bash
         run: |
+          cordis_version=4.1.0
+          if [[ "${{ matrix.dsh }}" == 0.2.1-* ]]; then
+            cordis_version=4.0.5
+          fi
+          pnpm add -D --save-exact "@deepseek-ai/cordis@${cordis_version}"
           packages=(dsh-agent dsh-fs dsh-llm dsh-ptc-runtime dsh-sandbox dsh-sandbox-policy dsh-scope dsh-session dsh-session-projection dsh-skill dsh-system-prompt dsh-tools dsh-user-approval dsh-working-directory)
           for package in "${packages[@]}"; do
             pnpm add -D --save-exact "@deepseek-ai/${package}@${{ matrix.dsh }}"
@@ -41,7 +46,7 @@ jobs:
       - run: pnpm check
       - run: pnpm pack:plugin
       - name: Restore manifests after the matrix run
-        if: matrix.dsh != '0.2.1-rc.5'
+        if: matrix.dsh != '0.2.2-rc.1'
         run: git checkout -- package.json pnpm-lock.yaml
       - name: Verify validation leaves the checkout unchanged
         run: git diff --exit-code
