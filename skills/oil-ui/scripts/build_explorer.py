@@ -199,7 +199,7 @@ def resource_parts(ref: str):
 
 
 def local_file(ref: str, base: Path, root: Path) -> Path | None:
-    """Resolve files anywhere on disk; root is retained for compatibility with existing callers."""
+    """Resolve local refs, rejecting any target that escapes the approved root directory."""
     ref = ref.strip()
     if not ref or ref.startswith("#") or ref.lower().startswith("data:"):
         return None
@@ -215,6 +215,8 @@ def local_file(ref: str, base: Path, root: Path) -> Path | None:
     # A file URL's /C:/... is not a Windows filesystem path. Decode it with
     # the platform converter, which also handles percent-escaped filenames.
     target = (base / url2pathname(parts.path)).resolve()
+    if not target.is_relative_to(root.resolve()):
+        raise ValueError(f"本地资源 {ref} 超出允许的根目录（解析为 {target}）")
     if not target.is_file():
         raise ValueError(f"找不到本地资源 {ref}（解析为 {target}）；"
                          f"请将该文件保存到 {json.dumps(str(target), ensure_ascii=False)}，或把引用替换为已有文件的绝对路径后重新生成")
