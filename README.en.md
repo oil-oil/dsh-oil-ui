@@ -113,7 +113,12 @@ The update check and one-time Pro prompt from upstream `oil-ui` are built direct
 
 ## Installation
 
-The package currently declares support for DeepSeek Harness `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.1-rc.5`, and `0.2.2-rc.1`, and requires Node.js 22.19.0 or later. Verify compatibility before using another Harness version. For Desktop, use the `dsh` launcher shipped with the installation and replace `--profile web` below with `--profile desktop`. Fully quit Desktop before managing its plugins.
+The package declares support for DeepSeek Harness `>=0.2.1-rc.2 <0.3.0-0` (CI verified on `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.1-rc.5`, and `0.2.2-rc.1`) and requires Node.js 22.19.0 or later.
+
+- **DSH Desktop (official desktop app)**: Install directly from **Settings → Plugins → Add Plugin** inside the app using `github:oil-oil/dsh-oil-ui` (or `git+https://atomgit.com/oil-oil/dsh-oil-ui.git` in China). Desktop uses its own isolated `DSH_HOME` directory; do not run `--profile desktop` in the terminal.
+- **Upgrading from an older version (`v0.3.1` – `v0.4.8`) or fixing `incompatible with DSH 0.2.2-rc.1 (uninstall and reinstall)`**: Earlier versions pinned an exact `engines.dsh` version in the installed package manifest, and re-adding a Git plugin in-place reports `already-installed` without replacing the locked revision. **Uninstall the old version first, then install again**:
+  - Desktop / Web UI: In **Settings → Plugins → Installed**, remove `dsh-oil-ui`, then click **Add Plugin** and enter `github:oil-oil/dsh-oil-ui` (or `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`).
+  - CLI (`dsh web`): Run `dsh plugin --profile web remove dsh-oil-ui` first, then run the install command below.
 
 ### 1. One-line install into DeepSeek Harness
 
@@ -129,7 +134,7 @@ In China, you can also install directly from the AtomGit mirror:
 dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
-For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#58fe551130e416dcdae3118d7ed61138c1601010`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
+For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#b4faf2b40996a24e640f91df9c7aae33d8466528`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
 
 Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed directly to the repository, no build allowance is required—just launch `dsh web` after installing.
 

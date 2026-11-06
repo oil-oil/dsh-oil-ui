@@ -113,7 +113,12 @@ Pro 的专用转换规则作为声明式 JSON 数据随 Pro 安装包的 `adapte
 
 ## 安装
 
-当前插件声明支持 DeepSeek Harness `0.2.1-rc.2`、`0.2.1-rc.3`、`0.2.1-rc.4`、`0.2.1-rc.5` 与 `0.2.2-rc.1`，Node.js 需要 22.19.0 或更高版本。其他 Harness 版本需要先核对兼容性。桌面版通过安装目录提供的 `dsh` 命令，将下方示例中的 `--profile web` 换成 `--profile desktop`；管理桌面插件前先完全退出桌面程序。
+当前插件声明支持 DeepSeek Harness `>=0.2.1-rc.2 <0.3.0-0`（CI 已覆盖 `0.2.1-rc.2`、`0.2.1-rc.3`、`0.2.1-rc.4`、`0.2.1-rc.5` 与 `0.2.2-rc.1`），Node.js 需要 22.19.0 或更高版本。
+
+- **DSH Desktop（官方桌面客户端）**：直接在桌面端 **「设置 → 插件 → 添加插件」** 中输入 `github:oil-oil/dsh-oil-ui`（国内网络输入 `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`）安装。桌面端使用独立的 `DSH_HOME` 目录，请勿在终端执行 `--profile desktop`。
+- **旧版（如 `v0.3.1` ~ `v0.4.8`）升级或提示「与 DSH 0.2.2-rc.1 不兼容，请卸载后重新安装」**：早期版本在本地包内写死了旧版 `engines.dsh`，且 Git 插件再次直接添加会提示「已安装」而不会覆盖旧锁文件。请**先卸载旧版，再重新安装**：
+  - 桌面端 / Web 界面：在 **「设置 → 插件 → 已安装」** 中找到 `dsh-oil-ui`（异常），先点 **「卸载 / 移除」**，再点 **「添加插件」** 输入 `github:oil-oil/dsh-oil-ui`（或 `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`）。
+  - 终端命令行（`dsh web`）：先执行 `dsh plugin --profile web remove dsh-oil-ui`，再执行下方安装命令。
 
 ### 1. 一行命令安装到 DeepSeek Harness
 
@@ -129,7 +134,7 @@ dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
-若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#58fe551130e416dcdae3118d7ed61138c1601010`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
+若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#b4faf2b40996a24e640f91df9c7aae33d8466528`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
 
 仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需任何额外构建授权，直接启动 `dsh web` 即可使用。
 
