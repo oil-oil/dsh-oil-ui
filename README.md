@@ -134,7 +134,7 @@ dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
-若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#b4faf2b40996a24e640f91df9c7aae33d8466528`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
+若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#81d40c7eae81af8e2c8483d7869be8f213c8a3cc`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
 
 仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需任何额外构建授权，直接启动 `dsh web` 即可使用。
 
