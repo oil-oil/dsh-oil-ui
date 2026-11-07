@@ -146,7 +146,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
       edition: 'lite',
       activeSkillName: 'oil-ui',
-      bundledVersion: '0.33.0',
+      bundledVersion: '0.33.1',
       manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       visibleMatchesOriginal: true,
     });
@@ -177,8 +177,8 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
       edition: 'lite',
       activeSkillName: 'oil-ui',
-      activeVersion: '0.33.0',
-      bundledVersion: '0.33.0',
+      activeVersion: '0.33.1',
+      bundledVersion: '0.33.1',
       manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       proInstalled: true,
       nativeSkillReady: true,
