@@ -104,7 +104,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 状态读取当前 Agent 作用域实际胜出的定义，比对原始正文、实际资源目录、入口路径、版本及模型调用权限。正常原文返回 `skillReady=true`、`nativeSkillReady=true`、`visibleMatchesOriginal=true` 和 `skillLoadState=ready`；错误覆盖为 `overridden`，缺少发布或禁止模型调用为 `unavailable`。`nativeSkillReady` 是兼容别名，不表示发生过转换。`/oil-ui-status` 和 `upgradeHint` 同样呈现实际结果；旧 `proAdapterReady` 字段已移除。
 
-跨宿主发现与 `proSkillDir` 只用于本地诊断，不会发布 Pro。若 Pro 仅在 Claude 等目录，需安装到 Harness 可见的目录（例如 `~/.agents/skills` 或 `~/.dsh/skills`）。最终决定与回归契约见 [唯一发布者说明](docs/pro-single-publisher.md)。本次插件准备 `0.4.10`，内置 Lite 暂为 `0.33.0`；公开新版发布后再同步，顺序见 [发布流程](docs/releasing.md)。
+跨宿主发现与 `proSkillDir` 只用于本地诊断，不会发布 Pro。若 Pro 仅在 Claude 等目录，需安装到 Harness 可见的目录（例如 `~/.agents/skills` 或 `~/.dsh/skills`）。最终决定与回归契约见 [唯一发布者说明](docs/pro-single-publisher.md)。
 
 ### 版本检查与一次性 Pro 提醒
 
@@ -138,7 +138,7 @@ dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
-若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#81d40c7eae81af8e2c8483d7869be8f213c8a3cc`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
+若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#710527e48b5108fc300a75e9b739c6a26b51c1cc`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
 
 仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需任何额外构建授权，直接启动 `dsh web` 即可使用。
 

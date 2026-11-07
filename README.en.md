@@ -104,7 +104,7 @@ Each status query rediscovers local `oil-ui-pro` installations. Explicit configu
 
 Status checks the definition actually selected in the calling Agent's scope against its original body, resolved resource directory, entry path, version, and model invocation permission. Correct original Pro reports `skillReady=true`, `nativeSkillReady=true`, `visibleMatchesOriginal=true`, and `skillLoadState=ready`. Mismatches report `overridden`; missing or non-invocable definitions report `unavailable`. `nativeSkillReady` is a compatibility alias, not evidence of transformation. `/oil-ui-status` and `upgradeHint` report the same result; the old `proAdapterReady` field is removed.
 
-Cross-host discovery and `proSkillDir` provide local diagnostics, not publication. If Pro exists only in a Claude directory, install it into a Harness-visible root such as `~/.agents/skills` or `~/.dsh/skills`. See the [single-publisher decision](docs/pro-single-publisher.md). This branch prepares plugin `0.4.10` with bundled Lite still at `0.33.0`; sync the next public release before publishing the plugin, following the [release order](docs/releasing.md).
+Cross-host discovery and `proSkillDir` provide local diagnostics, not publication. If Pro exists only in a Claude directory, install it into a Harness-visible root such as `~/.agents/skills` or `~/.dsh/skills`. See the [single-publisher decision](docs/pro-single-publisher.md).
 
 ### Version Check & One-Time Pro Notice
 
@@ -138,7 +138,7 @@ In China, you can also install directly from the AtomGit mirror:
 dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
-For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#81d40c7eae81af8e2c8483d7869be8f213c8a3cc`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
+For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#710527e48b5108fc300a75e9b739c6a26b51c1cc`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
 
 Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed directly to the repository, no build allowance is required—just launch `dsh web` after installing.
 

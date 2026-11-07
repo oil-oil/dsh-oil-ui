@@ -1,6 +1,6 @@
 {
   "name": "dsh-oil-ui",
-  "version": "0.4.10",
+  "version": "0.4.11-dev.0",
   "description": "Oil UI 的 DeepSeek Harness 原生工具与 Skill 加载诊断插件",
   "license": "MIT",
   "author": "oil-oil",
