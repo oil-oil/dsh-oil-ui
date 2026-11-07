@@ -22,4 +22,4 @@ Pro 的共享 `references/tools.md` 说明：宿主提供截图、素材、生�
 
 离线测试只用临时虚构 Pro，覆盖唯一发布者、错误胜出定义和手册新鲜读取。`npm run smoke:dsh` 使用真实 CLI 安装包并启动 Host 和标准 preset Agent，检查模型目录恰有一个 filesystem Pro、原文不变、状态正常、五个工具与 Lite 版本正确。它不启动模型、不调用付费服务、不读真实 HOME。
 
-本次准备插件 `0.4.10`，内置公开 Lite 暂保留 `0.33.0`。Pro `0.33.1` 与公开 `oil-ui 0.33.1` 由维护者先发布，然后插件只从公开仓库重新同步、构建、跑全量检查和真实冒烟，最后发插件版。步骤见 [releasing.md](releasing.md#本次-0410-的发布顺序)。
+插件和 Pro 配对发版的顺序见 [releasing.md](releasing.md#和-pro-配对发版)。
