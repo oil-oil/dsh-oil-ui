@@ -174,7 +174,7 @@ export class DesignWorkbench {
 
   private async script(name: string, cwd?: string): Promise<string> {
     const active = await resolveActiveSkill({ ...this.skillOptions, cwd });
-    const scriptRoot = await realpath(active.sourceDirectory ?? active.directory);
+    const scriptRoot = await realpath(active.directory);
     const path = await realpath(join(scriptRoot, 'scripts', name));
     const rel = relative(scriptRoot, path);
     if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Skill script cannot escape its installation');

@@ -11,7 +11,9 @@
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm release:check
+npm run release:check
+OIL_UI_SOURCE_DIR=../oil-ui npm run test:integration
+npm run smoke:dsh
 ```
 
 `release:check` 会执行完整检查、生成并解包验证 tarball，再核对发布元数据。打包测试会实际加载解包后的 Lite，调用 `oil_ui_skill_status`、`oil_ui_explorer` 和 `oil_ui_shoot` 的离线解析，防止源码目录与安装目录不同造成运行时路径失效。发布后还要下载正式附件，核对安装和实际加载。需要模拟 tag 校验时运行：
@@ -43,4 +45,25 @@ GitHub 分支保护应要求 PR 和 CI 通过。定时 Skill 同步也只创建�
 
 普通整理和 CI 运行不创建 Tag、Release 或线上更新。真实 oiloil 生图需要单独授权，不是发布检查的隐含步骤。若目标 Harness 版本、实际安装或真实模型执行尚未验证，应在发布说明中明确写出，不能只凭单元测试宣称全部运行时场景已覆盖。
 
-涉及 Pro 适配协议或私有规则交付时，必须先发布并实际验证兼容的 `oil-ui-pro` 安装包，再创建插件 Tag 和 Release。不得通过公开源码、测试、生成物、日志或 PR 说明补回 Pro 专用正文；协议或必需规则不兼容时保持 Lite 回退。
+Pro 原文由 Harness filesystem Provider 唯一发布，插件不转换、不发布同名 Pro。状态以标准 preset Agent 实际拿到的正文、资源目录、入口路径、版本与调用权限为准。不得仅凭全局注册表、发现路径或 Provider 标签宣称可用。`npm run smoke:dsh` 是每次发版前的必跑步骤，使用临时虚构 Pro 和真实 DSH，不需要真实 Pro、凭据或付费调用；详见 [测试分层](development.md#测试分层)。离线 `check` 和 `pack:plugin` 不能代替它。
+
+## 本次 0.4.10 的发布顺序
+
+1. 先验收 Pro `0.33.1` 的宿主工具说明。`adapters/dsh/` 保留给已发布插件 `0.4.9`；上游标记弃用，最早 `0.35.0` 且旧版兼容期结束后再移除。插件不读取这些规则。
+2. 维护者按 Pro 仓库流程生成公开 `oil-ui 0.33.1`，审核并提交两侧源码、通过 CI，再配对发布 Pro 和公开版。共享 `references/tools.md` 的宿主小节必须在公开版本中；不要把未发布的 Pro 源目录交给插件同步器。
+3. 此分支先准备插件正式版本 `0.4.10`，内置 Skill 暂留公开 `0.33.0`（manifest commit `65dee4e5262635651712c338ad7dbfe0929e318c`）。公开新版发布后，在包含该发布的 `../oil-ui` checkout 上运行：
+
+   ```bash
+   OIL_UI_SOURCE_DIR=../oil-ui npm run sync:skill
+   npm run build
+   npm run check
+   npm run pack:plugin
+   OIL_UI_SOURCE_DIR=../oil-ui npm run test:integration
+   npm run smoke:dsh
+   npm run release:check
+   ```
+
+4. 核对 manifest 的公开来源、完整 commit、Skill 版本与 tarball，然后才由维护者发布插件 `0.4.10`。此次实现提交不创建 Tag、不发布、不推送。
+5. 若维护者在同步新版前已发布 `0.4.10`，后续同步必须用新的插件版本（至少 `0.4.11`），不能覆盖已发布版本；正常顺序是在首次发布前完成同步。发布后切下一预发布版本。
+
+本次虚构 Pro 冒烟只验证原文发布、作用域、工具和状态契约，不代表真实模型已经执行设计或付费生图。

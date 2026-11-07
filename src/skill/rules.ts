@@ -49,7 +49,7 @@ export const hasDirectionImagery = (markdown: string) =>
   markdown.includes('oil_ui_image') &&
   markdown.includes('oil_ui_media');
 
-export type SkillEdition = 'lite' | 'pro';
+export type SkillEdition = 'lite';
 
 export interface MarkdownRule {
   id: string;
@@ -69,7 +69,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'skill.remove-allowed-tools',
     file: 'SKILL.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /\r?\nallowed-tools:\r?\n(?:\s+-\s+[^\r\n]+\r?\n)+/,
     replacement: '\n',
     nativeSatisfied: (markdown) => !/^allowed-tools:/m.test(markdown),
@@ -77,7 +77,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'skill.compatibility',
     file: 'SKILL.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /compatibility:\s*"[^"]*"/,
     replacement:
       'compatibility: "通过 oil_ui_shoot、oil_ui_media、oil_ui_image、oil_ui_explorer、oil_ui_skill_status 与 read_image、subagent 完成截图取证、真实素材检索、AI 生图修图、对比页组装和独立视觉与 UX 走查。"',
@@ -85,7 +85,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'skill.startup',
     file: 'SKILL.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /## 开始前\r?\n\r?\n[\s\S]*?(?=\r?\n## 选择范围)/,
     replacement: `## 开始前\n\n截图录屏用 \`oil_ui_shoot\`，素材检索与下载用 \`oil_ui_media\`，需要图片时用 \`oil_ui_image\`，风格对比页用 \`oil_ui_explorer\`，看图用 \`read_image\`；独立单页直接写代码并用 \`oil_ui_shoot\` + \`read_image\` 自查，复杂改版才按需用 \`subagent\`。仅当需要确认生图来源（\`imageSource\`）或用户询问版本状态时调用 \`oil_ui_skill_status\`（用户明确要求更新时传 \`{ "update": true }\`）。`,
   },
@@ -139,14 +139,14 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'skill.compare',
     file: 'SKILL.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /用截图工具的 `--compare` 和参考图比对/g,
     replacement: '用 `oil_ui_shoot` 的 `compare` 参数和参考图比对',
   },
   {
     id: 'skill.evidence',
     file: 'SKILL.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /送评审前和交付前，/g,
     replacement: '送评审前和交付前，调用 `oil_ui_shoot` 取证，',
   },
@@ -205,35 +205,35 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'tools.default-viewport',
     file: 'references/tools.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /默认 `390x844`|不写时是手机 390x844/g,
     replacement: '默认 `1440x900`',
   },
   {
     id: 'tools.intro',
     file: 'references/tools.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /^# 工具\r?\n\r?\n[\s\S]*?(?=\r?\n## 截图和录屏)/,
     replacement: '# 工具\n\n所有路径相对于当前工作目录解析。查看图片用 `read_image`，派发独立视觉评审用 `subagent`。',
   },
   {
     id: 'tools.native-commands',
     file: 'references/tools.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /### (?:常用命令|常用调用方式（`oil_ui_shoot`）)\r?\n\r?\n[\s\S]*?(?=\r?\n### 看结果)/,
     replacement: NATIVE_TOOL_COMMANDS_SECTION,
   },
   {
     id: 'tools.single-shot',
     file: 'references/tools.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /一条命令/g,
     replacement: '一次 `oil_ui_shoot` 调用',
   },
   {
     id: 'tools.evidence',
     file: 'references/tools.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /只在送评审之前、交付之前，/g,
     replacement: '只在送评审之前、交付之前，调用 `oil_ui_shoot`，',
   },
@@ -274,7 +274,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'tools.dom-hints',
     file: 'references/tools.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /命令输出里以“默认做法提示”列出/g,
     replacement: '`oil_ui_shoot` 返回的 `domHints` 与输出里以“默认做法提示”列出',
   },
@@ -299,14 +299,14 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'explorer.parameter-help',
     file: 'references/style-explorer.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /(?:每个字段的写法和限制见生成器的 `--help`。|其他字段写法见生成器的 `--help`。)/g,
     replacement: '字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。',
   },
   {
     id: 'explorer.generate',
     file: 'references/style-explorer.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /## 生成和打开\r?\n[\s\S]*?(?=\r?\n(?:有本机地址候选时|## |$))/,
     nativeSatisfied: (markdown) => /## 生成和打开\r?\n[\s\S]*?`oil_ui_explorer`/.test(markdown),
     replacement: `## 生成和打开
@@ -326,21 +326,21 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'explorer.shoot',
     file: 'references/style-explorer.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /`node <skill>\/scripts\/shoot\.mjs <manifest 所在目录> --size desktop --thumb --out shots\/explore`/g,
     replacement: '`oil_ui_shoot({ "target": "explore", "size": "desktop", "thumb": true, "out": "shots/explore" })`',
   },
   {
     id: 'media.sheet',
     file: 'references/media.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /`--sheet`/g,
     replacement: '`oil_ui_media` 的 `sheet: true`',
   },
   {
     id: 'media.direction-source',
     file: 'references/media.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /- \*\*没有就做出来。\*\*[\s\S]*?(?=\r?\n- \*\*需要随操作实时变形的实物)/,
     replacement:
       '- **先在方向阶段确定来源。** 每个方向列出首屏和关键区块需要的图，并逐张标注来源：检索、生成或代码绘制。`imageSource` 不是 `none` 时，若图要呈现特定产品、地点或场景本身而检索只能找到泛化替代品，用 `oil_ui_image` 生成；已有历史影像、材质、科学图版用 `oil_ui_media` 检索。',
@@ -348,28 +348,28 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'layout.compare',
     file: 'references/layout-and-viewport.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /截图工具的 `--compare`/g,
     replacement: '`oil_ui_shoot` 的 `compare` 参数',
   },
   {
     id: 'review.new-interface',
     file: 'references/visual-review.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /请读取 references\/reviewer-manual\.md，按照【全新界面与改版评审】标准/g,
     replacement: '按照你系统提示词中已内置的《视觉与交互评审手册》【全新界面与改版评审】标准',
   },
   {
     id: 'review.existing-interface',
     file: 'references/visual-review.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /请读取 references\/reviewer-manual\.md，按照【存量已有界面润色评审】标准/g,
     replacement: '按照你系统提示词中已内置的《视觉与交互评审手册》【存量已有界面润色评审】标准',
   },
   {
     id: 'review.dispatch',
     file: 'references/visual-review.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /模板里的路径换成本 Skill 目录下的绝对路径：子 Agent 的工作目录不是本目录。/g,
     replacement:
       '子 Agent 启动时已由插件自动将《视觉与交互评审手册》（`references/reviewer-manual.md`）注入其系统提示词，主 Agent 只需调用 `subagent` 传入下方交接清单与对应模式指令，无需附带手册路径，也无需让子 Agent 再次读取手册。',
@@ -397,7 +397,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'reviewer.thumbnail',
     file: 'references/reviewer-manual.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /能用截图工具时，用它出缩略图和遮字图。/g,
     replacement:
       '能用 `oil_ui_shoot` 时，用它出缩略图（保持桌面或手机的原始视口截图，再按原比例缩放到 480px 或 180px 宽，不能改成窄视口重新截图）和遮字图（`mask: true`），并用 `read_image` 查看截图。',
@@ -405,21 +405,21 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'reviewer.play-link',
     file: 'references/reviewer-manual.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /\[游玩\]\(play\.md\)/g,
     replacement: '[游玩](references/play.md)',
   },
   {
     id: 'skill.image-ideation',
     file: 'SKILL.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /若宿主生图工具或 `oiloil-image\.mjs` 积分可用/,
     replacement: '若 `oil_ui_skill_status` 返回的 `imageSource` 不是 `none`',
   },
   {
     id: 'image-ideation.detect',
     file: 'references/image-ideation.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match:
       /1\. \*\*宿主原生生图工具\*\*：检查当前环境是否已挂载可直接调用的图像生成工具。\r?\n2\. \*\*Oil 生图脚本\*\*：若无宿主生图工具，静默调用 `oiloil-image\.mjs` 的 `balance` 子命令检查积分状态；退出码为 `0` 且输出余额 `>= 2` 积分时，视为生图能力可用。/,
     replacement:
@@ -428,7 +428,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'image-ideation.concurrency',
     file: 'references/image-ideation.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match:
       /并发调用 `oiloil-image\.mjs` 时最多同时运行 \*\*2 个进程\*\*；命令行中的 `--prompt` 一律使用\*\*单引号 `'\.\.\.'`\*\* 包裹。/,
     replacement:
@@ -437,7 +437,7 @@ export const MARKDOWN_RULES: readonly MarkdownRule[] = [
   {
     id: 'image-ideation.shoot',
     file: 'references/image-ideation.md',
-    requiredIn: ['lite', 'pro'],
+    requiredIn: ['lite'],
     match: /`shoot\.mjs`/g,
     replacement: '`oil_ui_shoot`',
   },

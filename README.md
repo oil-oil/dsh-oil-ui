@@ -53,7 +53,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
   <img src="assets/readme/proof-archon.webp" alt="ARCHON 桌面端三方向同屏对比页" width="100%">
 </p>
 
-1. 先调 `oil_ui_skill_status` 检查当前可用的 Skill（已装 `oil-ui-pro` 会优先使用 Pro），再用原生 `skill` 工具加载指南和对应分册。
+1. 先调 `oil_ui_skill_status` 检查模型实际可见的 Skill。只有 `activeSkillName=oil-ui-pro` 且 `nativeSkillReady=true` 才加载 Pro；否则读取警告，使用内置 Lite。
 2. 在 `explore/` 下写出 3 个构图、色调和视觉引擎完全不同的首屏候选，调 `oil_ui_explorer` 打包出单文件 `style-explorer.html`。
 3. 选定方向后写出完整的 `index.html`（或多屏 `screens.html`），调 `oil_ui_shoot` 在真实无头浏览器里截图、模拟点击与输入、检查多端断点，并用原生 `read_image` 看图改到干净为止。
 
@@ -96,11 +96,15 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 | 独立视觉与 UX 走查                                                                |  主要流程轻量 UX 走查  | 自主风险探针、深入洞察与同路径复核 |
 | 完整场景分册（营销落地页、数据后台、移动多屏、重绘改版、字体子集化）              |           —            |                 ✓                  |
 
-### 自动识别本地 Pro 与子代理评审注入
+### Pro 发现与实际加载诊断
 
-在本机安装好 `oil-ui-pro`（默认位于 `~/.agents/skills/oil-ui-pro` 或 `~/.dsh/skills/oil-ui-pro`）后，不需要重启 DeepSeek Harness。Agent 在任务开始调用 `oil_ui_skill_status` 时，插件会扫描本机目录，把 `oil-ui-pro` 的 `SKILL.md` 和分册编译为原生工具说明，并以高于宿主内置文件加载器的优先级生效。当主 Agent 派发子代理（`subagent`）做视觉与交互走查时，插件会自动向子代理注入原生化的 `reviewer-manual.md` 及 `references/` 目录路径，主 Agent 无需手动拼接手册路径。
+每次查询状态时，插件重新发现本机 `oil-ui-pro`：先检查显式配置及 DSH 的项目、用户 Skill 目录（包括 `~/.dsh/skills` 和 `~/.agents/skills`），再检查 oil-cli 支持的用户安装位置：`~/.claude/skills`、`$CODEX_HOME/skills`（未设置时为 `~/.codex/skills`）、`~/.cursor/skills`、`~/.workbuddy/skills`。每处只检查 `oil-ui-pro`，不会递归扫描其他目录；这些跨宿主回退位置不用于发现 image-gen。自定义安装位置用 `proSkillDir` 或 `OIL_UI_PRO_DIR` 指定。该列表依据 [oil-cli 的 installationRoots/targetRoot](https://github.com/oil-oil/oil-cli/blob/e6ee580c01e854919ee50ef1f3de6876c3c52c18/src/skills.js#L139)；默认安装优先已存在的 Claude 目录，Codex 和 DSH 通常共享 `.agents/skills`。
 
-Pro 的专用转换规则作为声明式 JSON 数据随 Pro 安装包的 `adapters/dsh/` 交付，不进入公开插件。插件只加载兼容版本的规则，不执行其中的 JavaScript；适配资源缺失、无效或与当前转换协议不兼容时，只使用内置 Lite。`oil_ui_skill_status` 返回的 `proAdapterReady`、`proAdapterError` 和 `upgradeHint` 可用于判断是否需要安装兼容的 Pro 版本。
+**Pro 原文直接可用，由 Harness filesystem Provider 唯一发布。** 插件只发布内置 `oil-ui`，在 Host、preset、Agent 任何层都不注册同名 Pro，也不读取私有适配规则、不改写 Pro 或生成 Pro 缓存。Pro 的 `references/tools.md` 宿主一节说明如何使用 `oil_ui_shoot`、`oil_ui_media`、`oil_ui_image`、`oil_ui_explorer`；参数对应工具同名字段，版本和生图来源以宿主状态工具为准。新版宿主说明随 Pro `0.33.1` 交付。
+
+状态读取当前 Agent 作用域实际胜出的定义，比对原始正文、实际资源目录、入口路径、版本及模型调用权限。正常原文返回 `skillReady=true`、`nativeSkillReady=true`、`visibleMatchesOriginal=true` 和 `skillLoadState=ready`；错误覆盖为 `overridden`，缺少发布或禁止模型调用为 `unavailable`。`nativeSkillReady` 是兼容别名，不表示发生过转换。`/oil-ui-status` 和 `upgradeHint` 同样呈现实际结果；旧 `proAdapterReady` 字段已移除。
+
+跨宿主发现与 `proSkillDir` 只用于本地诊断，不会发布 Pro。若 Pro 仅在 Claude 等目录，需安装到 Harness 可见的目录（例如 `~/.agents/skills` 或 `~/.dsh/skills`）。最终决定与回归契约见 [唯一发布者说明](docs/pro-single-publisher.md)。本次插件准备 `0.4.10`，内置 Lite 暂为 `0.33.0`；公开新版发布后再同步，顺序见 [发布流程](docs/releasing.md)。
 
 ### 版本检查与一次性 Pro 提醒
 
@@ -159,9 +163,9 @@ dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
 - id: dsh-oil-ui
   name: dsh-oil-ui
   config:
-    # 是否优先启用本机已安装的 oil-ui-pro（默认 true）
+    # 本地发现/工作区资源优先 Pro（默认 true）；不会禁用 filesystem 发布
     preferPro: true
-    # 可选：指定自定义的 oil-ui-pro 目录（默认自动扫描 .dsh/skills 与 .agents/skills）
+    # 可选：指定 Pro 对照源目录（默认先扫描 DSH 根，再扫描已核对的 oil-cli 安装位置）
     # proSkillDir: /Users/you/.agents/skills/oil-ui-pro
     # 可选：指定 image-gen 脚本路径（默认自动扫描 ~/.dsh/skills/image-gen 与 ~/.agents/skills/image-gen）
     # imageGenScript: /Users/you/.agents/skills/image-gen/scripts/image_gen.py

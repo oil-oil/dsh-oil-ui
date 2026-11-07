@@ -1,19 +1,24 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile, realpath, symlink } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { delimiter, join, sep } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
-import SkillRegistry, { type SkillRegistration, type SkillProvider } from '@deepseek-ai/dsh-skill';
+import SkillRegistry, { type SkillCandidate, type SkillRegistration } from '@deepseek-ai/dsh-skill';
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
 import { apply } from '../src/index.ts';
-import { skillStatus } from '../src/skill/upstream.ts';
-import { writeProAdapter } from './pro-adapter-fixture.ts';
+import { skillStatus, loadUpstreamSkill } from '../src/skill/upstream.ts';
 
 const localHome = vi.hoisted(() => ({ path: '' }));
 vi.mock('node:os', async (original) => {
   const os = await original<typeof import('node:os')>();
-  return { ...os, homedir: () => localHome.path || os.homedir() };
+  return {
+    ...os,
+    homedir: () => {
+      if (!localHome.path) throw new Error('Test HOME must be isolated');
+      return localHome.path;
+    },
+  };
 });
 
 let isolatedHome = '';
@@ -22,9 +27,15 @@ beforeEach(async () => {
   localHome.path = isolatedHome;
   vi.stubEnv('OIL_NO_UPDATE_CHECK', '1');
   vi.stubEnv('OIL_TOKEN', 'test-oil-token');
+  vi.stubEnv('OIL_API', '');
   vi.stubEnv('OIL_UI_IMAGE_GEN_SCRIPT', '');
   vi.stubEnv('DSH_HOME', join(isolatedHome, '.dsh'));
   vi.stubEnv('DSH_AGENTS_HOME', '');
+  vi.stubEnv('CODEX_HOME', '');
+  vi.stubEnv('OIL_UI_PRO_DIR', '');
+  vi.stubEnv('XDG_CONFIG_HOME', join(isolatedHome, '.config'));
+  vi.stubEnv('XDG_STATE_HOME', join(isolatedHome, '.local/state'));
+  vi.stubEnv('APPDATA', join(isolatedHome, 'AppData/Roaming'));
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
@@ -221,7 +232,7 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
       signal: exec.signal,
     });
     expect(statusCmd).toMatchObject({ kind: 'success' });
-    expect(statusCmd.text).toContain('当前生效 Skill：oil-ui（Lite）');
+    expect(statusCmd.text).toContain('模型可见 Skill：oil-ui（Lite）');
     const exploreCmd = await commands.get('oil-ui-explore')!.handler({
       agent: exec.agent,
       rawInput: ' Hero landing page',
@@ -231,8 +242,9 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
     expect(exploreCmd).toMatchObject({ kind: 'success' });
     expect(followupMessages).toHaveLength(1);
     expect(registration?.name).toBe('oil-ui');
-    expect(prompt).toContain('activeSkillName');
-    expect(prompt).toContain('without restarting');
+    expect(prompt).toContain('nativeSkillReady');
+    expect(prompt).toContain('only when activeSkillName is oil-ui-pro and nativeSkillReady is true');
+    expect(prompt).toContain('use the bundled oil-ui Skill');
     expect(prompt).not.toContain('ADAPTER.md');
     expect(prompt).not.toContain('shoot.mjs');
     expect(await run('oil_ui_skill_status', {})).toMatchObject({
@@ -293,19 +305,21 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
   }
 });
 
-it('reads the Skill registry from the injected context instead of the apply context', async () => {
+it('reads the injected registry and reports the filesystem Pro as ready from its original body', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-injected-context-')));
   localHome.path = root;
   vi.stubEnv('DSH_HOME', join(root, '.dsh'));
   vi.stubEnv('OIL_UI_PRO_DIR', '');
   const proDir = join(root, '.dsh/skills/oil-ui-pro');
   await mkdir(join(proDir, 'references'), { recursive: true });
-  await writeProAdapter(proDir);
   await writeFile(
     join(proDir, 'SKILL.md'),
-    '---\nname: oil-ui-pro\ndescription: Pro\nmetadata:\n  version: 9.9.9\n---\nPro',
+    '---\nname: oil-ui-pro\ndescription: Pro\nmetadata:\n  version: 9.9.9\n---\nPro keeps `--frames` unchanged.',
   );
-  await writeFile(join(proDir, 'references/reviewer-manual.md'), '# 视觉与交互评审手册 (Pro Injected Context)');
+  await writeFile(
+    join(proDir, 'references/reviewer-manual.md'),
+    '# 视觉与交互评审手册 (Pro Injected Context)\nUse `--frames 3` verbatim.\n',
+  );
   const disposers: (() => void | Promise<void>)[] = [];
   const tools = new Map<string, ToolDefinition>();
   const commands = new Map<
@@ -356,7 +370,12 @@ it('reads the Skill registry from the injected context instead of the apply cont
             register(skill: SkillRegistration) {
               registration = skill;
             },
-            get: async (name: string) => (registration?.name === name ? registration : undefined),
+            get: async (name: string) =>
+              name === 'oil-ui-pro'
+                ? loadUpstreamSkill({ proSkillDir: proDir })
+                : registration?.name === name
+                  ? registration
+                  : undefined,
           },
         });
       }
@@ -387,6 +406,10 @@ it('reads the Skill registry from the injected context instead of the apply cont
     await expect(tools.get('oil_ui_skill_status')!.execute({}, exec)).resolves.toMatchObject({
       activeSkillName: 'oil-ui-pro',
       edition: 'pro',
+      skillReady: true,
+      nativeSkillReady: true,
+      skillLoadState: 'ready',
+      visibleMatchesOriginal: true,
     });
     await expect(
       commands.get('oil-ui-status')!.handler({
@@ -397,7 +420,7 @@ it('reads the Skill registry from the injected context instead of the apply cont
       }),
     ).resolves.toMatchObject({
       kind: 'success',
-      text: expect.stringMatching(/oil-ui-pro（Pro）[\s\S]*转换提示：当前 Pro Skill 版本新于插件转换基线/),
+      text: expect.stringContaining('模型可见 Skill：oil-ui-pro（Pro）v9.9.9'),
     });
     const subSections: { name: string; text: string }[] = [];
     for (const listener of createdListeners) {
@@ -424,20 +447,17 @@ it('reads the Skill registry from the injected context instead of the apply cont
   }
 });
 
-it('refreshes the real Harness Skill registry after a local Pro install without recreating the plugin', async () => {
+it('publishes only Lite with preferPro enabled and recognizes the sole raw filesystem Pro publisher', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-provider-')));
-  const pro = join(root, 'home/.dsh/skills/oil-ui-pro');
+  const pro = join(root, 'home/.agents/skills/oil-ui-pro');
   vi.stubEnv('DSH_HOME', join(root, 'home/.dsh'));
-  vi.stubEnv('OIL_UI_PRO_DIR', '');
   localHome.path = join(root, 'home');
   const registry = new SkillRegistry(new Context());
   const tools = new Map<string, ToolDefinition>();
   const pending: Promise<unknown>[] = [];
   const disposers: (() => void | Promise<void>)[] = [];
-  let provider: SkillProvider | undefined;
-  const invalidate = vi.fn();
   const ctx = {
-    effect(fn: () => () => Promise<void>) {
+    effect(fn: () => () => void | Promise<void>) {
       disposers.push(fn());
     },
     inject(_services: string[], fn: (ctx: unknown) => unknown) {
@@ -452,10 +472,7 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
       register: vi.fn(),
       get: registry.get.bind(registry),
       registerProvider(create: Parameters<SkillRegistry['registerProvider']>[0]) {
-        const dispose = registry.registerProvider((control) => {
-          invalidate.mockImplementation(() => control.invalidate?.());
-          return (provider = create({ ...control, invalidate }));
-        });
+        const dispose = registry.registerProvider(create);
         disposers.push(dispose);
         return dispose;
       },
@@ -465,43 +482,28 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
   try {
     apply(ctx as unknown as Context, { previewPort: 0, preferPro: true });
     await Promise.all(pending);
-    expect(ctx.skills.register).not.toHaveBeenCalled();
-    expect(provider?.name).toBe('oil-ui-provider');
-    expect((await registry.list()).map((s) => s.name)).toEqual(['oil-ui']);
-    const before = await provider!.list({});
-    expect(before).toEqual([expect.objectContaining({ name: 'oil-ui', rank: 20 })]);
-
-    await mkdir(pro, { recursive: true });
-    await writeProAdapter(pro);
+    await mkdir(join(pro, 'references'), { recursive: true });
     await writeFile(
       join(pro, 'SKILL.md'),
-      '---\nname: oil-ui-pro\ndescription: Hot-installed Pro\nmetadata:\n  version: hot\n---\nPro body with `scripts/shoot.mjs`',
+      '---\nname: oil-ui-pro\ndescription: Synthetic Pro\nmetadata:\n  version: fixture\n---\nRAW_FIXTURE_BODY',
     );
-    expect((await registry.list()).map((s) => s.name)).toEqual(['oil-ui']);
+    await mkdir(join(pro, 'adapters/dsh'), { recursive: true });
+    await writeFile(join(pro, 'adapters/dsh/adapter.json'), '{ invalid stale adapter residue');
+    await writeFile(join(pro, 'references/tools.md'), '# Fixture tools');
     const exec = {
       agent: { session: { id: 'alice', header: { cwd: root } } },
       signal: new AbortController().signal,
     } as ToolRunContext;
+    expect((await registry.list()).map((skill) => skill.name)).toEqual(['oil-ui']);
+    expect(await registry.get('oil-ui-pro')).toBeUndefined();
     expect(await tools.get('oil_ui_skill_status')!.execute({}, exec)).toMatchObject({
-      edition: 'pro',
-      activeSkillName: 'oil-ui-pro',
-      proSourcePath: pro,
+      edition: 'lite',
+      activeSkillName: 'oil-ui',
+      proInstalled: true,
+      nativeSkillReady: true,
+      skillLoadState: 'ready',
       visibleMatchesOriginal: true,
     });
-    expect((await registry.list()).map((s) => s.name)).toEqual(['oil-ui-pro']);
-    expect(invalidate).toHaveBeenCalledTimes(1);
-    await tools.get('oil_ui_skill_status')!.execute({}, exec);
-    await tools.get('oil_ui_skill_status')!.execute({}, exec);
-    expect(invalidate).toHaveBeenCalledTimes(1);
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(new Response(JSON.stringify({ skills: { 'oil-ui-pro': { latest: '0.0.0' } } }))),
-    );
-    await tools.get('oil_ui_skill_status')!.execute({ update: true }, exec);
-    expect(invalidate).toHaveBeenCalledTimes(2);
-    const loadedPro = await registry.get('oil-ui-pro');
-    expect(loadedPro?.content).toContain('oil_ui_shoot');
-    expect(await provider!.list({})).toEqual([expect.objectContaining({ name: 'oil-ui-pro', rank: 10 })]);
     disposers.push(
       registry.registerProvider(() => ({
         name: 'filesystem',
@@ -509,30 +511,214 @@ it('refreshes the real Harness Skill registry after a local Pro install without 
           return [
             {
               name: 'oil-ui-pro',
-              description: 'Raw filesystem Skill',
-              source: 'project-dsh',
+              description: 'Raw filesystem fixture',
+              source: 'user-agents',
               provider: 'filesystem',
-              rank: 100,
+              rank: 500,
               locator: pro,
+              path: join(pro, 'SKILL.md'),
+              resourceBase: { kind: 'directory' as const, path: pro },
               invocation: { modelInvocable: true, userInvocable: true },
             },
           ];
         },
-        async get() {
-          throw new Error('Filesystem Skill must lose arbitration');
+        async get(candidate) {
+          return { ...candidate, content: 'RAW_FIXTURE_BODY', metadata: { version: 'fixture' } };
         },
       })),
     );
-    expect((await registry.get('oil-ui-pro'))?.provider).toBe('oil-ui-provider');
-    const old = Array.isArray(before) ? before[0] : undefined;
-    expect(await provider!.get(old!, {})).toBeUndefined();
+    expect(await tools.get('oil_ui_skill_status')!.execute({}, exec)).toMatchObject({
+      edition: 'pro',
+      activeSkillName: 'oil-ui-pro',
+      effective: { provider: 'filesystem' },
+      nativeSkillReady: true,
+      skillLoadState: 'ready',
+      visibleMatchesOriginal: true,
+    });
+    expect((await registry.list()).filter((skill) => skill.name === 'oil-ui-pro')).toHaveLength(1);
+    expect(await tools.get('oil_ui_skill_status')!.execute({}, exec)).toMatchObject({
+      activeSkillName: 'oil-ui-pro',
+      effective: { provider: 'filesystem' },
+      nativeSkillReady: true,
+      skillLoadState: 'ready',
+      skillLoadWarning: null,
+    });
+    expect(JSON.stringify(await tools.get('oil_ui_skill_status')!.execute({}, exec))).not.toMatch(
+      /proAdapter|transformDiagnostics|transformWarning/,
+    );
   } finally {
     await Promise.all(disposers.map((dispose) => dispose()));
-    localHome.path = '';
-    vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.skipIf(process.platform === 'win32')(
+  'updates the scoped filesystem Pro through the status tool and reloads the same winner',
+  async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-status-update-wiring-')));
+    localHome.path = root;
+    vi.stubEnv('OIL_TOKEN', '');
+    vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
+    const proDir = join(root, '.agents/skills/oil-ui-pro');
+    const cwd = join(root, 'workspace');
+    await mkdir(join(proDir, 'references'), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(
+      join(proDir, 'SKILL.md'),
+      "---\nname: oil-ui-pro\ndescription: Synthetic filesystem Pro\nmetadata:\n  version: '1.0.0'\n---\nRaw Pro keeps `--frames` unchanged.\n",
+    );
+    await writeFile(join(proDir, 'references/tools.md'), '# Synthetic filesystem tools\n');
+
+    const bin = join(root, 'bin');
+    await mkdir(bin, { recursive: true });
+    const runner = join(root, 'fake-npx.cjs');
+    await writeFile(
+      runner,
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        'const args = process.argv.slice(2);',
+        "const pathIndex = args.indexOf('--path');",
+        "if (pathIndex < 0 || !args[pathIndex + 1]) throw new Error('Missing --path fixture argument');",
+        "const skillPath = path.join(args[pathIndex + 1], 'SKILL.md');",
+        "const current = fs.readFileSync(skillPath, 'utf8');",
+        'const updated = current.replace("version: \'1.0.0\'", "version: \'1.1.0\'");',
+        "if (updated === current) throw new Error('Fixture Pro version was not 1.0.0');",
+        'fs.writeFileSync(skillPath, updated);',
+      ].join('\n'),
+    );
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    const executable = join(bin, 'npx');
+    await writeFile(executable, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(runner)} "$@"\n`);
+    await chmod(executable, 0o755);
+    vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
+
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/store/versions')) {
+        return Response.json({ skills: { 'oil-ui-pro': { latest: '1.1.0' } } });
+      }
+      throw new Error(`Unexpected fixture fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetcher);
+
+    const registry = new SkillRegistry(new Context());
+    const disposers: (() => void | Promise<void>)[] = [];
+    const lookups: { name: string; scope: unknown; cwd?: string }[] = [];
+    const listedVersions: string[] = [];
+    const tools = new Map<string, ToolDefinition>();
+    const pending: Promise<unknown>[] = [];
+    const skills = {
+      async get(name: string, options: { scope?: unknown; cwd?: string } = {}) {
+        lookups.push({ name, scope: options.scope, cwd: options.cwd });
+        return registry.get(name, options as never);
+      },
+      register(skill: SkillRegistration) {
+        return registry.register(skill);
+      },
+      registerProvider(create: Parameters<SkillRegistry['registerProvider']>[0]) {
+        const dispose = registry.registerProvider(create);
+        disposers.push(dispose);
+        return dispose;
+      },
+    };
+    disposers.push(
+      registry.registerProvider(() => ({
+        name: 'filesystem',
+        async list() {
+          const loaded = await loadUpstreamSkill({ proSkillDir: proDir });
+          const version = String(loaded.metadata?.version ?? 'unknown');
+          listedVersions.push(version);
+          const candidate: SkillCandidate = {
+            name: loaded.name,
+            description: loaded.description,
+            provider: 'filesystem',
+            source: 'user-agents',
+            path: loaded.path,
+            resourceBase: { kind: 'directory', path: proDir },
+            invocation: { modelInvocable: true, userInvocable: true },
+            metadata: loaded.metadata,
+            rank: 1,
+            locator: proDir,
+          };
+          return [candidate];
+        },
+        async get(candidate) {
+          if (candidate.name !== 'oil-ui-pro') return undefined;
+          const loaded = await loadUpstreamSkill({ proSkillDir: proDir });
+          return {
+            ...loaded,
+            provider: 'filesystem',
+            source: 'user-agents',
+            invocation: { modelInvocable: true, userInvocable: true },
+          };
+        },
+      })),
+    );
+
+    const ctx: any = {
+      effect(register: () => () => void | Promise<void>) {
+        disposers.push(register());
+      },
+      inject(services: string[], register: (ctx: unknown) => unknown) {
+        const child = Object.create(ctx);
+        if (services.includes('skills')) child.skills = skills;
+        if (services.includes('tools')) {
+          child.tools = {
+            register(tool: ToolDefinition) {
+              tools.set(tool.name, tool);
+            },
+          };
+        }
+        if (services.includes('commands')) child.commands = { register: () => () => {} };
+        if (services.includes('systemPrompt')) child.systemPrompt = { section: () => () => {} };
+        pending.push(Promise.resolve(register(child)));
+      },
+    };
+    const agent = { session: { id: 'status-update', header: { cwd } } };
+    const run = { agent, signal: new AbortController().signal } as unknown as ToolRunContext;
+    try {
+      apply(ctx as Context, { previewPort: 0, preferPro: true, proSkillDir: proDir });
+      await Promise.all(pending);
+      const statusTool = tools.get('oil_ui_skill_status');
+      expect(statusTool).toBeDefined();
+      const status = await statusTool!.execute({ update: true }, run);
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(await readFile(join(proDir, 'SKILL.md'), 'utf8')).toContain("version: '1.1.0'");
+      expect(listedVersions).toEqual(expect.arrayContaining(['1.0.0', '1.1.0']));
+      const proLookups = lookups.filter((entry) => entry.name === 'oil-ui-pro');
+      expect(proLookups.length).toBeGreaterThanOrEqual(2);
+      expect(proLookups.slice(-2)).toEqual([
+        { name: 'oil-ui-pro', scope: agent, cwd },
+        { name: 'oil-ui-pro', scope: agent, cwd },
+      ]);
+      expect(status).toMatchObject({
+        updated: true,
+        latestVersion: '1.1.0',
+        edition: 'pro',
+        activeSkillName: 'oil-ui-pro',
+        activeVersion: '1.1.0',
+        detected: { name: 'oil-ui-pro', edition: 'pro', version: '1.1.0' },
+        effective: {
+          name: 'oil-ui-pro',
+          version: '1.1.0',
+          provider: 'filesystem',
+          path: join(proDir, 'SKILL.md'),
+          resourceBase: { kind: 'directory', path: proDir },
+        },
+        proSourcePath: proDir,
+        activeResourceBase: proDir,
+        nativeSkillReady: true,
+        visibleMatchesOriginal: true,
+        skillLoadState: 'ready',
+      });
+    } finally {
+      await Promise.all(disposers.map((dispose) => dispose()));
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 it('triggers one-time Pro recommendation once on lite edition and reports cached update notices', async () => {
   vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
@@ -564,7 +750,7 @@ it('triggers one-time Pro recommendation once on lite edition and reports cached
   }
 });
 
-it('automatically injects reviewer-manual.md into subagent system prompt and preserves the main section and manages an independent reviewer section', async () => {
+it('injects the raw Pro reviewer manual for a native Pro and the Lite manual otherwise', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-oil-ui-subagent-')));
   const proDir = join(root, '.dsh/skills/oil-ui-pro');
   const rootCtx = new Context();
@@ -572,15 +758,18 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
   const createdListeners: ((payload: { agent: unknown }) => Promise<void> | void)[] = [];
   const pending: Promise<unknown>[] = [];
   const disposers: (() => void | Promise<void>)[] = [];
+  let rawPro: SkillRegistration | undefined;
+  const getSkill = vi.fn(async (name: string) => (name === 'oil-ui-pro' ? rawPro : undefined));
 
   const hostCtx = {
+    skills: { get: getSkill, register() {} },
     systemPrompt: rootCtx.systemPrompt,
     agents: { list: () => [] },
     effect(fn: () => () => void | Promise<void>) {
       disposers.push(fn());
     },
     inject(services: string[], fn: (ctx: unknown) => unknown) {
-      if (services.includes('systemPrompt')) {
+      if (services.includes('systemPrompt') || (services.length === 1 && services[0] === 'skills')) {
         pending.push(Promise.resolve(fn(hostCtx)));
       }
     },
@@ -637,24 +826,25 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
     expect(subSections[0]!.text).not.toContain('call oil_ui_skill_status first');
 
     await mkdir(join(proDir, 'references'), { recursive: true });
-    await writeProAdapter(proDir, [
-      {
-        id: 'fixture.review-loop.paths',
-        file: 'references/reviewer-manual.md',
-        requiredIn: [],
-        editions: ['pro'],
-        match: { source: '能用截图工具时' },
-        replacement: '能用 `oil_ui_shoot` 时',
-      },
-    ]);
+    await writeFile(join(proDir, 'references/tools.md'), '# Synthetic Pro tools\n');
     await writeFile(
       join(proDir, 'SKILL.md'),
       '---\nname: oil-ui-pro\ndescription: Pro\nmetadata:\n  version: 9.9.9\n---\nPro body',
     );
     await writeFile(
       join(proDir, 'references/reviewer-manual.md'),
-      '# 视觉与交互评审手册 (子 Agent 专用 - Pro 专属标识)\n能用截图工具时，用它出缩略图和遮字图。',
+      '# 视觉与交互评审手册 (子 Agent 专用 - Pro 专属标识)\n能用截图工具时，用它出缩略图和遮字图。保留 `--frames 7`。',
     );
+    rawPro = {
+      name: 'oil-ui-pro',
+      description: 'Synthetic filesystem Pro',
+      content: 'Pro body',
+      metadata: { version: '9.9.9' },
+      provider: 'filesystem',
+      source: 'user-dsh',
+      path: join(proDir, 'SKILL.md'),
+      resourceBase: { kind: 'directory', path: proDir },
+    };
     const proSubSections: { name: string; order: number; interpolate?: boolean; text: string }[] = [];
     const proSubagent = {
       id: 'sub-pro',
@@ -670,15 +860,18 @@ it('automatically injects reviewer-manual.md into subagent system prompt and pre
     };
     for (const listener of createdListeners) await listener({ agent: proSubagent });
     await vi.waitFor(() => expect(proSubSections).toHaveLength(1), { timeout: 5000 });
+    expect(getSkill).toHaveBeenCalledWith('oil-ui-pro', expect.objectContaining({ scope: proSubagent }));
     expect(proSubSections[0]!.text).toContain('Pro 专属标识');
-    expect(proSubSections[0]!.text).toContain('能用 `oil_ui_shoot` 时');
+    expect(proSubSections[0]!.text).toContain('`--frames 7`');
+    expect(proSubSections[0]!.text).toContain(proDir);
+    expect(proSubSections[0]!.text).toContain('oil_ui_shoot');
   } finally {
     await Promise.all(disposers.map((dispose) => dispose()));
     await rm(root, { recursive: true, force: true });
   }
 });
 
-it('never awaits reviewer setup in agent/created, falls back after compile failure, and disposes only its own section', async () => {
+it('never awaits reviewer setup, uses Lite without a visible Pro definition, and disposes only its own section', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-reviewer-fallback-')));
   const pro = join(root, 'pro');
   const disposers: (() => void | Promise<void>)[] = [];
@@ -720,13 +913,14 @@ it('never awaits reviewer setup in agent/created, falls back after compile failu
     await mkdir(join(pro, 'references'), { recursive: true });
     await writeFile(join(pro, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Test\n---\nTest');
     await writeFile(join(pro, 'references/tools.md'), 'node scripts/shoot.mjs <target>');
-    await symlink(root, join(pro, 'references/escape'));
+    await writeFile(join(pro, 'references/reviewer-manual.md'), '# PRO ONLY MANUAL\n');
     apply(ctx as unknown as Context, { previewPort: 0, preferPro: true, proSkillDir: pro });
     expect(listener!({ agent })).toBeUndefined();
     expect(listener!({ agent })).toBeUndefined();
     await vi.waitFor(() => expect(sections.get('oil-ui-subagent-reviewer')).toContain('# 视觉与交互评审手册'), {
       timeout: 5000,
     });
+    expect(sections.get('oil-ui-subagent-reviewer')).not.toContain('PRO ONLY MANUAL');
     expect(sections.get('oil-ui')).toBe(inherited);
     expect(sections.size).toBe(2);
     await Promise.all(disposers.map((dispose) => dispose()));

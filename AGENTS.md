@@ -40,6 +40,7 @@ GitHub 直接安装依赖已提交的 `lib/` 和 `skills/`，不能把它们当�
 | `pnpm compile:skill <source> <target>` | 编译指定 Skill                                         |
 | `pnpm verify:generated`                | 临时重建并比较 `lib/`，核对 Skill manifest、哈希和权限 |
 | `pnpm pack:plugin`                     | 构建、打包并解包验证                                   |
+| `npm run smoke:dsh`                    | 隔离 HOME，真实 DSH 安装包与标准 preset 冒烟           |
 | `pnpm release:check`                   | 发布前完整检查                                         |
 
 `vendor:skill` 和 `build:skill` 只是旧命令别名，新文档使用 `sync:skill` 和 `compile:skill`。
@@ -50,7 +51,11 @@ GitHub 直接安装依赖已提交的 `lib/` 和 `skills/`，不能把它们当�
 - 上游同步只接受公开 `oil-ui`。`scripts/public-skill-files.mjs` 是人工审核白名单，新增文件必须连同来源、用途和公开性一起审阅，不能自动放行 Pro 资源。
 - manifest 必须记录上游仓库、完整 commit、Skill 版本和 transform 版本。非 Git 源需要显式提供 `OIL_UI_SOURCE_COMMIT`。
 - 默认测试不得读取相邻仓库、真实 HOME、真实令牌或访问真实付费服务。集成测试必须显式传入目录，真实付费验证单独授权。
-- Pro 专用转换数据只从本机安装包的 `adapters/dsh/` 读取，不得写入公开源码、测试、`lib/`、测试日志或 PR 说明；测试只用虚构规则。协议或 transform 版本不兼容时必须回退 Lite，编译和评审手册缓存必须同时随文档及规则变化失效。
+- Pro 原文由 Harness filesystem Provider 唯一发布。Host、preset、Agent 任何层都不得注册 `oil-ui-pro`，不得改写 Pro 正文、读取私有适配规则或生成 Pro 转换/评审手册缓存；具体决定见 `docs/pro-single-publisher.md`。旧插件 0.4.9 的适配器兼容由 Pro 上游保留。
+- 转换器只接受公开 `oil-ui` Lite；同步白名单不得放行 Pro。测试只使用临时虚构 Pro，不读取真实 HOME 或真实 Pro 包。
+- 状态必须读取调用 Agent 实际胜出的定义，比对原文、入口路径、实际资源目录、版本和模型调用权限。Pro 原文即正确版本；Provider 标签、rank 或发现到安装目录都不能单独证明正常。`nativeSkillReady` 是 `skillReady` 的兼容别名，不再表示转换完成。
+- 跨宿主发现只采用已核对的 oil-cli 用户安装位置，保留 DSH 与显式配置优先级；发现路径不会把 Pro 发布给模型，也不扩展 image-gen 发现。默认测试隔离这些路径环境变量。
+- 发布前必须显式运行 `npm run smoke:dsh`，以真实 DSH 标准 preset 验证 filesystem 是 Pro 唯一发布者、原文未变、五个工具与内置 Lite 版本正确。脚本使用隔离 HOME，不启动模型、不调用付费服务。
 - 不打印、复制或提交 `OIL_TOKEN` 和 `~/.config/oil/config.json` 的内容。文档只说明读取规则，不写入真实凭据。
 - 工作区路径约束、Symlink 检查、输出覆盖保护和进程清理属于安全边界，重构时不能复制出一份更宽松的实现。
 - 修改工具数量、命令、环境变量、目录职责或发布方式时，同步更新中英文 README、`AGENTS.md` 和相关 docs。

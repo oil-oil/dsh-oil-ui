@@ -487,7 +487,7 @@ export async function buildExplorer(
   data.candidates = candidates;
   data.fingerprint = createHash('sha256').update(canonical(data)).digest('hex').slice(0, 24);
   data.edition = active.edition === 'pro' ? 'pro' : 'open';
-  const templateRoot = active.sourceDirectory ?? active.directory;
+  const templateRoot = active.directory;
   const templateEmbedder = new Embedder(templateRoot);
   const templatePath = await templateEmbedder.path('assets/style-explorer.html', templateRoot);
   const rawTemplate = await templateEmbedder.html(

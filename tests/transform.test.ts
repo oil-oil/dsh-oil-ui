@@ -6,8 +6,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { adapterFingerprint, loadMarkdownRules } from '../src/skill/adapter.ts';
-import { writeProAdapter } from './pro-adapter-fixture.ts';
 import {
   MARKDOWN_RULES,
   SkillTransformError,
@@ -29,81 +27,6 @@ async function tempDirectory() {
   return directory;
 }
 
-describe('installed Pro adapter protocol', () => {
-  const fixtureRule = (replacement = 'Native fixture marker') => ({
-    id: 'fixture.native-marker',
-    file: 'SKILL.md',
-    requiredIn: [],
-    match: { source: 'Fixture placeholder' },
-    replacement,
-  });
-
-  it('loads fixture rules only for Pro and fingerprints their bytes', async () => {
-    const directory = await tempDirectory();
-    expect(await loadMarkdownRules('lite')).toBe(MARKDOWN_RULES);
-    expect(await loadMarkdownRules('lite', directory)).toBe(MARKDOWN_RULES);
-    await writeProAdapter(directory, [fixtureRule()]);
-    const rules = await loadMarkdownRules('pro', directory, '9');
-    expect(rules).toHaveLength(MARKDOWN_RULES.length + 1);
-    const transformed = transformSkillMarkdown('SKILL.md', 'Fixture placeholder', {
-      edition: 'pro',
-      mode: 'lenient',
-      ruleSet: rules,
-    });
-    expect(transformed.markdown).toBe('Native fixture marker');
-    const first = await adapterFingerprint(directory, '9');
-    expect(await adapterFingerprint(directory, '9')).toBe(first);
-    await writeProAdapter(directory, [fixtureRule('Updated fixture marker')]);
-    expect(await adapterFingerprint(directory, '9')).not.toBe(first);
-  });
-
-  it('rejects incompatible metadata, invalid rules and IDs that collide with shared rules', async () => {
-    const directory = await tempDirectory();
-    await writeProAdapter(directory, [], '7');
-    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('requires transform 7');
-    await writeProAdapter(directory, [{ ...fixtureRule(), id: 'skill.startup' }]);
-    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('must be unique');
-    await writeProAdapter(directory, [{ ...fixtureRule(), match: { source: 'x', flags: 'gg' } }]);
-    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('rule 1 is invalid');
-    await writeProAdapter(directory, [{ ...fixtureRule(), nativeSatisfied: { operation: 'eval' } }]);
-    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('rule 1 is invalid');
-    await writeProAdapter(directory, [{ ...fixtureRule(), match: { source: 'Fixture secret(' } }]);
-    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('rule 1 is invalid');
-    await writeProAdapter(directory, [{ ...fixtureRule(), file: '../outside.md' }]);
-    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('rule 1 is invalid');
-    const metadataPath = join(directory, 'adapters/dsh/adapter.json');
-    const metadata = JSON.parse(await readFile(metadataPath, 'utf8'));
-    await writeFile(metadataPath, JSON.stringify({ ...metadata, protocolVersion: 2 }));
-    await expect(loadMarkdownRules('pro', directory, '9')).rejects.toThrow('protocol is unsupported');
-  });
-
-  it('rejects traversal and symlink escapes in both loading and fingerprinting', async () => {
-    const directory = await tempDirectory();
-    const source = join(directory, 'source');
-    await writeProAdapter(source);
-    const metadataPath = join(source, 'adapters/dsh/adapter.json');
-    await writeFile(join(directory, 'outside.json'), '[]');
-    await writeFile(
-      metadataPath,
-      JSON.stringify({ protocolVersion: 1, transformVersion: '9', rules: '../../../outside.json' }),
-    );
-    await expect(loadMarkdownRules('pro', source, '9')).rejects.toThrow('inside adapters/dsh');
-    await expect(adapterFingerprint(source, '9')).rejects.toThrow('inside adapters/dsh');
-    await symlink(join(directory, 'outside.json'), join(source, 'adapters/dsh/linked.json'));
-    await writeFile(
-      metadataPath,
-      JSON.stringify({ protocolVersion: 1, transformVersion: '9', rules: './linked.json' }),
-    );
-    await expect(loadMarkdownRules('pro', source, '9')).rejects.toThrow('inside adapters/dsh');
-    await writeFile(
-      metadataPath,
-      JSON.stringify({ protocolVersion: 1, transformVersion: '9', rules: '../outside.json' }),
-    );
-    await writeFile(join(source, 'adapters/outside.json'), '[]');
-    await expect(loadMarkdownRules('pro', source, '9')).rejects.toThrow('inside adapters/dsh');
-  });
-});
-
 describe('declarative Markdown rewrite validation', () => {
   it('has unique readable IDs and explains every compatibility-only rule', () => {
     expect(new Set(MARKDOWN_RULES.map((rule) => rule.id)).size).toBe(MARKDOWN_RULES.length);
@@ -120,6 +43,10 @@ describe('declarative Markdown rewrite validation', () => {
     for (const file of new Set(MARKDOWN_RULES.map((rule) => rule.file))) {
       if (!existsSync(join(bundled, file))) continue;
       const raw = await readFile(join(bundled, file), 'utf8');
+      if (file === 'SKILL.md') {
+        expect(raw).toContain('## 完整版提示');
+        expect(raw).toContain('recommendOnceNotice');
+      }
       const result = transformSkillMarkdown(file, raw, { ...report, mode: 'strict' });
       expect(result.markdown, file).toBe(raw);
       expect(
@@ -143,30 +70,51 @@ describe('declarative Markdown rewrite validation', () => {
     });
   });
 
-  it('requires the Pro notice only in Lite and still reports its absence in Pro', async () => {
-    const raw = (await readFile(join(bundled, 'SKILL.md'), 'utf8')).split('## 完整版提示')[0]!;
-    const options = { input: 'native', mode: 'strict' } as const;
-    const pro = transformSkillMarkdown('SKILL.md', raw, { ...options, edition: 'pro', mode: 'lenient' });
-    expect(pro.rules.find((rule) => rule.id === 'skill.pro-notice')).toMatchObject({
-      required: false,
-      status: 'unmatched',
-    });
-    expect(() => transformSkillMarkdown('SKILL.md', raw, { ...options, edition: 'lite' })).toThrow(
-      'skill.pro-notice (SKILL.md)',
+  it('refuses Pro at both compiler entrypoints and keeps its original files untouched', async () => {
+    const source = await tempDirectory();
+    const original = '---\nname: oil-ui-pro\ndescription: Synthetic original\n---\nUse --frames unchanged.\n';
+    await writeFile(join(source, 'SKILL.md'), original);
+    await expect(validateSkillTree(source)).rejects.toThrow('Only public oil-ui Lite');
+    expect(() => transformSkillMarkdown('SKILL.md', original, { edition: 'lite', mode: 'lenient' })).toThrow(
+      'Only public oil-ui Lite',
     );
+    for (const script of ['build-dsh-skill.mjs', 'vendor-oil-ui.mjs']) {
+      const failure = await execFileAsync(process.execPath, [
+        join(project, 'scripts', script),
+        source,
+        ...(script === 'build-dsh-skill.mjs' ? [join(source, 'output')] : []),
+      ]).catch((error) => error);
+      expect(failure.code).toBe(1);
+      expect(failure.stderr).toMatch(/Only public oil-ui|Only the open-source oil-ui/);
+    }
+    expect(await readFile(join(source, 'SKILL.md'), 'utf8')).toBe(original);
+  });
+
+  it('keeps the one-time Pro recommendation in Lite after replacing its source copy', () => {
+    const raw = '## 完整版提示\n\nLegacy recommendation copy.\n';
+    const result = transformSkillMarkdown('SKILL.md', raw, { edition: 'lite', mode: 'lenient' });
+    expect(result.markdown).toContain('## 完整版提示');
+    expect(result.markdown).toContain('recommendOnceNotice');
+    expect(result.markdown).toContain('仅当 `recommendOnceNotice` 非空时');
+    expect(result.markdown).not.toContain('Legacy recommendation copy');
+    expect(result.rules.find((rule) => rule.id === 'skill.pro-notice')).toMatchObject({
+      required: true,
+      matches: 1,
+      status: 'matched',
+    });
   });
 
   it('reports misses without throwing in lenient mode and counts global matches independently across calls', () => {
     const raw = '读 `--sheet`；再读 `--sheet`。';
     for (let i = 0; i < 2; i++) {
-      const result = transformSkillMarkdown('references\\media.md', raw, { edition: 'pro', mode: 'lenient' });
+      const result = transformSkillMarkdown('references\\media.md', raw, { edition: 'lite', mode: 'lenient' });
       expect(result.markdown).toBe('读 `oil_ui_media` 的 `sheet: true`；再读 `oil_ui_media` 的 `sheet: true`。');
       expect(result.rules.find((rule) => rule.id === 'media.sheet')).toMatchObject({ matches: 2, status: 'matched' });
       expect(result.rules.filter((rule) => rule.status === 'unmatched').map((rule) => rule.id)).toEqual([
         'media.direction-source',
       ]);
     }
-    expect(() => transformSkillMarkdown('references/media.md', raw, { edition: 'pro', mode: 'strict' })).toThrow(
+    expect(() => transformSkillMarkdown('references/media.md', raw, { edition: 'lite', mode: 'strict' })).toThrow(
       SkillTransformError,
     );
   });
@@ -206,7 +154,7 @@ describe('declarative Markdown rewrite validation', () => {
     });
   });
 
-  it.each(['lite', 'pro'] as const)('rewrites imagery for the single-direction flow: %s', (edition) => {
+  it.each(['lite'] as const)('rewrites imagery for the single-direction flow: %s', (edition) => {
     const raw = '用三四行写清它给人什么感觉、首屏长什么样、核心动作怎样完成、字体、色彩和主视觉。';
     const result = transformSkillMarkdown('SKILL.md', raw, { edition, mode: 'lenient' });
     expect(result.markdown).toContain('oil_ui_image');
@@ -254,7 +202,7 @@ describe('declarative Markdown rewrite validation', () => {
   it.each(['每个字段的写法和限制见生成器的 `--help`。', '其他字段写法见生成器的 `--help`。'])(
     'rewrites old and new explorer parameter help wording: %s',
     (raw) => {
-      const result = transformSkillMarkdown('references/style-explorer.md', raw, { edition: 'pro', mode: 'lenient' });
+      const result = transformSkillMarkdown('references/style-explorer.md', raw, { edition: 'lite', mode: 'lenient' });
       expect(result.markdown).toBe('字段与限制以 `oil_ui_explorer` 的参数说明及本页 manifest 示例为准。');
       expect(result.rules.find((rule) => rule.id === 'explorer.parameter-help')).toMatchObject({
         matches: 1,
@@ -277,7 +225,7 @@ describe('declarative Markdown rewrite validation', () => {
       '原比例缩放到 480px 或 180px',
     ],
   ])('retains and measures compatibility rule %s / %s', (file, raw, id, expected) => {
-    const result = transformSkillMarkdown(file, raw, { edition: 'pro', mode: 'lenient' });
+    const result = transformSkillMarkdown(file, raw, { edition: 'lite', mode: 'lenient' });
     expect(result.markdown).toContain(expected);
     expect(result.rules.find((rule) => rule.id === id)).toMatchObject({
       required: false,

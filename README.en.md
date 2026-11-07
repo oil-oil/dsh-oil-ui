@@ -53,7 +53,7 @@ From a short prompt, the agent runs the full loop—**explore directions → bun
   <img src="assets/readme/proof-tempo.webp" alt="Tempo 2026 3-direction mobile comparison page in DeepSeek Harness" width="100%">
 </p>
 
-1. Calls `oil_ui_skill_status` to check available Skills (automatically selecting `oil-ui-pro` when installed), then loads the active Skill and reference manuals via the native `skill` tool.
+1. Calls `oil_ui_skill_status` to inspect the model-visible Skill. It loads Pro only when `activeSkillName=oil-ui-pro` and `nativeSkillReady=true`; otherwise it reports the warning and loads bundled Lite.
 2. Builds 3 distinct first-screen candidates in `explore/` and bundles them into a self-contained `style-explorer.html` via `oil_ui_explorer`.
 3. Implements the chosen direction in `index.html` (and `screens.html` for multi-screen mobile flows), verifies states, interactions, and responsive viewports with `oil_ui_shoot`, and inspects every capture with `read_image`.
 
@@ -96,11 +96,15 @@ It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoi
 | Independent visual and UX walkthroughs                                                           | Lightweight UX walkthrough for key flows | Autonomous risk probes, deeper observations, and same-path rechecks |
 | Full domain playbooks (marketing sites, data consoles, mobile flows, redesigns, font subsetting) |                    —                     |                                  ✓                                  |
 
-### Automatic Local Pro Detection & Subagent Review Injection
+### Pro Discovery & Effective Load Diagnostics
 
-Once `oil-ui-pro` is installed locally (in `~/.agents/skills/oil-ui-pro` or `~/.dsh/skills/oil-ui-pro`), you do not need to restart DeepSeek Harness. When the agent calls `oil_ui_skill_status`, the plugin scans your local Skill directories, compiles `oil-ui-pro` and its reference manuals into native tool instructions, and registers them above the built-in filesystem loader. When the main agent spawns a `subagent` for visual and interaction review, the plugin automatically injects the compiled `reviewer-manual.md` and `references/` directory path into the subagent's system prompt.
+Each status query rediscovers local `oil-ui-pro` installations. Explicit configuration and DSH project/user Skill roots (including `~/.dsh/skills` and `~/.agents/skills`) take precedence, followed by oil-cli's user installation targets: `~/.claude/skills`, `$CODEX_HOME/skills` (or `~/.codex/skills` when unset), `~/.cursor/skills`, and `~/.workbuddy/skills`. Only the `oil-ui-pro` child is checked; other directories are not recursively scanned, and these cross-host fallbacks do not affect image-gen discovery. Use `proSkillDir` or `OIL_UI_PRO_DIR` for custom locations. This list follows [oil-cli's installationRoots/targetRoot](https://github.com/oil-oil/oil-cli/blob/e6ee580c01e854919ee50ef1f3de6876c3c52c18/src/skills.js#L139): default installation favors an existing Claude directory, while Codex and DSH normally share `.agents/skills`.
 
-Pro-specific transformation rules ship as declarative JSON data in the Pro package under `adapters/dsh/`, not in the public plugin. The plugin loads only compatible rules and does not execute JavaScript from this data. If the adapter is missing, invalid, or incompatible with the current transformation protocol, the plugin uses the bundled Lite edition only. Inspect `proAdapterReady`, `proAdapterError`, and `upgradeHint` in `oil_ui_skill_status` to determine whether a compatible Pro package is needed.
+**Pro instructions work unchanged and have one publisher: Harness filesystem.** The plugin publishes bundled `oil-ui` only. It never registers `oil-ui-pro` in Host, preset, or Agent scope, reads private adapter rules, rewrites Pro, or creates Pro caches. Pro's host section in `references/tools.md` explains `oil_ui_shoot`, `oil_ui_media`, `oil_ui_image`, and `oil_ui_explorer`: map flags to matching tool fields and use host status for versions and image sources. These host notes ship with Pro `0.33.1`.
+
+Status checks the definition actually selected in the calling Agent's scope against its original body, resolved resource directory, entry path, version, and model invocation permission. Correct original Pro reports `skillReady=true`, `nativeSkillReady=true`, `visibleMatchesOriginal=true`, and `skillLoadState=ready`. Mismatches report `overridden`; missing or non-invocable definitions report `unavailable`. `nativeSkillReady` is a compatibility alias, not evidence of transformation. `/oil-ui-status` and `upgradeHint` report the same result; the old `proAdapterReady` field is removed.
+
+Cross-host discovery and `proSkillDir` provide local diagnostics, not publication. If Pro exists only in a Claude directory, install it into a Harness-visible root such as `~/.agents/skills` or `~/.dsh/skills`. See the [single-publisher decision](docs/pro-single-publisher.md). This branch prepares plugin `0.4.10` with bundled Lite still at `0.33.0`; sync the next public release before publishing the plugin, following the [release order](docs/releasing.md).
 
 ### Version Check & One-Time Pro Notice
 
@@ -159,9 +163,9 @@ The plugin works out of the box and automatically discovers local `oil-ui-pro` a
 - id: dsh-oil-ui
   name: dsh-oil-ui
   config:
-    # Prefer locally installed oil-ui-pro when available (default: true)
+    # Prefer local Pro for discovery/workbench resources (default: true); does not disable filesystem publication
     preferPro: true
-    # Optional: custom path to oil-ui-pro (auto-discovered in .dsh/skills and .agents/skills)
+    # Optional: Pro reference source (default: DSH roots, then verified oil-cli installation paths)
     # proSkillDir: /Users/you/.agents/skills/oil-ui-pro
     # Optional: custom path to image_gen.py (auto-discovered in ~/.dsh/skills/image-gen and ~/.agents/skills/image-gen)
     # imageGenScript: /Users/you/.agents/skills/image-gen/scripts/image_gen.py

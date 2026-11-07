@@ -39,7 +39,8 @@ pnpm format:check    # 只检查
 - `src/index.ts` 负责插件装配，不堆工具实现。
 - `src/tools/` 定义五个工具的 schema、注册和展示。
 - `src/workbench/` 实现工作区与运行时能力，图片流程独立在 `workbench/image.ts`。
-- `src/skill/transform.ts` 负责转换算法，`src/skill/rules.ts` 负责上游文案转换规则，`src/skill/upstream.ts` 负责发现、加载和状态。
+- `src/skill/transform.ts` 只转换公开 Lite，`src/skill/rules.ts` 负责上游文案转换规则，`src/skill/upstream.ts` 负责发现、加载和状态。
+- 插件 Provider 只发布内置 Lite；Pro 发布交给 Harness filesystem。Pro 原文无需转换；不得在任何作用域注册同名 Pro，详见 `docs/pro-single-publisher.md`。
 - `src/oil-api.ts` 只处理 oiloil 客户端能力，不管理页面或 Skill 编译。
 
 先保持对外工具契约，再移动内部实现。每个重构边界都应能用现有测试验证。
@@ -60,7 +61,17 @@ pnpm test
 OIL_UI_SOURCE_DIR=/path/to/oil-ui pnpm test:integration
 ```
 
-需要检查 Pro 转换时再设置 `OIL_UI_PRO_DIR`。上游集成测试会验证公开上游能否重现当前内置 Skill，因此上游 commit 与 manifest 不一致时应当失败，而不是自动选择另一份本地副本。
+此命令只验证公开 Lite 上游；设置 `OIL_UI_PRO_DIR` 不会增加 Pro 集成覆盖。`tests/provider-ownership.test.ts` 使用真实 Cordis Scope/SkillRegistry 和临时虚构 Pro，覆盖 Host、preset、Agent 各层的唯一 Pro 发布者，以及实际正文、目录、入口、版本与调用权限。原文 Pro 应报告 `skillReady=true`、`visibleMatchesOriginal=true`、`skillLoadState=ready`；错误的胜出定义必须报告 `overridden` 或 `unavailable`。`tests/upstream.test.ts` 验证 oil-cli 用户安装目录、链接、`CODEX_HOME` 与优先级，不读本机 Pro。Pro 评审手册每次读取原文，不转换、不缓存。
+
+真实 Harness 冒烟是显式命令：
+
+```bash
+npm run smoke:dsh
+```
+
+脚本从 PATH 查找真实 `dsh`，打包并安装到隔离的 `HOME`、`DSH_HOME`、`DSH_AGENTS_HOME` 和 XDG 目录，在临时 `~/.agents/skills/oil-ui-pro` 放置虚构原文 Pro。随后启动真实 Host，用公开 `agents.create` / `agentPresets.mount(scope, 'standard')` 创建标准 preset Agent，调用原生 `skill` 和状态工具。必须断言插件没有发布 Pro、全局可见的 Pro 仅来自 filesystem，模型目录只有一个 Pro 且发布者为 filesystem、正文与资源目录正确、状态正常、五个工具注册、Lite 版本与 manifest 一致。退出后清理临时目录；不提交用户任务，不启动模型或调用生图。
+
+安装依赖可能访问 npm registry，但 Host 阶段禁止外部请求。系统 pnpm/Corepack 不可用时，可用 `DSH_SMOKE_PNPM=/absolute/path/to/pnpm npm run smoke:dsh` 指定 pnpm；未指定时脚本准备临时独立 pnpm，不改系统安装或真实用户配置。详细断言和受测 DSH 版本由脚本输出。
 
 真实 oiloil 生图会产生积分消耗，不属于上述任何默认或集成测试。需要验证时必须单独授权，不能用 mock 结果冒充真实 API 已验证。
 

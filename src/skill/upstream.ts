@@ -1,23 +1,14 @@
-import { mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { join, resolve, relative, isAbsolute, dirname, sep } from 'node:path';
-import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
 import type { SkillRegistration, SkillDefinition, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill';
 import { OilApiError, readOilCredits, readOilToken } from '../oil-api.ts';
-import { loadProAdapter, ProAdapterError } from './adapter.ts';
-import type { ProAdapter } from './adapter.ts';
-import {
-  TRANSFORM_VERSION,
-  compileHarnessSkillTree,
-  isHarnessNativeSkillMarkdown,
-  transformSkillMarkdown,
-  validateSkillTree,
-} from './transform.ts';
+import { transformSkillMarkdown } from './transform.ts';
 
 const execFileAsync = promisify(execFile);
 const VERSIONS_URL = 'https://ui.oiloil.org/api/store/versions';
@@ -247,7 +238,7 @@ export async function checkSkillUpdate(
     return { latestVersion: latest, updateAvailable: false, updated: false, updateNotice: null, lastError };
   }
 
-  const targetDir = active.sourceDirectory ?? active.directory;
+  const targetDir = active.directory;
   if (performUpdate) {
     try {
       const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
@@ -329,10 +320,7 @@ export interface ActiveSkill {
   edition: 'pro' | 'lite';
   name: 'oil-ui-pro' | 'oil-ui';
   directory: string;
-  sourceDirectory?: string;
   source: 'local-pro' | 'bundled-lite';
-  adapter?: ProAdapter;
-  adapterError?: string;
 }
 
 function frontmatter(raw: string) {
@@ -345,7 +333,6 @@ function frontmatter(raw: string) {
 
 interface SkillHeader {
   data: Record<string, unknown>;
-  fingerprint: string;
 }
 const headers = new Map<string, { stamp: string; value: Promise<SkillHeader> }>();
 async function readHeader(path: string): Promise<SkillHeader> {
@@ -365,7 +352,7 @@ async function readHeader(path: string): Promise<SkillHeader> {
         raw = Buffer.concat(chunks).toString('utf8');
         if (/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.test(raw) || !bytesRead) break;
       }
-      return { data: frontmatter(raw).data, fingerprint: stamp };
+      return { data: frontmatter(raw).data };
     } finally {
       await handle.close();
     }
@@ -381,7 +368,26 @@ async function readHeader(path: string): Promise<SkillHeader> {
 
 async function findPro(options: SkillOptions): Promise<string | null> {
   const explicit = options.proSkillDir?.trim() || process.env.OIL_UI_PRO_DIR?.trim();
-  const candidates = [...(explicit ? [explicit] : []), ...dshSkillRoots('oil-ui-pro', options.cwd)];
+  // oil-cli installationRoots/targetRoot: Claude is the first default target;
+  // Codex/DSH normally share .agents, while --to accepts these user roots.
+  // Keep DSH roots ahead of cross-host Pro fallbacks; image-gen is unchanged.
+  const home = homedir();
+  const codexHome = process.env.CODEX_HOME?.trim();
+  const codexRoot = codexHome
+    ? codexHome === '~'
+      ? home
+      : /^~[/\\]/.test(codexHome)
+        ? join(home, codexHome.slice(2))
+        : resolve(codexHome)
+    : join(home, '.codex');
+  const candidates = [
+    ...(explicit ? [explicit] : []),
+    ...dshSkillRoots('oil-ui-pro', options.cwd),
+    join(home, '.claude', 'skills', 'oil-ui-pro'),
+    join(codexRoot, 'skills', 'oil-ui-pro'),
+    join(home, '.cursor', 'skills', 'oil-ui-pro'),
+    join(home, '.workbuddy', 'skills', 'oil-ui-pro'),
+  ];
   for (const candidate of new Set(candidates.filter((p): p is string => Boolean(p)))) {
     try {
       const directory = await realpath(resolve(candidate));
@@ -397,232 +403,53 @@ async function findPro(options: SkillOptions): Promise<string | null> {
   return null;
 }
 
-async function assertProAdapterDocuments(sourceDirectory: string, adapter: ProAdapter): Promise<void> {
-  const report = await validateSkillTree(sourceDirectory, { mode: 'lenient', ruleSet: adapter.rules });
-  if (report.unmatchedRules.some((rule) => adapter.requiredRuleIds.has(rule.id))) {
-    throw new ProAdapterError('Pro adapter required rules do not match the installed Pro documents.');
-  }
-}
-
-const pendingCompiles = new Map<string, Promise<string>>();
-export async function ensureHarnessProDirectory(sourceDir: string, snapshot?: ProAdapter): Promise<string> {
-  const adapter = snapshot ?? (await loadProAdapter(sourceDir, TRANSFORM_VERSION));
-  await assertProAdapterDocuments(sourceDir, adapter);
-  const pendingKey = `${sourceDir}\0${adapter.fingerprint}`;
-  const pending = pendingCompiles.get(pendingKey);
-  if (pending) return pending;
-  const compile = (async () => {
-    const toolsRaw = await readFile(join(sourceDir, 'references/tools.md'), 'utf8').catch(() => null);
-    if (toolsRaw === null) return sourceDir;
-    const hash = createHash('sha256').update(TRANSFORM_VERSION).update(sourceDir).update(adapter.fingerprint);
-    const ancestors = new Set<string>();
-    async function fingerprint(directory: string, prefix = ''): Promise<void> {
-      const actual = await realpath(directory);
-      const rel = relative(sourceDir, actual);
-      if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel) || ancestors.has(actual))
-        throw new Error('Invalid Skill directory tree');
-      ancestors.add(actual);
-      try {
-        for (const entry of (await readdir(actual, { withFileTypes: true })).sort((a, b) =>
-          a.name.localeCompare(b.name),
-        )) {
-          if (['.git', '.DS_Store', '__pycache__', '.oil-ui'].includes(entry.name)) continue;
-          const path = join(actual, entry.name);
-          const info = await stat(path);
-          const name = `${prefix}${entry.name}`;
-          if (info.isDirectory()) await fingerprint(path, `${name}/`);
-          else if (/\.md$/i.test(entry.name)) {
-            const real = await realpath(path);
-            const relativePath = relative(sourceDir, real);
-            if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath))
-              throw new Error('Skill Markdown escapes root');
-            hash
-              .update(name)
-              .update('\0')
-              .update(await readFile(real))
-              .update('\0');
-          }
-        }
-      } finally {
-        ancestors.delete(actual);
-      }
-    }
-    await fingerprint(sourceDir);
-    const digest = hash.digest('hex');
-    const cacheRoot = join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'cache', 'dsh-oil-ui');
-    const compiledDir = join(cacheRoot, `oil-ui-pro-${digest}`);
-    const ready = async () =>
-      (await readFile(join(compiledDir, '.complete'), 'utf8').catch(() => '')) === digest &&
-      (await stat(join(compiledDir, 'SKILL.md')).then(
-        (i) => i.isFile(),
-        () => false,
-      ));
-    if (await ready()) return compiledDir;
-    const incomplete = await stat(compiledDir).then(
-      () => true,
-      () => false,
-    );
-    await mkdir(cacheRoot, { recursive: true });
-    const staging = await mkdtemp(join(cacheRoot, '.oil-ui-pro-'));
-    try {
-      await compileHarnessSkillTree(sourceDir, staging, {
-        symlinkBinaryAssets: true,
-        mode: 'lenient',
-        ruleSet: adapter.rules,
-      });
-      await writeFile(join(staging, '.complete'), digest);
-      if (await ready()) return compiledDir;
-      if (incomplete) {
-        const orphan = `${compiledDir}.incomplete-${process.pid}-${Date.now()}`;
-        try {
-          await rename(compiledDir, orphan);
-          await rm(orphan, { recursive: true, force: true });
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        }
-      }
-      try {
-        await rename(staging, compiledDir);
-      } catch (error) {
-        if (!(await ready())) throw error;
-      }
-    } finally {
-      await rm(staging, { recursive: true, force: true });
-    }
-    return compiledDir;
-  })();
-  pendingCompiles.set(pendingKey, compile);
-  try {
-    return await compile;
-  } finally {
-    pendingCompiles.delete(pendingKey);
-  }
-}
-
 export interface SkillSnapshot {
   active: ActiveSkill;
   header: SkillHeader;
-  fingerprint: string;
 }
 export async function discoverSkill(options: SkillOptions = {}): Promise<SkillSnapshot> {
   const pro = options.preferPro !== false ? await findPro(options) : null;
-  let adapter: ProAdapter | undefined;
-  let adapterError: string | undefined;
-  if (pro) {
-    try {
-      adapter = await loadProAdapter(pro, TRANSFORM_VERSION);
-      await assertProAdapterDocuments(pro, adapter);
-    } catch (error) {
-      adapter = undefined;
-      adapterError =
-        error instanceof ProAdapterError ? error.message : 'Pro adapter or installed Pro documents are invalid.';
-    }
-  }
-  const active: ActiveSkill =
-    pro && adapter
-      ? {
-          edition: 'pro',
-          name: 'oil-ui-pro',
-          directory: pro,
-          sourceDirectory: pro,
-          source: 'local-pro',
-          adapter,
-        }
-      : {
-          edition: 'lite',
-          name: 'oil-ui',
-          directory: bundledSkillDirectory,
-          sourceDirectory: bundledSkillDirectory,
-          source: 'bundled-lite',
-          ...(adapterError ? { adapterError } : {}),
-        };
+  const active: ActiveSkill = pro
+    ? { edition: 'pro', name: 'oil-ui-pro', directory: pro, source: 'local-pro' }
+    : {
+        edition: 'lite',
+        name: 'oil-ui',
+        directory: bundledSkillDirectory,
+        source: 'bundled-lite',
+      };
   const header = await readHeader(join(active.directory, 'SKILL.md'));
-  return {
-    active,
-    header,
-    fingerprint: `${active.directory}:${header.fingerprint}:${adapter?.fingerprint ?? 'unavailable'}`,
-  };
+  return { active, header };
 }
 
-export async function resolveActiveSkill(options: SkillOptions = {}, snapshot?: SkillSnapshot): Promise<ActiveSkill> {
-  const { active } = snapshot ?? (await discoverSkill(options));
-  return active.edition === 'pro'
-    ? { ...active, directory: await ensureHarnessProDirectory(active.directory, active.adapter) }
-    : active;
+export async function resolveActiveSkill(options: SkillOptions = {}): Promise<ActiveSkill> {
+  return (await discoverSkill(options)).active;
 }
 
-const reviewerManuals = new Map<string, Promise<string>>();
+// Read the selected original manual afresh; never rewrite or cache Pro documents.
 export async function loadReviewerManual(options: SkillOptions = {}, activeSkill?: ActiveSkill): Promise<string> {
-  let active = activeSkill;
-  try {
-    active ??= await resolveActiveSkill(options);
-  } catch {
-    /* Use the bundled manual on discovery/compile failure. */
-  }
-  const compiled = Boolean(
-    active?.edition === 'pro' && active.sourceDirectory && active.directory !== active.sourceDirectory,
-  );
-  let adapter = active?.adapter;
-  if (active?.edition === 'pro' && !compiled && !adapter) {
+  const active = activeSkill ?? (await resolveActiveSkill(options).catch(() => undefined));
+  for (const directory of new Set([...(active ? [active.directory] : []), bundledSkillDirectory])) {
     try {
-      adapter = await loadProAdapter(active.sourceDirectory ?? active.directory, TRANSFORM_VERSION);
+      const base = await realpath(directory);
+      const path = await realpath(join(base, 'references/reviewer-manual.md'));
+      const rel = relative(base, path);
+      if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
+      return await readFile(path, 'utf8');
     } catch {
-      active = undefined;
-    }
-  }
-  const adapterHash = active?.adapter?.fingerprint ?? adapter?.fingerprint ?? '';
-  const ruleSet = active?.edition === 'pro' && !compiled ? adapter?.rules : undefined;
-  for (const path of [
-    ...new Set([
-      ...(active ? [join(active.directory, 'references', 'reviewer-manual.md')] : []),
-      join(bundledSkillDirectory, 'references', 'reviewer-manual.md'),
-    ]),
-  ]) {
-    try {
-      const info = await stat(path);
-      const key = `${TRANSFORM_VERSION}:${adapterHash}:${path}:${info.ino}:${info.mtimeMs}:${info.ctimeMs}:${info.size}`;
-      let manual = reviewerManuals.get(key);
-      if (!manual) {
-        manual = readFile(path, 'utf8').then((raw) =>
-          compiled
-            ? raw
-            : transformSkillMarkdown('references/reviewer-manual.md', raw, {
-                edition: active?.edition ?? 'lite',
-                mode: 'lenient',
-                ruleSet,
-              }).markdown,
-        );
-        reviewerManuals.set(key, manual);
-      }
-      return await manual;
-    } catch {
-      /* Continue to bundled manual. */
+      /* Continue to the bundled manual. */
     }
   }
   return '';
 }
 
-export async function loadUpstreamSkill(
-  options: SkillOptions = {},
-  snapshot?: SkillSnapshot,
-): Promise<SkillRegistration> {
-  const active = await resolveActiveSkill(options, snapshot);
+export async function loadUpstreamSkill(options: SkillOptions = {}): Promise<SkillRegistration> {
+  const active = await resolveActiveSkill(options);
   const path = join(active.directory, 'SKILL.md');
-  const raw = await readFile(path, 'utf8');
-  const native = isHarnessNativeSkillMarkdown(raw);
-  const ruleSet =
-    active.adapter?.rules ??
-    (!native && active.edition === 'pro'
-      ? (await loadProAdapter(active.sourceDirectory ?? active.directory, TRANSFORM_VERSION)).rules
-      : undefined);
-  const compiled = native
-    ? raw
-    : transformSkillMarkdown('SKILL.md', raw, { edition: active.edition, mode: 'lenient', ruleSet }).markdown;
-  const { data, content } = frontmatter(compiled);
+  const { data, content } = frontmatter(await readFile(path, 'utf8'));
   if (data.name !== active.name) throw new Error('Invalid active Skill identity');
   return {
     name: active.name,
-    description: typeof data.description === 'string' ? data.description : 'Oil UI Pro local installation',
+    description: typeof data.description === 'string' ? data.description : 'Oil UI',
     metadata: data.metadata,
     path,
     source: active.source,
@@ -632,91 +459,101 @@ export async function loadUpstreamSkill(
   };
 }
 
-export function createSkillProvider(options: SkillOptions, control: SkillProviderControl) {
+// This invariant belongs here, not just in apply(): callers cannot accidentally
+// turn this provider into a second publisher of oil-ui-pro.
+export function createSkillProvider(_options: SkillOptions, control: SkillProviderControl): SkillProvider {
   const name = 'oil-ui-provider';
-  const snapshots = new Map<string, SkillSnapshot>();
-  const refresh = async (cwd = options.cwd) => {
-    control.signal.throwIfAborted();
-    const key = cwd ?? '';
-    const snapshot = await discoverSkill({ ...options, cwd });
-    const previous = snapshots.get(key) ?? snapshots.get('');
-    snapshots.set(key, snapshot);
-    return { snapshot, changed: Boolean(previous && previous.fingerprint !== snapshot.fingerprint) };
-  };
   return {
     name,
-    refresh,
     async list(lookup) {
-      lookup.signal?.throwIfAborted();
-      const { snapshot } = await refresh(lookup.cwd);
-      const { active, header } = snapshot;
-      return [
-        {
-          name: active.name,
-          description: String(header.data.description ?? 'Oil UI'),
-          metadata: header.data.metadata as Record<string, unknown> | undefined,
-          path: join(active.directory, 'SKILL.md'),
-          source: active.source,
-          provider: name,
-          resourceBase: { kind: 'directory' as const, path: active.directory },
-          invocation: { modelInvocable: true, userInvocable: true },
-          rank: active.edition === 'pro' ? 10 : 20,
-          locator: snapshot.fingerprint,
-        },
-      ];
-    },
-    async get(candidate, lookup) {
-      lookup.signal?.throwIfAborted();
-      const snapshot = snapshots.get(lookup.cwd ?? options.cwd ?? '') ?? (await refresh(lookup.cwd)).snapshot;
-      if (candidate.name !== snapshot.active.name || candidate.locator !== snapshot.fingerprint) return undefined;
-      const skill = await loadUpstreamSkill({ ...options, cwd: lookup.cwd ?? options.cwd }, snapshot);
       control.signal.throwIfAborted();
       lookup.signal?.throwIfAborted();
-      return { ...skill, provider: name, invocation: skill.invocation! };
+      const skill = await loadUpstreamSkill({ preferPro: false });
+      return [{ ...skill, provider: name, invocation: skill.invocation!, rank: 20, locator: 'bundled-lite' }];
     },
-  } satisfies SkillProvider & { refresh: typeof refresh };
+    async get(candidate, lookup) {
+      if (candidate.name !== 'oil-ui') return undefined;
+      control.signal.throwIfAborted();
+      lookup.signal?.throwIfAborted();
+      return {
+        ...(await loadUpstreamSkill({ preferPro: false })),
+        provider: name,
+        invocation: { modelInvocable: true, userInvocable: true },
+      };
+    },
+  };
+}
+
+// Validate the definition selected by the caller's scope, not a preferred local
+// installation or a provider label. Pro's expected content is its original file.
+export async function matchesNativeSkill(visible: SkillDefinition | null | undefined): Promise<boolean> {
+  if (!visible || visible.invocation?.modelInvocable === false || visible.resourceBase?.kind !== 'directory')
+    return false;
+  if (visible.name !== 'oil-ui' && visible.name !== 'oil-ui-pro') return false;
+  try {
+    const directory = await realpath(visible.resourceBase.path);
+    const expected = await loadUpstreamSkill(
+      visible.name === 'oil-ui-pro' ? { proSkillDir: directory } : { preferPro: false },
+    );
+    const expectedDirectory =
+      expected.resourceBase?.kind === 'directory' ? await realpath(expected.resourceBase.path) : null;
+    return (
+      visible.name === expected.name &&
+      visible.metadata?.version === expected.metadata?.version &&
+      // Harness filesystem trims boundary whitespace when parsing Markdown.
+      (visible.name === 'oil-ui-pro'
+        ? visible.content.trim() === expected.content.trim()
+        : visible.content === expected.content) &&
+      directory === expectedDirectory &&
+      Boolean(visible.path && expected.path && (await realpath(visible.path)) === (await realpath(expected.path)))
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function skillStatus(
   visible?: SkillDefinition | null,
   options: SkillStatusOptions = {},
   snapshot?: SkillSnapshot,
+  refreshVisible?: () => Promise<SkillDefinition | null | undefined>,
 ) {
   snapshot ??= await discoverSkill(options);
-  let active = snapshot.active;
-  let expected = snapshot.header.data;
-  const manifestPath = join(bundledSkillDirectory, '../oil-ui.manifest.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: string; files: unknown[] };
-  const pro = active.edition === 'pro' ? (active.sourceDirectory ?? active.directory) : await findPro(options);
-  let activeVersion = String((expected.metadata as Record<string, unknown> | undefined)?.version ?? 'unknown');
-  const visibleBase = visible?.resourceBase?.kind === 'directory' ? visible.resourceBase.path : null;
-  const effectiveActive =
-    visible && visibleBase && ['oil-ui', 'oil-ui-pro'].includes(visible.name)
+  const matchedBeforeUpdate = await matchesNativeSkill(visible);
+  const targetBase = visible?.resourceBase?.kind === 'directory' ? visible.resourceBase.path : null;
+  const targetEdition = visible?.name === 'oil-ui-pro' ? 'pro' : 'lite';
+  const updateTarget: ActiveSkill =
+    visible && targetBase && (visible.name === 'oil-ui-pro' || visible.name === 'oil-ui')
       ? {
-          ...active,
-          name: visible.name as ActiveSkill['name'],
-          edition: visible.name === 'oil-ui-pro' ? ('pro' as const) : ('lite' as const),
-          directory: visibleBase,
-          sourceDirectory: visible.provider === 'oil-ui-provider' ? active.sourceDirectory : visibleBase,
+          edition: targetEdition,
+          name: visible.name,
+          directory: targetBase,
+          source: targetEdition === 'pro' ? 'local-pro' : 'bundled-lite',
         }
-      : active;
+      : snapshot.active;
   const updateInfo = await checkSkillUpdate(
-    effectiveActive,
-    String(visible?.metadata?.version ?? activeVersion),
-    Boolean(options.update),
+    updateTarget,
+    String(visible?.metadata?.version ?? 'unknown'),
+    Boolean(options.update && matchedBeforeUpdate),
   );
   if (updateInfo.updated) {
+    // Reload through the same Harness scope; a file on disk is not proof of the winner.
+    if (refreshVisible) visible = await refreshVisible();
     snapshot = await discoverSkill(options);
-    active = snapshot.active;
-    expected = snapshot.header.data;
-    activeVersion = String((expected.metadata as Record<string, unknown> | undefined)?.version ?? 'unknown');
   }
-  const effective = visible ?? null;
-  const effectiveBase = effective?.resourceBase?.kind === 'directory' ? effective.resourceBase.path : null;
-  const effectiveName = effective?.name ?? active.name;
-  const effectiveEdition = effectiveName === 'oil-ui-pro' ? 'pro' : 'lite';
-  activeVersion = String(effective?.metadata?.version ?? activeVersion);
-  const recommendInfo = await checkRecommendOnce(effectiveEdition);
+  const { active, header } = snapshot;
+  const manifestPath = join(bundledSkillDirectory, '../oil-ui.manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: string; files: unknown[] };
+  const visibleMatchesOriginal = updateInfo.updated ? await matchesNativeSkill(visible) : matchedBeforeUpdate;
+  const effectiveBase = visible?.resourceBase?.kind === 'directory' ? visible.resourceBase.path : null;
+  const effectiveName = visible?.name ?? active.name;
+  const edition = effectiveName === 'oil-ui-pro' ? 'pro' : 'lite';
+  const activeVersion = String(visible?.metadata?.version ?? 'unknown');
+  const pro =
+    visible?.name === 'oil-ui-pro' && visibleMatchesOriginal && effectiveBase
+      ? await realpath(effectiveBase)
+      : await findPro(options);
+  const recommendInfo = await checkRecommendOnce(edition);
   const imageGenScriptPath = await resolveImageGenScript(options);
   const oilToken = await readOilToken();
   let oilLoggedIn = Boolean(oilToken);
@@ -730,61 +567,44 @@ export async function skillStatus(
       oilBalanceError = '无法查询 oiloil 余额';
     }
   }
-  const imageSource = imageGenScriptPath ? 'image-gen' : oilLoggedIn ? 'oiloil' : 'none';
-  // Read only the rule files; no compilation or extra cache is needed for diagnostics.
-  const newerThanBaseline = active.edition === 'pro' && isNewerVersion(activeVersion, manifest.version);
-  const transformDiagnostics =
-    active.edition === 'pro'
-      ? await validateSkillTree(active.sourceDirectory ?? active.directory, {
-          mode: 'lenient',
-          ruleSet: active.adapter?.rules,
-        })
-          .then((report) => {
-            const unmatchedRules = report.unmatchedRules.map((rule) => ({
-              ...rule,
-              severity: newerThanBaseline ? ('warning' as const) : ('error' as const),
-            }));
-            const warning =
-              unmatchedRules.length > 0
-                ? newerThanBaseline
-                  ? '当前 Pro Skill 版本新于插件转换基线，部分指引未改写'
-                  : '当前 Pro Skill 存在未匹配的转换规则，部分指引未改写'
-                : null;
-            return {
-              sourceDirectory: active.sourceDirectory ?? active.directory,
-              baselineVersion: manifest.version,
-              activeVersion,
-              newerThanBaseline,
-              warning,
-              unmatchedRules,
-            };
-          })
-          .catch(() => null)
-      : null;
+  const skillLoadState = visibleMatchesOriginal
+    ? ('ready' as const)
+    : !visible || visible.invocation?.modelInvocable === false
+      ? ('unavailable' as const)
+      : ('overridden' as const);
+  const skillLoadWarning = visibleMatchesOriginal
+    ? null
+    : !visible
+      ? '当前作用域未能加载 Oil UI Skill。'
+      : visible.invocation?.modelInvocable === false
+        ? `当前 Skill 由 ${visible.provider} 发布，但已禁止模型调用。`
+        : `当前 Skill 由 ${visible.provider} 发布，其正文、资源目录、版本或入口路径与实际安装不一致。`;
   return {
-    transformDiagnostics,
-    transformWarning: transformDiagnostics?.warning ?? null,
+    skillReady: visibleMatchesOriginal,
+    nativeSkillReady: visibleMatchesOriginal,
+    skillLoadState,
+    skillLoadWarning,
     imageGenAvailable: imageGenScriptPath !== null,
     imageGenScriptPath,
-    imageSource,
+    imageSource: imageGenScriptPath ? 'image-gen' : oilLoggedIn ? 'oiloil' : 'none',
     oilLoggedIn,
     oilBalance,
     oilBalanceError,
-    edition: effectiveEdition,
+    edition,
     activeSkillName: effectiveName,
     detected: {
       name: active.name,
       edition: active.edition,
-      version: String((expected.metadata as Record<string, unknown> | undefined)?.version ?? 'unknown'),
+      version: String((header.data.metadata as Record<string, unknown> | undefined)?.version ?? 'unknown'),
       path: join(active.directory, 'SKILL.md'),
     },
-    effective: effective
+    effective: visible
       ? {
-          name: effective.name,
+          name: visible.name,
           version: activeVersion,
-          path: effective.path,
-          resourceBase: effective.resourceBase,
-          provider: effective.provider,
+          path: visible.path,
+          resourceBase: visible.resourceBase,
+          provider: visible.provider,
         }
       : null,
     activeVersion,
@@ -797,31 +617,23 @@ export async function skillStatus(
     recommendOnceNotice: recommendInfo.recommendOnceNotice,
     bundledVersion: manifest.version,
     proInstalled: pro !== null,
+    proVisible: visible?.name === 'oil-ui-pro',
     proSourcePath: pro,
-    proAdapterReady: active.edition === 'pro' && !active.adapterError,
-    proAdapterError: active.adapterError ?? null,
-    activeResourceBase: effectiveBase ?? active.directory,
+    activeResourceBase: effectiveBase,
     name: effectiveName,
     version: activeVersion,
     fileCount: manifest.files.length,
     manifestPath,
-    resourceBase: effective?.resourceBase ?? { kind: 'directory', path: active.directory },
-    path: effective?.path ?? join(active.directory, 'SKILL.md'),
-    visibleMatchesOriginal: Boolean(
-      visible &&
-      visible.name === active.name &&
-      (visible.provider === 'oil-ui-provider' ||
-        visible.path === join(active.directory, 'SKILL.md') ||
-        (active.edition === 'pro' &&
-          visible.path === join(await ensureHarnessProDirectory(active.directory), 'SKILL.md'))),
-    ),
-    upgradeHint: active.adapterError
-      ? `Pro 适配器未就绪：${active.adapterError} 当前使用 Lite。`
-      : active.edition === 'lite'
-        ? '可通过 npx github:oil-oil/oil-cli install oil-ui-pro 安装 Pro 版，再调用 oil_ui_skill_status 刷新目录，无需重启即可解锁。'
-        : transformDiagnostics?.warning
-          ? `已激活本机 Pro 版（${transformDiagnostics.warning}）。`
-          : '已激活本机 Pro 版。',
-    note: 'Manifest hashes are offline packaging evidence. No hash gate is enforced during loading or execution.',
+    resourceBase: visible?.resourceBase ?? null,
+    path: visible?.path ?? null,
+    visibleMatchesOriginal,
+    upgradeHint:
+      skillLoadWarning ??
+      (edition === 'pro'
+        ? '已加载本机 Pro 原文，宿主工具用法见 references/tools.md。'
+        : pro
+          ? '已发现本地 Pro，但当前 Agent 的 filesystem Skill 目录未发布它；当前加载内置 Lite。配置插件发现路径不会发布 Pro，请检查 Harness 的 Skill 目录。'
+          : '可通过 npx github:oil-oil/oil-cli install oil-ui-pro 安装 Pro；由 Harness filesystem Provider 发现并直接加载原文。'),
+    note: 'Pro instructions are loaded unchanged by Harness filesystem. Manifest hashes are offline Lite packaging evidence.',
   };
 }
