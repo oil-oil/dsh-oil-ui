@@ -8,13 +8,15 @@ import { pathToFileURL } from 'node:url';
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import type { SkillCandidate } from '@deepseek-ai/dsh-skill';
 import type { createSkillProvider } from '../src/skill/upstream.ts';
-import { writeProAdapter } from './pro-adapter-fixture.ts';
 
 const exec = promisify(execFile);
 const isolatedHome = vi.hoisted(() => ({ path: '' }));
 vi.mock('node:os', async (original) => ({
   ...(await original<typeof import('node:os')>()),
-  homedir: () => isolatedHome.path,
+  homedir: () => {
+    if (!isolatedHome.path) throw new Error('Test HOME must be isolated');
+    return isolatedHome.path;
+  },
 }));
 
 it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpacked archive', async () => {
@@ -23,10 +25,31 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
   const disposers: (() => void | Promise<void>)[] = [];
   const previousEnv = {
     DSH_HOME: process.env.DSH_HOME,
+    DSH_AGENTS_HOME: process.env.DSH_AGENTS_HOME,
+    CODEX_HOME: process.env.CODEX_HOME,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    XDG_STATE_HOME: process.env.XDG_STATE_HOME,
+    APPDATA: process.env.APPDATA,
     OIL_NO_UPDATE_CHECK: process.env.OIL_NO_UPDATE_CHECK,
     OIL_TOKEN: process.env.OIL_TOKEN,
+    OIL_API: process.env.OIL_API,
     OIL_UI_PRO_DIR: process.env.OIL_UI_PRO_DIR,
     OIL_UI_IMAGE_GEN_SCRIPT: process.env.OIL_UI_IMAGE_GEN_SCRIPT,
+  };
+  const childEnv = {
+    ...process.env,
+    HOME: root,
+    DSH_HOME: join(root, '.dsh'),
+    DSH_AGENTS_HOME: '',
+    CODEX_HOME: '',
+    XDG_CONFIG_HOME: join(root, '.config'),
+    XDG_STATE_HOME: join(root, '.local/state'),
+    APPDATA: join(root, 'AppData/Roaming'),
+    OIL_NO_UPDATE_CHECK: '1',
+    OIL_TOKEN: '',
+    OIL_API: '',
+    OIL_UI_PRO_DIR: '',
+    OIL_UI_IMAGE_GEN_SCRIPT: '',
   };
   try {
     for (const entry of ['src', 'scripts', 'skills', 'tsdown.config.ts', 'tsconfig.json', 'package.json', 'LICENSE']) {
@@ -36,11 +59,11 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     await mkdir(join(root, 'lib'));
     await writeFile(join(root, 'lib/index.js'), 'throw new Error("STALE_BUILD_SENTINEL");');
     const archive = join(root, 'result.tgz');
-    const result = await exec(process.execPath, ['scripts/package-plugin.mjs', archive], { cwd: root });
+    const result = await exec(process.execPath, ['scripts/package-plugin.mjs', archive], { cwd: root, env: childEnv });
     expect(result.stdout).toContain('Build complete');
     const unpack = join(root, 'unpacked');
     await mkdir(unpack);
-    await exec('tar', ['-xzf', archive, '-C', unpack]);
+    await exec('tar', ['-xzf', archive, '-C', unpack], { env: childEnv });
     const bundled = await readFile(join(unpack, 'package/lib/index.js'), 'utf8');
     expect(bundled).not.toContain('STALE_BUILD_SENTINEL');
     expect(bundled).toContain('oil-ui-subagent-reviewer');
@@ -48,8 +71,14 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
 
     isolatedHome.path = root;
     process.env.DSH_HOME = join(root, '.dsh');
+    process.env.DSH_AGENTS_HOME = '';
+    process.env.CODEX_HOME = '';
+    process.env.XDG_CONFIG_HOME = join(root, '.config');
+    process.env.XDG_STATE_HOME = join(root, '.local/state');
+    process.env.APPDATA = join(root, 'AppData/Roaming');
     process.env.OIL_NO_UPDATE_CHECK = '1';
     process.env.OIL_TOKEN = '';
+    process.env.OIL_API = '';
     process.env.OIL_UI_PRO_DIR = '';
     process.env.OIL_UI_IMAGE_GEN_SCRIPT = '';
     const { apply } = await import(pathToFileURL(join(unpack, 'package/lib/index.js')).href);
@@ -76,7 +105,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
         if (services.includes('commands')) child.commands = { register: () => () => {} };
         if (services.includes('skills')) {
           child.skills = {
-            get: async () => candidate,
+            get: async (name: string) => (candidate?.name === name ? provider?.get(candidate, {}) : undefined),
             registerProvider: ctx.skills.registerProvider,
           };
         }
@@ -94,6 +123,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     await Promise.all(pending);
     if (!provider) throw new Error('Packaged Skill provider was not registered');
     const candidates = await provider.list({});
+    if (!Array.isArray(candidates)) throw new Error('Expected a complete packaged Lite catalog');
     expect(candidates).toHaveLength(1);
     candidate = candidates[0];
     if (!candidate) throw new Error('Packaged Lite candidate is missing');
@@ -116,7 +146,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
       edition: 'lite',
       activeSkillName: 'oil-ui',
-      bundledVersion: '0.33.0',
+      bundledVersion: '0.33.1',
       manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       visibleMatchesOriginal: true,
     });
@@ -129,27 +159,30 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
         .execute({ target: 'style-explorer.html', out: 'shots/explorer.png', dryRun: true }, run),
     ).toMatchObject({ ok: true, outputFiles: [] });
 
-    // Verify packaged layout with local Pro installed as well (#12).
+    // Installing a raw Pro does not turn the packaged Lite provider into a second Pro publisher.
     const proDir = join(root, '.dsh/skills/oil-ui-pro');
     await mkdir(join(proDir, 'references'), { recursive: true });
-    await writeProAdapter(proDir);
+    await mkdir(join(proDir, 'adapters/dsh'), { recursive: true });
+    await writeFile(join(proDir, 'adapters/dsh/adapter.json'), '{ stale adapter residue');
     await writeFile(
       join(proDir, 'SKILL.md'),
       '---\nname: oil-ui-pro\ndescription: Packaged Pro\nmetadata:\n  version: "0.29.1"\n---\nUse `scripts/shoot.mjs`\n',
     );
     await writeFile(join(proDir, 'references/tools.md'), '# 工具\n`node scripts/shoot.mjs index.html`\n');
     const proCandidates = await provider.list({});
+    if (!Array.isArray(proCandidates)) throw new Error('Expected a complete packaged Lite catalog');
     expect(proCandidates).toHaveLength(1);
     candidate = proCandidates[0];
-    expect(candidate?.name).toBe('oil-ui-pro');
+    expect(candidate?.name).toBe('oil-ui');
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
-      edition: 'pro',
-      activeSkillName: 'oil-ui-pro',
-      activeVersion: '0.29.1',
-      bundledVersion: '0.33.0',
+      edition: 'lite',
+      activeSkillName: 'oil-ui',
+      activeVersion: '0.33.1',
+      bundledVersion: '0.33.1',
       manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       proInstalled: true,
-      proAdapterReady: true,
+      nativeSkillReady: true,
+      skillLoadState: 'ready',
       visibleMatchesOriginal: true,
     });
   } finally {

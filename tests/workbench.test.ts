@@ -8,14 +8,19 @@ import { buildExplorer, Embedder } from '../src/explorer.ts';
 import { bundledSkillDirectory, type ActiveSkill } from '../src/skill/upstream.ts';
 import { ManagedProcesses } from '../src/processes.ts';
 import type { ImageRequest } from '../src/tool-requests.ts';
-import { writeProAdapter } from './pro-adapter-fixture.ts';
 
 vi.mock('node:fs/promises', { spy: true });
 
 const localHome = vi.hoisted(() => ({ path: '' }));
 vi.mock('node:os', async (original) => {
   const os = await original<typeof import('node:os')>();
-  return { ...os, homedir: () => localHome.path || os.homedir() };
+  return {
+    ...os,
+    homedir: () => {
+      if (!localHome.path) throw new Error('Test HOME must be isolated');
+      return localHome.path;
+    },
+  };
 });
 
 const instances: DesignWorkbench[] = [];
@@ -35,6 +40,12 @@ beforeEach(async () => {
   localHome.path = await realpath(await mkdtemp(join(tmpdir(), 'oil-workbench-home-')));
   roots.push(localHome.path);
   vi.stubEnv('DSH_HOME', join(localHome.path, '.dsh'));
+  vi.stubEnv('DSH_AGENTS_HOME', '');
+  vi.stubEnv('CODEX_HOME', '');
+  vi.stubEnv('XDG_CONFIG_HOME', join(localHome.path, '.config'));
+  vi.stubEnv('XDG_STATE_HOME', join(localHome.path, '.local/state'));
+  vi.stubEnv('APPDATA', join(localHome.path, 'AppData/Roaming'));
+  vi.stubEnv('OIL_NO_UPDATE_CHECK', '1');
   vi.stubEnv('OIL_UI_PRO_DIR', '');
   vi.stubEnv('OIL_UI_IMAGE_GEN_SCRIPT', '');
   vi.stubEnv('OIL_TOKEN', '');
@@ -67,7 +78,6 @@ async function scriptedWorkbench(script: string, mediaScript?: string) {
   await mkdir(join(skill, 'scripts'), { recursive: true });
   await mkdir(cwd, { recursive: true });
   await writeFile(join(skill, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Test local tools\n---\nInstructions');
-  await writeProAdapter(skill);
   await writeFile(join(skill, 'scripts/shoot.mjs'), script);
   await writeFile(join(skill, 'scripts/curate-media.mjs'), mediaScript ?? script);
   await writeFile(join(cwd, 'index.html'), '<title>Native page</title>');
@@ -490,7 +500,6 @@ it('hot-switches explorer templates and scripts on one workbench after Pro is in
   const pro = join(localHome.path, '.dsh/skills/oil-ui-pro');
   await mkdir(join(pro, 'assets'), { recursive: true });
   await mkdir(join(pro, 'scripts'), { recursive: true });
-  await writeProAdapter(pro);
   await writeFile(join(pro, 'SKILL.md'), '---\nname: oil-ui-pro\ndescription: Hot Pro\n---\nPro instructions');
   await writeFile(
     join(pro, 'assets/style-explorer.html'),

@@ -1,19 +1,6 @@
-import {
-  chmod,
-  copyFile,
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  realpath,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { parse } from 'yaml';
-import { loadMarkdownRules } from './adapter.ts';
 import { MARKDOWN_RULES } from './rules.ts';
 import type { MarkdownRule, SkillEdition } from './rules.ts';
 
@@ -24,6 +11,14 @@ export const TRANSFORM_VERSION = '9';
 
 const EXCLUDED_NAMES = new Set(['.git', '.DS_Store', '__pycache__', '.oil-ui']);
 const DOC_ONLY_PATHS = new Set(['assets/readme', 'README.en.md']);
+
+function isExcludedSkillEntry(relativePath: string, entry: { name: string; isDirectory(): boolean }): boolean {
+  return (
+    EXCLUDED_NAMES.has(entry.name) ||
+    DOC_ONLY_PATHS.has(relativePath) ||
+    (!entry.isDirectory() && entry.name.endsWith('.pyc'))
+  );
+}
 
 export type TransformInput = 'upstream' | 'native';
 export interface TransformOptions {
@@ -58,8 +53,17 @@ function assertRequiredRules(results: RuleResult[]): void {
   if (missing.length) throw new SkillTransformError(missing);
 }
 
+function skillName(raw: string): unknown {
+  const header = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  return header ? parse(header[1]!)?.name : undefined;
+}
+
 export function transformSkillMarkdown(relativePath: string, raw: string, options: TransformOptions) {
+  if (options.edition !== 'lite') throw new Error('Only public oil-ui Lite may be transformed.');
   const file = relativePath.split(/[/\\]/).join('/');
+  if (file === 'SKILL.md' && skillName(raw) === 'oil-ui-pro') {
+    throw new Error('Only public oil-ui Lite may be transformed.');
+  }
   const nativeEvidence = raw.split('\r\n').join('\n');
   const rules: RuleResult[] = [];
   let markdown = raw;
@@ -112,16 +116,12 @@ export async function validateSkillTree(
     }
   }
   const skill = await readMarkdown('SKILL.md');
-  const header = skill.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-  const name = header ? parse(header[1]!)?.name : undefined;
-  if (name !== 'oil-ui' && name !== 'oil-ui-pro')
-    throw new Error('Expected oil-ui or oil-ui-pro SKILL.md frontmatter.');
+  if (skillName(skill) !== 'oil-ui') throw new Error('Only public oil-ui Lite may be transformed.');
   const context: TransformOptions = {
-    edition: name === 'oil-ui' ? 'lite' : 'pro',
+    edition: 'lite',
     input: isHarnessNativeSkillMarkdown(skill) ? 'native' : 'upstream',
     mode: 'lenient',
-    ruleSet:
-      options.ruleSet ?? (await loadMarkdownRules(name === 'oil-ui' ? 'lite' : 'pro', realSource, TRANSFORM_VERSION)),
+    ruleSet: options.ruleSet ?? MARKDOWN_RULES,
   };
   for (const file of new Set(context.ruleSet!.map((rule) => rule.file))) {
     const raw = file === 'SKILL.md' ? skill : await readMarkdown(file);
@@ -144,7 +144,7 @@ export function isHarnessNativeSkillMarkdown(raw: string): boolean {
 export async function compileHarnessSkillTree(
   sourceRoot: string,
   targetRoot: string,
-  options: { symlinkBinaryAssets?: boolean; mode?: TransformOptions['mode']; ruleSet?: readonly MarkdownRule[] } = {},
+  options: { mode?: TransformOptions['mode']; ruleSet?: readonly MarkdownRule[] } = {},
 ) {
   const realSource = await realpath(sourceRoot);
   const report = await validateSkillTree(realSource, options);
@@ -155,8 +155,7 @@ export async function compileHarnessSkillTree(
     const entries = await readdir(currentSource, { withFileTypes: true });
     for (const entry of entries) {
       const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
-      if (EXCLUDED_NAMES.has(entry.name) || DOC_ONLY_PATHS.has(relPath)) continue;
-      if (!entry.isDirectory() && entry.name.endsWith('.pyc')) continue;
+      if (isExcludedSkillEntry(relPath, entry)) continue;
 
       const srcPath = await realpath(join(currentSource, entry.name));
       const relFromRoot = relative(realSource, srcPath);
@@ -167,11 +166,6 @@ export async function compileHarnessSkillTree(
       const dstPath = join(targetRoot, ...relPath.split('/'));
 
       if (info.isDirectory()) {
-        if (options.symlinkBinaryAssets && (relPath === 'assets' || relPath === 'scripts')) {
-          await mkdir(dirname(dstPath), { recursive: true });
-          await symlink(srcPath, dstPath, process.platform === 'win32' ? 'junction' : 'dir');
-          continue;
-        }
         await mkdir(dstPath, { recursive: true });
         await walk(srcPath, relPath);
         continue;

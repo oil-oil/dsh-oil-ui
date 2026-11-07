@@ -11,7 +11,9 @@
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm release:check
+npm run release:check
+OIL_UI_SOURCE_DIR=../oil-ui npm run test:integration
+npm run smoke:dsh
 ```
 
 `release:check` 会执行完整检查、生成并解包验证 tarball，再核对发布元数据。打包测试会实际加载解包后的 Lite，调用 `oil_ui_skill_status`、`oil_ui_explorer` 和 `oil_ui_shoot` 的离线解析，防止源码目录与安装目录不同造成运行时路径失效。发布后还要下载正式附件，核对安装和实际加载。需要模拟 tag 校验时运行：
@@ -43,4 +45,26 @@ GitHub 分支保护应要求 PR 和 CI 通过。定时 Skill 同步也只创建�
 
 普通整理和 CI 运行不创建 Tag、Release 或线上更新。真实 oiloil 生图需要单独授权，不是发布检查的隐含步骤。若目标 Harness 版本、实际安装或真实模型执行尚未验证，应在发布说明中明确写出，不能只凭单元测试宣称全部运行时场景已覆盖。
 
-涉及 Pro 适配协议或私有规则交付时，必须先发布并实际验证兼容的 `oil-ui-pro` 安装包，再创建插件 Tag 和 Release。不得通过公开源码、测试、生成物、日志或 PR 说明补回 Pro 专用正文；协议或必需规则不兼容时保持 Lite 回退。
+Pro 原文由 Harness filesystem Provider 唯一发布，插件不转换、不发布同名 Pro。状态以标准 preset Agent 实际拿到的正文、资源目录、入口路径、版本与调用权限为准。不得仅凭全局注册表、发现路径或 Provider 标签宣称可用。`npm run smoke:dsh` 是每次发版前的必跑步骤，使用临时虚构 Pro 和真实 DSH，不需要真实 Pro、凭据或付费调用；详见 [测试分层](development.md#测试分层)。离线 `check` 和 `pack:plugin` 不能代替它。
+
+## 和 Pro 配对发版
+
+Pro 或公开 `oil-ui` 有改动、插件也要跟着发时：
+
+1. 先按 Pro 仓库的流程配对发布 Pro 和公开 `oil-ui`。插件只从已发布的公开 `../oil-ui` 同步，不从 Pro 源目录或未发布的构建同步。
+2. 在插件仓库运行：
+
+   ```bash
+   OIL_UI_SOURCE_DIR=../oil-ui npm run sync:skill
+   npm run build
+   npm run release:check
+   OIL_UI_SOURCE_DIR=../oil-ui npm run test:integration
+   npm run smoke:dsh
+   ```
+
+3. 核对 manifest 的上游仓库、完整 commit 和 Skill 版本，再提发布 PR、合入后打 Tag。
+4. 已发布的插件版本号不再复用；同步晚于某次插件发布时，用新的插件版本。
+
+Pro 仓库的 `adapters/dsh/` 只为已发布的旧插件（0.4.9 及更早）保留，本插件不读取；上游计划最早在 `0.35.0` 移除。
+
+本次虚构 Pro 冒烟只验证原文发布、作用域、工具和状态契约，不代表真实模型已经执行设计或付费生图。

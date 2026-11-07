@@ -7,11 +7,12 @@ import '@deepseek-ai/dsh-system-prompt';
 import {
   loadUpstreamSkill,
   skillStatus,
-  resolveActiveSkill,
   createSkillProvider,
   loadReviewerManual,
   discoverSkill,
   bundledSkillDirectory,
+  matchesNativeSkill,
+  type ActiveSkill,
 } from './skill/upstream.ts';
 import { Config } from './config.ts';
 import { DesignWorkbench } from './workbench/index.ts';
@@ -20,7 +21,7 @@ export { Config };
 export const name = 'dsh-oil-ui';
 
 export const MAIN_AGENT_SYSTEM_PROMPT =
-  'For UI tasks, call oil_ui_skill_status first to refresh discovery and read activeSkillName (local oil-ui-pro installs unlock without restarting), then load that Skill using the skill tool. Read and write project files directly in the current working directory. Use oil_ui_explorer for style-explorer.html comparison pages, oil_ui_shoot for screenshots/interactions/responsive checks/recordings, oil_ui_media for public-domain and museum media search/preview/fetch, and oil_ui_image for generating or editing visual assets. For standard single-page prototypes or small edits, verify directly with oil_ui_shoot and read_image; only dispatch subagent for independent visual/UX review on complex multi-page revamps or when explicitly requested.';
+  'For UI tasks, call oil_ui_skill_status first to inspect the model-visible Skill and nativeSkillReady. Load oil-ui-pro with the skill tool only when activeSkillName is oil-ui-pro and nativeSkillReady is true. Pro is loaded unchanged from Harness filesystem; follow its host-tools section in references/tools.md. Otherwise use the bundled oil-ui Skill if available and report skillLoadWarning when present. Read and write project files directly in the current working directory. Use oil_ui_explorer for style-explorer.html comparison pages, oil_ui_shoot for screenshots/interactions/responsive checks/recordings, oil_ui_media for public-domain and museum media search/preview/fetch, and oil_ui_image for generating or editing visual assets. For standard single-page prototypes or small edits, verify directly with oil_ui_shoot and read_image; only dispatch subagent for independent visual/UX review on complex multi-page revamps or when explicitly requested.';
 
 export function buildSubagentSystemPrompt(reviewerManual: string, referencesPath?: string): string {
   return [
@@ -69,18 +70,17 @@ export function apply(ctx: Context, config: Config) {
   const workbench = new DesignWorkbench(config.workspaceRoot, config.previewPort, config);
   ctx.effect(() => () => workbench.dispose());
   let invalidateSkills: (() => void) | undefined;
-  let provider: ReturnType<typeof createSkillProvider> | undefined;
   let skillsRegistry: Context['skills'] | undefined;
   const reportStatus = async (skillsCtx: Context, scope: Agent | undefined, update: boolean) => {
     const cwd = scope?.session.header.cwd;
-    const discovered = provider
-      ? await provider.refresh(cwd)
-      : { snapshot: await discoverSkill({ ...config, cwd }), changed: false };
-    if (discovered.changed) invalidateSkills?.();
-    const visible = await skillsCtx.skills.get(discovered.snapshot.active.name, { scope, cwd });
-    const status = await skillStatus(visible, { ...config, cwd, update }, discovered.snapshot);
-    if (update) invalidateSkills?.();
-    return status;
+    const snapshot = await discoverSkill({ ...config, cwd });
+    const getVisible = async () =>
+      (await skillsCtx.skills.get('oil-ui-pro', { scope, cwd })) ??
+      (await skillsCtx.skills.get('oil-ui', { scope, cwd }));
+    return skillStatus(await getVisible(), { ...config, cwd, update }, snapshot, async () => {
+      invalidateSkills?.();
+      return getVisible();
+    });
   };
 
   registerTools(ctx, {
@@ -97,10 +97,11 @@ export function apply(ctx: Context, config: Config) {
     if (typeof ctx.skills.registerProvider === 'function') {
       ctx.skills.registerProvider((control) => {
         invalidateSkills = () => control.invalidate?.();
-        return (provider = createSkillProvider(config, control));
+        // Pro has one publisher: Harness filesystem, which loads its original instructions.
+        return createSkillProvider({ ...config, preferPro: false }, control);
       });
     } else {
-      ctx.skills.register(await loadUpstreamSkill(config));
+      ctx.skills.register(await loadUpstreamSkill({ ...config, preferPro: false }));
     }
   });
 
@@ -124,12 +125,8 @@ export function apply(ctx: Context, config: Config) {
           }
           const status = await reportStatus(ctx, invocation.agent, arg === 'update');
           const lines = [
-            `当前生效 Skill：${status.activeSkillName}（${status.edition === 'pro' ? 'Pro' : 'Lite'}）v${status.activeVersion}`,
-            ...(status.visibleMatchesOriginal === false && status.detected
-              ? [
-                  `注意：检测到本地 ${status.detected.name}（${status.detected.path}），但当前作用域被 ${status.effective?.provider ?? '外部同名 Skill'} 覆盖`,
-                ]
-              : []),
+            `模型可见 Skill：${status.effective ? `${status.activeSkillName}（${status.edition === 'pro' ? 'Pro' : 'Lite'}）v${status.activeVersion}` : '未找到'}`,
+            ...(status.skillLoadWarning ? [`注意：${status.skillLoadWarning}`] : []),
             `最新版本：${status.latestVersion ?? status.activeVersion}${status.updateAvailable ? '（有新版本可用，可运行 /oil-ui-status update 更新）' : ''}`,
             `本地 Pro：${status.proInstalled ? `已检测到（${status.proSourcePath}）` : '未安装'}`,
             `本地生图（image-gen）：${status.imageGenAvailable ? `可用（${status.imageGenScriptPath}）` : '未检测到'}`,
@@ -138,7 +135,6 @@ export function apply(ctx: Context, config: Config) {
               ? [`oiloil 余额：${status.oilBalance === null ? '暂时无法查询' : `${status.oilBalance} 积分`}`]
               : []),
             ...(status.updateCheckError ? [`版本检查异常：${status.updateCheckError}`] : []),
-            ...(status.transformWarning ? [`转换提示：${status.transformWarning}`] : []),
             ...(status.updateNotice ? [status.updateNotice] : []),
             ...(status.recommendOnceNotice ? [status.recommendOnceNotice] : []),
           ];
@@ -165,7 +161,7 @@ export function apply(ctx: Context, config: Config) {
             };
           }
           const prompt = [
-            'Call oil_ui_skill_status first and load the active Oil UI Skill using the skill tool.',
+            'Call oil_ui_skill_status first. Load oil-ui-pro only if activeSkillName is oil-ui-pro and nativeSkillReady is true; otherwise load bundled oil-ui with the skill tool and report skillLoadWarning when present.',
             'Explore 3 genuinely distinct design directions in explore/a.html, explore/b.html, and explore/c.html, package them into style-explorer.html with oil_ui_explorer, and inspect the comparison page and cards with oil_ui_shoot.',
             ...(brief ? ['', `Design brief: ${brief}`] : []),
           ].join('\n');
@@ -192,7 +188,7 @@ export function apply(ctx: Context, config: Config) {
         handler: (invocation) => {
           const target = invocation.rawInput.trim();
           const prompt = [
-            'Call oil_ui_skill_status first and load the active Oil UI Skill using the skill tool.',
+            'Call oil_ui_skill_status first. Load oil-ui-pro only if activeSkillName is oil-ui-pro and nativeSkillReady is true; otherwise load bundled oil-ui with the skill tool and report skillLoadWarning when present.',
             'Capture desktop and mobile screenshots and key interactive states with oil_ui_shoot, then conduct a two-track UI/UX review covering visual hierarchy/craft and usability/task flow.',
             ...(target ? ['', `Review target: ${target}`] : []),
           ].join('\n');
@@ -231,27 +227,28 @@ export function apply(ctx: Context, config: Config) {
     installed.add(agent);
     try {
       const options = { ...config, cwd: agent.session.header.cwd };
-      let active;
+      let active: ActiveSkill = {
+        edition: 'lite' as const,
+        name: 'oil-ui' as const,
+        directory: bundledSkillDirectory,
+        source: 'bundled-lite' as const,
+      };
       let referencesPath = join(bundledSkillDirectory, 'references');
       try {
-        const snapshot = await discoverSkill(options);
-        referencesPath = join(snapshot.active.directory, 'references');
-        const effective = await skillsRegistry?.get(snapshot.active.name, { scope: agent, cwd: options.cwd });
-        active =
-          effective?.resourceBase?.kind === 'directory' &&
-          effective.provider &&
-          effective.provider !== 'oil-ui-provider'
-            ? { ...snapshot.active, directory: effective.resourceBase.path }
-            : await resolveActiveSkill(options, snapshot);
-        referencesPath = join(active.directory, 'references');
+        const effective =
+          (await skillsRegistry?.get('oil-ui-pro', { scope: agent, cwd: options.cwd })) ??
+          (await skillsRegistry?.get('oil-ui', { scope: agent, cwd: options.cwd }));
+        if (await matchesNativeSkill(effective)) {
+          active = {
+            edition: effective!.name === 'oil-ui-pro' ? 'pro' : 'lite',
+            name: effective!.name as ActiveSkill['name'],
+            directory: (effective!.resourceBase as { path: string }).path,
+            source: effective!.name === 'oil-ui-pro' ? 'local-pro' : 'bundled-lite',
+          };
+          referencesPath = join(active.directory, 'references');
+        }
       } catch {
-        /* Discovery failure still allows the bundled review manual. */
-        active = {
-          edition: 'lite' as const,
-          name: 'oil-ui' as const,
-          directory: bundledSkillDirectory,
-          source: 'bundled-lite' as const,
-        };
+        /* An unavailable effective Skill still allows the bundled review manual. */
       }
       const manual = await loadReviewerManual(options, active);
       if (!manual || disposed) return;
