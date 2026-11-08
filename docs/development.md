@@ -82,7 +82,7 @@ npm run test:sync-workflow
 
 脚本在临时副本中创建虚构的公开 `999.0.0` tag，执行 workflow 的同步、复核、pin 检查、check 和 pack 验证块，再确认正文没改、差异仅为生成物。GitHub 查询已发布 Release 和创建 PR 的步骤不执行。此模拟不修改正式内置快照，也不推送。
 
-安装依赖可能访问 npm registry，但 Host 阶段禁止外部请求。系统 pnpm/Corepack 不可用时，可用 `DSH_SMOKE_PNPM=/absolute/path/to/pnpm npm run smoke:dsh` 指定 pnpm；未指定时脚本准备临时独立 pnpm，不改系统安装或真实用户配置。详细断言和受测 DSH 版本由脚本输出。
+安装依赖可能访问 npm registry，但 Host 阶段禁止外部请求。系统 pnpm/Corepack 不可用时，可用 `DSH_SMOKE_PNPM_ENTRY=/absolute/path/to/pnpm.cjs npm run smoke:dsh` 指定 npm 安装包中的 Node JS 入口；旧别名 `DSH_SMOKE_PNPM` 仍接受同样的 JS 入口，Unix 的 npm 符号链接会先 realpath。此覆盖值不接受 shell wrapper、Windows `.cmd` 或独立二进制，校验失败时明确提示；不设置则自动下载临时独立 pnpm，推荐直接使用默认行为。不改系统安装或真实用户配置。详细断言和受测 DSH 版本由脚本输出。
 
 真实 oiloil 生图会产生积分消耗，不属于上述任何默认或集成测试。需要验证时必须单独授权，不能用 mock 结果冒充真实 API 已验证。
 
@@ -124,3 +124,9 @@ dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
 ## 真实安装调查
 
 安装命令成功和 HTTP Host 存活都不能替代插件加载断言。DSH 的 Cordis 注入中，读取 `ctx.agents` 等服务必须显式声明依赖；可选链不能绕过未注入服务的 getter。系统提示注入必须同时依赖 `systemPrompt` 与 `agents`。真实安装来源、Node/DSH 版本、Desktop 组合、卸载恢复和真实模型验证见 [安装验证报告](real-install-verification.md)。
+
+### npm 临时运行时与跨平台安装
+
+`npm run smoke:install` 在独立 npm prefix 准备 DSH 0.2.2-rc.1 与 pnpm 10.16.1，然后复用 `smoke:dsh` 的四场景。`--dsh-version 0.2.1-rc.5` 选择旧版，Node 由调用环境提供；latest 需要 Node >=24.9.0。`DSH_SMOKE_PROFILE=headless` 选择原生 headless。CI 在 Ubuntu/Windows 分别执行两组版本和两个 profile，不改真实用户安装或全局 Corepack。下载/安装属于显式联网测试；默认离线测试只验证虚构 CLI 路径与失败处理。
+
+进程入口通过包 manifest 的 bin 定位 JavaScript 文件，再用 Node 启动；Windows 不直接以 shell:false spawn `.cmd`。构建脚本同样优先使用 npm/pnpm 的 JS 入口，路径有空格时仍作为独立 argv 传递。错误须保留失败阶段和原始诊断，不把版本跳过、缺工具或原文加载失败当成正常。

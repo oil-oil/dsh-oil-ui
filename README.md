@@ -159,6 +159,35 @@ npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./.work/ds
 
 </details>
 
+### 安装失败或装完没有生效
+
+先在同一个终端确认 `node --version`、`dsh --version`，并记下实际使用的 profile。安装和重启必须指向同一 profile；Desktop 与终端使用不同的数据目录。不要删除整个 profile 来排错。
+
+| 现象 / 原始错误                                                          | 处理                                                                                                                                                                  |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm was not found`；`Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs` | 重跑上面的 `npm exec --yes --package=pnpm@10.16.1 -- dsh ...`。安装、卸载、源码打包都使用这个入口；不必改全局 Corepack。                                              |
+| `Unsupported engine` / `EBADENGINE`                                      | 核对报错属于哪个包。DSH 0.2.2-rc.1 要求 Node >=24.9.0；切换到相容的运行时后重试。                                                                                     |
+| `skipping profile bundle` / `incompatible with dsh`                      | 核对提示中的包名及实际插件版本；可能是其他旧插件。升级到相容版本；不要用 `allow-version --accept-risk` 绕过检查。                                                     |
+| `missing peer @deepseek-ai/*`                                            | profile 安装时可能出现宿主提供依赖的 peer 告警。它本身不等于加载失败；以重启后无插件加载错误、五工具和实际 Skill 状态为准。不要盲目往 profile 补装另一套 DSH/Cordis。 |
+| 提示已安装，但仍加载旧版                                                 | 在相同 profile 先 remove，再用目标 Release commit 或正式 `.tgz` add；仅重复 add Git 地址不会替换旧锁文件。                                                            |
+| `cannot get property "agents" without inject`                            | 已发布 0.4.11 的缺陷，修复在本开发分支；新版发布后卸载重装。重启、授权构建或更换模型不能修复它。                                                                      |
+| `ENOENT` 指向插件的 Skill / references                                   | 保留缺失路径和已装版本，重新安装正式完整 `.tgz`；不要手工复制资源到 DSH 或修改安装目录。                                                                              |
+| 本地 `.tgz` 报 `ERR_PNPM_ENAMETOOLONG`                                   | 把包放到较短、同一物理路径下再安装；macOS 避免混用 `/var` 与 `/private/var`。                                                                                         |
+| 下载超时、HTTP 504、Git 连接失败                                         | 保留第一个网络错误后重试，必要时换 GitHub / AtomGit 或下载正式 `.tgz`。镜像可能延迟；网络失败不能靠授权插件构建解决。                                                 |
+
+重启后让 Agent 调用 `oil_ui_skill_status`：应为 `skillReady=true`，再用原生 `skill` 加载 `activeSkillName`。五个工具存在但有加载错误，也算失败。反馈问题时附上 OS、Node/DSH/插件版本、profile、完整安装命令和首个错误；日志分享前遮盖 Key、令牌、认证 URL 和个人路径。
+
+维护者可在源码仓库执行以下真实安装自检（会下载 DSH/pnpm；隔离 HOME/profile，不启动模型、不调付费服务）：
+
+```bash
+# Node >=24.9.0：最新受测 DSH
+npm run smoke:install
+# Node >=22.19.0：旧版 DSH
+npm run smoke:install -- --dsh-version 0.2.1-rc.5
+```
+
+Windows / Linux 的相同入口由 CI 执行，web 与 headless 均测试。CI 尚未通过的组合不能视为验证完成；边界和证据见[补充验证记录](docs/real-install-followup.md)。
+
 ### 2. 可选配置与运行依赖
 
 插件开箱即用，默认会自动扫描本机的 `oil-ui-pro` 和 `image-gen` Skill。如需自定义路径或端口，可在 `~/.dsh/cordis.patch.yml`（全局）或 `~/.dsh/profiles/web/cordis.patch.yml`（当前 profile）中按行覆盖配置（对应 [`src/config.ts`](src/config.ts)）：

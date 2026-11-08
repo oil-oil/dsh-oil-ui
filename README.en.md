@@ -159,6 +159,35 @@ npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./.work/ds
 
 </details>
 
+### Installation or activation failures
+
+Check `node --version` and `dsh --version` in the same terminal, and record the target profile. Install and restart the same profile; Desktop has a separate data root. Keep the profile intact while investigating.
+
+| Symptom / original error                                                 | Action                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm was not found`; `Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs` | Repeat the command with `npm exec --yes --package=pnpm@10.16.1 -- dsh ...`. Use the same entry for removal and source packaging; global Corepack changes are unnecessary.                                                                                                 |
+| `Unsupported engine` / `EBADENGINE`                                      | Identify which package emitted it. DSH 0.2.2-rc.1 requires Node >=24.9.0; retry with a compatible runtime.                                                                                                                                                                |
+| `skipping profile bundle` / `incompatible with dsh`                      | Check the named package and its installed version; another old plugin may be responsible. Upgrade to a compatible release rather than bypassing the check with `allow-version --accept-risk`.                                                                             |
+| `missing peer @deepseek-ai/*`                                            | A profile install can warn about dependencies supplied by the Host. The warning alone does not prove a loading failure; verify no plugin loading errors, five tools, and actual Skill status after restarting. Do not blindly add another DSH/Cordis copy to the profile. |
+| Already installed, but an old version still loads                        | Remove, then add the intended Release commit or official `.tgz` in the same profile. Repeating a Git add does not replace its old lock entry.                                                                                                                             |
+| `cannot get property "agents" without inject`                            | A released 0.4.11 defect fixed on this branch. Reinstall after the fixed release is published; restarting, granting builds, or switching models will not fix it.                                                                                                          |
+| `ENOENT` points to plugin Skill / references                             | Preserve the missing path and installed version, then reinstall the complete official `.tgz`. Do not copy resources into DSH or edit installed plugin files.                                                                                                              |
+| Local `.tgz` gives `ERR_PNPM_ENAMETOOLONG`                               | Use a shorter, consistent physical path. On macOS avoid mixing `/var` and `/private/var`.                                                                                                                                                                                 |
+| Download timeout, HTTP 504, Git connection failure                       | Keep the first network error and retry; try GitHub / AtomGit or an official `.tgz`. Mirrors can lag; build permissions do not fix network errors.                                                                                                                         |
+
+After restarting, ask the Agent to call `oil_ui_skill_status`; expect `skillReady=true`, then load `activeSkillName` with native `skill`. Five registered tools do not excuse a plugin loading error. Report OS, Node/DSH/plugin versions, profile, exact installation command, and the first error. Redact keys, tokens, authenticated URLs, and personal paths before sharing logs.
+
+Maintainers can run a real installation self-check from the checkout (downloads DSH/pnpm into isolated HOME/profile; no model or paid services):
+
+```bash
+# Node >=24.9.0: latest tested DSH
+npm run smoke:install
+# Node >=22.19.0: older DSH
+npm run smoke:install -- --dsh-version 0.2.1-rc.5
+```
+
+CI runs the same entry on Windows and Linux with both web and headless. Pending CI combinations remain unverified; see the [follow-up verification record](docs/real-install-followup.md).
+
 ### 2. Optional configuration & runtime dependencies
 
 The plugin works out of the box and automatically discovers local `oil-ui-pro` and `image-gen` installations. To override paths or ports, add an entry override to `~/.dsh/cordis.patch.yml` (global) or `~/.dsh/profiles/web/cordis.patch.yml` (per-profile), matching [`src/config.ts`](src/config.ts):

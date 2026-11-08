@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { pnpmInvocation } from './portable-cli.mjs'
 
 function run(command, args, root) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit' })
@@ -18,10 +19,6 @@ export function runBuild(root, outDir) {
 }
 
 export function runPnpm(root, args) {
-  const executable = process.env.npm_execpath
-  if (executable && /pnpm/i.test(path.basename(executable))) {
-    run(process.execPath, [executable, ...args], root)
-    return
-  }
-  run(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', args, root)
+  const invocation = pnpmInvocation(args)
+  run(invocation.command, invocation.args, root)
 }

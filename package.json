@@ -56,7 +56,8 @@
     "sync:skill": "node scripts/vendor-oil-ui.mjs",
     "vendor:skill": "pnpm sync:skill",
     "smoke:dsh": "node scripts/smoke-dsh.mjs",
-    "test:sync-workflow": "node scripts/smoke-sync-skill.mjs"
+    "test:sync-workflow": "node scripts/smoke-sync-skill.mjs",
+    "smoke:install": "node scripts/smoke-dsh.mjs --install"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",
