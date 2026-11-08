@@ -18,9 +18,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve the latest published public release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "tag=$(gh api repos/oil-oil/oil-ui/releases/latest --jq .tag_name)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           repository: oil-oil/oil-ui
+          ref: ${{ steps.upstream.outputs.tag }}
+          fetch-depth: 0
           path: upstream-oil-ui
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
@@ -35,6 +42,7 @@ jobs:
         run: |
           node scripts/vendor-oil-ui.mjs --source upstream-oil-ui
           node scripts/vendor-oil-ui.mjs --source upstream-oil-ui --check
+          node scripts/check-public-pin.mjs upstream-oil-ui
           rm -rf upstream-oil-ui
           pnpm check
           pnpm pack:plugin

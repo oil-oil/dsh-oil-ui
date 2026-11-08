@@ -19,7 +19,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
-import { TRANSFORM_VERSION, transformSkillMarkdown, validateSkillTree } from '../src/skill/transform.ts';
 import {
   assertNoProResources,
   assertPublicSkillFiles,
@@ -40,12 +39,13 @@ const sourceRepository = 'https://github.com/oil-oil/oil-ui';
 
 function usage() {
   return [
-    'Usage: node scripts/vendor-oil-ui.mjs [source-skill-directory] [--check]',
+    'Usage: node scripts/vendor-oil-ui.mjs [source-skill-directory] [--check] [--allow-unreleased]',
     '       node scripts/vendor-oil-ui.mjs --source <source-skill-directory> [--check]',
     '',
     'Options:',
     '  --source <dir>  oil-ui Git checkout. Defaults to OIL_UI_SOURCE_DIR or ../oil-ui.',
     '  --check         Generate in a temporary directory and verify the committed snapshot.',
+    '  --allow-unreleased  Explicit local validation only; the resulting manifest cannot be released.',
     '  --help          Show this help.',
     '',
     'OIL_UI_SOURCE_COMMIT may identify a non-Git source archive. OIL_UI_REPO is deprecated.',
@@ -56,6 +56,7 @@ function parseArguments(argv) {
   let source;
   let check = false;
   let help = false;
+  let allowUnreleased = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--') {
@@ -64,6 +65,8 @@ function parseArguments(argv) {
       help = true;
     } else if (argument === '--check') {
       check = true;
+    } else if (argument === '--allow-unreleased') {
+      allowUnreleased = true;
     } else if (argument === '--source') {
       source = argv[++index];
       if (!source) throw new Error('--source requires a directory.');
@@ -75,7 +78,7 @@ function parseArguments(argv) {
       source = argument;
     }
   }
-  return { source, check, help };
+  return { source, check, help, allowUnreleased };
 }
 
 async function collectFiles(
@@ -164,7 +167,47 @@ function resolveSourceCommit(sourceRoot) {
   }
 }
 
-async function buildSnapshot(sourceRoot, stageDirectory, stagedManifest) {
+function resolveSourceRelease(sourceRoot, version, commit, allowUnreleased) {
+  if (allowUnreleased) return null;
+  const tag = `v${version}`;
+  const gitOptions = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] };
+  let head;
+  let isCheckout = false;
+  try {
+    const top = execFileSync('git', ['-C', sourceRoot, 'rev-parse', '--show-toplevel'], gitOptions).trim();
+    isCheckout = true;
+    if (path.resolve(top) === sourceRoot) {
+      head = execFileSync('git', ['-C', sourceRoot, 'rev-parse', 'HEAD'], gitOptions).trim();
+    }
+  } catch {
+    /* A published source archive need not include Git metadata. */
+  }
+  if (head) {
+    if (head !== commit) throw new Error('The supplied source commit differs from the public checkout HEAD.');
+    const dirty = execFileSync(
+      'git',
+      ['-C', sourceRoot, 'status', '--porcelain', '--untracked-files=all'],
+      gitOptions,
+    ).trim();
+    if (dirty)
+      throw new Error(
+        'A published public source checkout must be clean. Use --allow-unreleased only for isolated local validation.',
+      );
+  }
+  try {
+    const taggedCommit =
+      head && execFileSync('git', ['-C', sourceRoot, 'rev-parse', `${tag}^{commit}`], gitOptions).trim();
+    if (taggedCommit === commit) return tag;
+  } catch {
+    /* An archive must explicitly identify its published release below. */
+  }
+  if (!isCheckout && process.env.OIL_UI_SOURCE_COMMIT && process.env.OIL_UI_SOURCE_RELEASE === tag) return tag;
+  throw new Error(
+    `Sync only a published public release: check out ${tag} at HEAD. Use --allow-unreleased only for isolated local validation.`,
+  );
+}
+
+async function buildSnapshot(sourceRoot, stageDirectory, stagedManifest, allowUnreleased) {
   const sourceSkill = path.join(sourceRoot, 'SKILL.md');
   const raw = await readFile(sourceSkill, 'utf8');
   const frontmatter = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
@@ -175,8 +218,8 @@ async function buildSnapshot(sourceRoot, stageDirectory, stagedManifest) {
   if (typeof version !== 'string' || !version)
     throw new Error('The source SKILL.md metadata does not declare a version.');
 
-  const transformContext = await validateSkillTree(sourceRoot, { mode: 'strict' });
   const commit = resolveSourceCommit(sourceRoot);
+  const release = resolveSourceRelease(sourceRoot, version, commit, allowUnreleased);
   const { entries, exclusions, symlinks } = await collectFiles(sourceRoot);
   const paths = entries.map((file) => file.path);
   assertNoProResources(paths);
@@ -186,26 +229,18 @@ async function buildSnapshot(sourceRoot, stageDirectory, stagedManifest) {
   for (const entry of entries) {
     const targetPath = path.join(stageDirectory, ...entry.path.split('/'));
     await mkdir(path.dirname(targetPath), { recursive: true });
-    if (entry.path.endsWith('.md')) {
-      const source = await readFile(entry.sourcePath, 'utf8');
-      const compiled = transformSkillMarkdown(entry.path, source, { ...transformContext, mode: 'strict' });
-      const bytes = Buffer.from(compiled.markdown, 'utf8');
-      await writeFile(targetPath, bytes);
-      entry.size = bytes.length;
-      entry.sha256 = await sha256(targetPath);
-    } else {
-      await copyFile(entry.sourcePath, targetPath);
-    }
+    await copyFile(entry.sourcePath, targetPath);
     await chmod(targetPath, entry.mode);
   }
 
   const manifest = {
     name: 'oil-ui',
     version,
-    transformVersion: TRANSFORM_VERSION,
+    distribution: 'original',
     source: {
       repository: sourceRepository,
       commit,
+      release,
       rootSymlinkResolved: true,
     },
     symlinkAudit: {
@@ -227,12 +262,6 @@ async function buildSnapshot(sourceRoot, stageDirectory, stagedManifest) {
     })),
   };
 
-  const compiledReport = await validateSkillTree(stageDirectory, { mode: 'strict' });
-  if (compiledReport.unmatchedRules.length > 0) {
-    throw new Error(
-      `Compiled Skill tree still has unmatched required rules: ${compiledReport.unmatchedRules.map((rule) => `${rule.id} (${rule.file})`).join(', ')}`,
-    );
-  }
   await verifySkillEntries(stageDirectory, entries);
   await writeFile(stagedManifest, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
   return manifest;
@@ -260,7 +289,7 @@ async function main() {
   const stagedManifest = path.join(workspace, 'oil-ui.manifest.json');
   await mkdir(stageDirectory);
   try {
-    const manifest = await buildSnapshot(sourceRoot, stageDirectory, stagedManifest);
+    const manifest = await buildSnapshot(sourceRoot, stageDirectory, stagedManifest, options.allowUnreleased);
     if (options.check) {
       const currentManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
       await verifySkillSnapshot(destinationDirectory, currentManifest);

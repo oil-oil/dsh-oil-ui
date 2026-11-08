@@ -8,11 +8,10 @@ import { join, resolve, relative, isAbsolute, dirname, sep } from 'node:path';
 import { parse } from 'yaml';
 import type { SkillRegistration, SkillDefinition, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill';
 import { OilApiError, readOilCredits, readOilToken } from '../oil-api.ts';
-import { transformSkillMarkdown } from './transform.ts';
+import { INSTALL_REPO } from './install.ts';
 
 const execFileAsync = promisify(execFile);
 const VERSIONS_URL = 'https://ui.oiloil.org/api/store/versions';
-const INSTALL_REPO = 'github:oil-oil/oil-cli#52e0bb4d2d994ae0b72c2c0b7c1bc0fe5b88cdbf';
 const CHECK_INTERVAL_MS = 600_000;
 const FETCH_TIMEOUT_MS = 8_000;
 
@@ -238,6 +237,16 @@ export async function checkSkillUpdate(
     return { latestVersion: latest, updateAvailable: false, updated: false, updateNotice: null, lastError };
   }
 
+  // Bundled files are immutable plugin assets, never an oil-cli installation.
+  if (await isBundledSkillDirectory(active.directory)) {
+    return {
+      latestVersion: latest,
+      updateAvailable: true,
+      updated: false,
+      updateNotice: `[oil-ui] Update available: ${currentVersion} -> ${latest}. Update the dsh-oil-ui plugin to receive its bundled Skill; do not update files inside the plugin installation.`,
+      lastError,
+    };
+  }
   const targetDir = active.directory;
   if (performUpdate) {
     try {
@@ -245,29 +254,6 @@ export async function checkSkillUpdate(
       await execFileAsync(cmd, ['-y', INSTALL_REPO, 'update', active.name, '--path', targetDir, '--json'], {
         timeout: 90_000,
       });
-      if (active.edition === 'lite') {
-        for (const rel of [
-          'SKILL.md',
-          'references/tools.md',
-          'references/layout-and-viewport.md',
-          'references/style-explorer.md',
-          'references/media.md',
-          'references/visual-review.md',
-          'references/reviewer-manual.md',
-        ]) {
-          const mdPath = join(targetDir, ...rel.split('/'));
-          try {
-            const raw = await readFile(mdPath, 'utf8');
-            await writeFile(
-              mdPath,
-              transformSkillMarkdown(rel, raw, { edition: 'lite', mode: 'lenient' }).markdown,
-              'utf8',
-            );
-          } catch {
-            /* optional file */
-          }
-        }
-      }
       return {
         latestVersion: latest,
         updateAvailable: false,
@@ -320,7 +306,7 @@ export interface ActiveSkill {
   edition: 'pro' | 'lite';
   name: 'oil-ui-pro' | 'oil-ui';
   directory: string;
-  source: 'local-pro' | 'bundled-lite';
+  source: 'local-pro' | 'bundled-lite' | 'filesystem';
 }
 
 function frontmatter(raw: string) {
@@ -442,21 +428,41 @@ export async function loadReviewerManual(options: SkillOptions = {}, activeSkill
   return '';
 }
 
-export async function loadUpstreamSkill(options: SkillOptions = {}): Promise<SkillRegistration> {
-  const active = await resolveActiveSkill(options);
-  const path = join(active.directory, 'SKILL.md');
+export async function isBundledSkillDirectory(directory: string): Promise<boolean> {
+  try {
+    return (await realpath(directory)) === (await realpath(bundledSkillDirectory));
+  } catch {
+    return false;
+  }
+}
+
+export async function loadSkillDirectory(
+  directory: string,
+  expectedName: ActiveSkill['name'],
+  source: ActiveSkill['source'],
+): Promise<SkillRegistration> {
+  const base = await realpath(directory);
+  const path = await realpath(join(base, 'SKILL.md'));
+  const rel = relative(base, path);
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel))
+    throw new Error('Skill entry escapes its resource directory');
   const { data, content } = frontmatter(await readFile(path, 'utf8'));
-  if (data.name !== active.name) throw new Error('Invalid active Skill identity');
+  if (data.name !== expectedName) throw new Error('Invalid active Skill identity');
   return {
-    name: active.name,
+    name: expectedName,
     description: typeof data.description === 'string' ? data.description : 'Oil UI',
     metadata: data.metadata,
-    path,
-    source: active.source,
-    resourceBase: { kind: 'directory', path: active.directory },
+    path: join(directory, 'SKILL.md'),
+    source,
+    resourceBase: { kind: 'directory', path: directory },
     invocation: { modelInvocable: true, userInvocable: true },
     content,
   };
+}
+
+export async function loadUpstreamSkill(options: SkillOptions = {}): Promise<SkillRegistration> {
+  const active = await resolveActiveSkill(options);
+  return loadSkillDirectory(active.directory, active.name, active.source);
 }
 
 // This invariant belongs here, not just in apply(): callers cannot accidentally
@@ -485,26 +491,19 @@ export function createSkillProvider(_options: SkillOptions, control: SkillProvid
 }
 
 // Validate the definition selected by the caller's scope, not a preferred local
-// installation or a provider label. Pro's expected content is its original file.
+// installation or a provider label. Every edition is checked against its own original file.
 export async function matchesNativeSkill(visible: SkillDefinition | null | undefined): Promise<boolean> {
   if (!visible || visible.invocation?.modelInvocable === false || visible.resourceBase?.kind !== 'directory')
     return false;
   if (visible.name !== 'oil-ui' && visible.name !== 'oil-ui-pro') return false;
   try {
     const directory = await realpath(visible.resourceBase.path);
-    const expected = await loadUpstreamSkill(
-      visible.name === 'oil-ui-pro' ? { proSkillDir: directory } : { preferPro: false },
-    );
-    const expectedDirectory =
-      expected.resourceBase?.kind === 'directory' ? await realpath(expected.resourceBase.path) : null;
+    const expected = await loadSkillDirectory(directory, visible.name, 'filesystem');
     return (
       visible.name === expected.name &&
       visible.metadata?.version === expected.metadata?.version &&
       // Harness filesystem trims boundary whitespace when parsing Markdown.
-      (visible.name === 'oil-ui-pro'
-        ? visible.content.trim() === expected.content.trim()
-        : visible.content === expected.content) &&
-      directory === expectedDirectory &&
+      visible.content.trim() === expected.content.trim() &&
       Boolean(visible.path && expected.path && (await realpath(visible.path)) === (await realpath(expected.path)))
     );
   } catch {
@@ -528,7 +527,7 @@ export async function skillStatus(
           edition: targetEdition,
           name: visible.name,
           directory: targetBase,
-          source: targetEdition === 'pro' ? 'local-pro' : 'bundled-lite',
+          source: (await isBundledSkillDirectory(targetBase)) ? 'bundled-lite' : 'filesystem',
         }
       : snapshot.active;
   const updateInfo = await checkSkillUpdate(
@@ -632,8 +631,8 @@ export async function skillStatus(
       (edition === 'pro'
         ? '已加载本机 Pro 原文，宿主工具用法见 references/tools.md。'
         : pro
-          ? '已发现本地 Pro，但当前 Agent 的 filesystem Skill 目录未发布它；当前加载内置 Lite。配置插件发现路径不会发布 Pro，请检查 Harness 的 Skill 目录。'
+          ? '已发现本地 Pro，但当前 Agent 的 filesystem Skill 目录未发布它；当前加载生效的 Lite 原文。配置插件发现路径不会发布 Pro，请检查 Harness 的 Skill 目录。'
           : '可通过 npx github:oil-oil/oil-cli install oil-ui-pro 安装 Pro；由 Harness filesystem Provider 发现并直接加载原文。'),
-    note: 'Pro instructions are loaded unchanged by Harness filesystem. Manifest hashes are offline Lite packaging evidence.',
+    note: 'All Oil UI instructions are loaded unchanged. Manifest hashes are offline evidence for the bundled public Skill only.',
   };
 }

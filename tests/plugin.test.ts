@@ -7,9 +7,14 @@ import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import SkillRegistry, { type SkillCandidate, type SkillRegistration } from '@deepseek-ai/dsh-skill';
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
 import { apply } from '../src/index.ts';
-import { skillStatus, loadUpstreamSkill } from '../src/skill/upstream.ts';
+import { skillStatus, loadSkillDirectory, loadUpstreamSkill, skillDirectory } from '../src/skill/upstream.ts';
 
 const localHome = vi.hoisted(() => ({ path: '' }));
+function nextPatchVersion(version: string) {
+  const [major = 0, minor = 0, patch = 0] = version.split('.').map((part) => Number.parseInt(part, 10));
+  return `${major}.${minor}.${patch + 1}`;
+}
+
 vi.mock('node:os', async (original) => {
   const os = await original<typeof import('node:os')>();
   return {
@@ -158,6 +163,40 @@ it('presents all five tools with native call views and declares explorer/image d
   }
 });
 
+it('does not publish the bundled Lite when configured for filesystem-only Skill discovery', async () => {
+  const skills = {
+    register: vi.fn(),
+    registerProvider: vi.fn(),
+    get: vi.fn(async () => undefined),
+  };
+  const pending: Promise<unknown>[] = [];
+  const disposers: (() => void | Promise<void>)[] = [];
+  const ctx: any = {
+    effect(register: () => () => void | Promise<void>) {
+      disposers.push(register());
+    },
+    on() {
+      return () => {};
+    },
+    inject(services: string[], register: (ctx: unknown) => unknown) {
+      const child = Object.create(ctx);
+      if (services.includes('skills')) child.skills = skills;
+      if (services.includes('tools')) child.tools = { register: () => {} };
+      if (services.includes('commands')) child.commands = { register: () => () => {} };
+      if (services.includes('systemPrompt')) child.systemPrompt = { section: () => () => {} };
+      pending.push(Promise.resolve(register(child)));
+    },
+  };
+  try {
+    apply(ctx as Context, { previewPort: 0, preferPro: false, bundledSkill: false });
+    await Promise.all(pending);
+    expect(skills.registerProvider).not.toHaveBeenCalled();
+    expect(skills.register).not.toHaveBeenCalled();
+  } finally {
+    await Promise.all(disposers.map((dispose) => dispose()));
+  }
+});
+
 it('registers 5 native Harness tools, validates their schemas and operates directly in session cwd', async () => {
   const root = await mkdtemp(join(tmpdir(), 'oil-plugin-'));
   const tools = new Map<string, ToolDefinition>();
@@ -242,9 +281,10 @@ it('registers 5 native Harness tools, validates their schemas and operates direc
     expect(exploreCmd).toMatchObject({ kind: 'success' });
     expect(followupMessages).toHaveLength(1);
     expect(registration?.name).toBe('oil-ui');
-    expect(prompt).toContain('nativeSkillReady');
-    expect(prompt).toContain('only when activeSkillName is oil-ui-pro and nativeSkillReady is true');
-    expect(prompt).toContain('use the bundled oil-ui Skill');
+    expect(prompt).toContain('Use this host status tool instead of running check_update.sh or check_update.py');
+    expect(prompt).toContain('When skillReady is true, load activeSkillName');
+    expect(prompt).toContain('Bundled Skill updates require updating the plugin');
+    expect(prompt).not.toContain('nativeSkillReady');
     expect(prompt).not.toContain('ADAPTER.md');
     expect(prompt).not.toContain('shoot.mjs');
     expect(await run('oil_ui_skill_status', {})).toMatchObject({
@@ -720,6 +760,171 @@ it.skipIf(process.platform === 'win32')(
   },
 );
 
+it.skipIf(process.platform === 'win32')(
+  'updates filesystem Lite and refreshes the winner in the same agent scope and cwd',
+  async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'oil-status-update-lite-wiring-')));
+    localHome.path = root;
+    vi.stubEnv('OIL_TOKEN', '');
+    vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
+    const liteDir = join(root, '.agents/skills/oil-ui');
+    const cwd = join(root, 'workspace');
+    const rawBody = 'Filesystem Lite keeps `--frames` and `scripts/shoot.mjs` unchanged.\n';
+    await mkdir(liteDir, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(
+      join(liteDir, 'SKILL.md'),
+      `---\nname: oil-ui\ndescription: Synthetic filesystem Lite\nmetadata:\n  version: '1.0.0'\n---\n${rawBody}`,
+    );
+
+    const bin = join(root, 'bin');
+    await mkdir(bin, { recursive: true });
+    const runner = join(root, 'fake-npx.cjs');
+    const updateLog = join(root, 'update-args.json');
+    await writeFile(
+      runner,
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        'const args = process.argv.slice(2);',
+        "const pathIndex = args.indexOf('--path');",
+        "if (pathIndex < 0 || !args[pathIndex + 1]) throw new Error('Missing --path fixture argument');",
+        `fs.writeFileSync(${JSON.stringify(updateLog)}, JSON.stringify(args));`,
+        "const skillPath = path.join(args[pathIndex + 1], 'SKILL.md');",
+        "const current = fs.readFileSync(skillPath, 'utf8');",
+        'const updated = current.replace("version: \'1.0.0\'", "version: \'1.1.0\'");',
+        "if (updated === current) throw new Error('Fixture Lite version was not 1.0.0');",
+        'fs.writeFileSync(skillPath, updated);',
+      ].join('\n'),
+    );
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    const executable = join(bin, 'npx');
+    await writeFile(executable, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(runner)} "$@"\n`);
+    await chmod(executable, 0o755);
+    vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
+
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/store/versions')) return Response.json({ skills: { 'oil-ui': { latest: '1.1.0' } } });
+      throw new Error(`Unexpected fixture fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetcher);
+
+    const registry = new SkillRegistry(new Context());
+    const disposers: (() => void | Promise<void>)[] = [];
+    const lookups: { name: string; scope: unknown; cwd?: string }[] = [];
+    const tools = new Map<string, ToolDefinition>();
+    const pending: Promise<unknown>[] = [];
+    const skills = {
+      async get(name: string, options: { scope?: unknown; cwd?: string } = {}) {
+        lookups.push({ name, scope: options.scope, cwd: options.cwd });
+        if (name === 'oil-ui') {
+          return {
+            ...(await loadSkillDirectory(liteDir, 'oil-ui', 'filesystem')),
+            provider: 'filesystem',
+          };
+        }
+        return registry.get(name, options as never);
+      },
+      register(skill: SkillRegistration) {
+        return registry.register(skill);
+      },
+      registerProvider(create: Parameters<SkillRegistry['registerProvider']>[0]) {
+        const dispose = registry.registerProvider(create);
+        disposers.push(dispose);
+        return dispose;
+      },
+    };
+    disposers.push(
+      registry.registerProvider(() => ({
+        name: 'filesystem',
+        async list() {
+          const loaded = await loadSkillDirectory(liteDir, 'oil-ui', 'filesystem');
+          const candidate: SkillCandidate = {
+            ...loaded,
+            source: 'user-agents',
+            provider: 'filesystem',
+            invocation: loaded.invocation!,
+            rank: 10000,
+            locator: liteDir,
+          };
+          return [candidate];
+        },
+        async get(candidate) {
+          if (candidate.name !== 'oil-ui') return undefined;
+          return {
+            ...(await loadSkillDirectory(liteDir, 'oil-ui', 'filesystem')),
+            provider: 'filesystem',
+            source: 'user-agents',
+            invocation: { modelInvocable: true, userInvocable: true },
+          };
+        },
+      })),
+    );
+    const ctx: any = {
+      effect(register: () => () => void | Promise<void>) {
+        disposers.push(register());
+      },
+      inject(services: string[], register: (ctx: unknown) => unknown) {
+        const child = Object.create(ctx);
+        if (services.includes('skills')) child.skills = skills;
+        if (services.includes('tools')) {
+          child.tools = {
+            register(tool: ToolDefinition) {
+              tools.set(tool.name, tool);
+            },
+          };
+        }
+        if (services.includes('commands')) child.commands = { register: () => () => {} };
+        if (services.includes('systemPrompt')) child.systemPrompt = { section: () => () => {} };
+        pending.push(Promise.resolve(register(child)));
+      },
+    };
+    const agent = { session: { id: 'status-update-lite', header: { cwd } } };
+    const run = { agent, signal: new AbortController().signal } as unknown as ToolRunContext;
+    try {
+      apply(ctx as Context, { previewPort: 0, preferPro: false });
+      await Promise.all(pending);
+      const statusTool = tools.get('oil_ui_skill_status');
+      expect(statusTool).toBeDefined();
+      const status = await statusTool!.execute({ update: true }, run);
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(await readFile(join(liteDir, 'SKILL.md'), 'utf8')).toContain("version: '1.1.0'");
+      expect(await readFile(join(liteDir, 'SKILL.md'), 'utf8')).toContain(rawBody);
+      const liteLookups = lookups.filter((entry) => entry.name === 'oil-ui');
+      expect(liteLookups.length).toBeGreaterThanOrEqual(2);
+      expect(liteLookups.slice(-2)).toEqual([
+        { name: 'oil-ui', scope: agent, cwd },
+        { name: 'oil-ui', scope: agent, cwd },
+      ]);
+      const args = JSON.parse(await readFile(updateLog, 'utf8')) as string[];
+      expect(args[args.indexOf('--path') + 1]).toBe(liteDir);
+      expect(status).toMatchObject({
+        updated: true,
+        latestVersion: '1.1.0',
+        edition: 'lite',
+        activeSkillName: 'oil-ui',
+        activeVersion: '1.1.0',
+        effective: {
+          name: 'oil-ui',
+          version: '1.1.0',
+          provider: 'filesystem',
+          path: join(liteDir, 'SKILL.md'),
+          resourceBase: { kind: 'directory', path: liteDir },
+        },
+        activeResourceBase: liteDir,
+        nativeSkillReady: true,
+        visibleMatchesOriginal: true,
+        skillLoadState: 'ready',
+      });
+    } finally {
+      await Promise.all(disposers.map((dispose) => dispose()));
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
 it('triggers one-time Pro recommendation once on lite edition and reports cached update notices', async () => {
   vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
   const root = await mkdtemp(join(tmpdir(), 'dsh-oil-ui-recommend-'));
@@ -727,17 +932,21 @@ it('triggers one-time Pro recommendation once on lite edition and reports cached
   const stateDir = join(root, 'state');
   vi.stubEnv('XDG_STATE_HOME', stateDir);
   try {
+    const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8')) as {
+      version: string;
+    };
+    const latestVersion = nextPatchVersion(manifest.version);
     await mkdir(join(stateDir, 'oil'), { recursive: true });
     await writeFile(
       join(stateDir, 'oil', 'oil-ui-update.json'),
-      JSON.stringify({ checkedAt: Math.floor(Date.now() / 1000), latest: '99.0.0' }),
+      JSON.stringify({ checkedAt: Math.floor(Date.now() / 1000), latest: latestVersion }),
     );
     const first = await skillStatus(null, { preferPro: false });
     expect(first.edition).toBe('lite');
     expect(first.recommendOnceTriggered).toBe(true);
     expect(first.recommendOnceNotice).toContain('Oil UI Pro');
     expect(first.updateAvailable).toBe(true);
-    expect(first.latestVersion).toBe('99.0.0');
+    expect(first.latestVersion).toBe(latestVersion);
     expect(first.updateNotice).toContain('Update available');
 
     const second = await skillStatus(null, { preferPro: false });

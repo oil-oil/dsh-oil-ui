@@ -55,9 +55,8 @@
     "release:check": "pnpm check && pnpm pack:plugin && node scripts/release-check.mjs",
     "sync:skill": "node scripts/vendor-oil-ui.mjs",
     "vendor:skill": "pnpm sync:skill",
-    "compile:skill": "node scripts/build-dsh-skill.mjs",
-    "build:skill": "pnpm compile:skill",
-    "smoke:dsh": "node scripts/smoke-dsh.mjs"
+    "smoke:dsh": "node scripts/smoke-dsh.mjs",
+    "test:sync-workflow": "node scripts/smoke-sync-skill.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

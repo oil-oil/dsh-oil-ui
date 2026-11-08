@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import SkillRegistry, { type SkillCandidate } from '@deepseek-ai/dsh-skill';
 import { createScope } from '@deepseek-ai/dsh-scope';
-import { createSkillProvider, loadUpstreamSkill, skillStatus } from '../src/skill/upstream.ts';
+import {
+  createSkillProvider,
+  loadSkillDirectory,
+  loadUpstreamSkill,
+  skillDirectory,
+  skillStatus,
+} from '../src/skill/upstream.ts';
 
 const fixture = vi.hoisted(() => ({ home: '' }));
 vi.mock('node:os', async (original) => ({
@@ -58,22 +64,31 @@ async function writeRawPro(directory: string, version: string, body: string) {
   return directory;
 }
 
+async function writeRawLite(directory: string, version: string, body: string) {
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    join(directory, 'SKILL.md'),
+    `---\nname: oil-ui\ndescription: Synthetic filesystem Lite\nmetadata:\n  version: '${version}'\n---\n${body}`,
+  );
+  return directory;
+}
+
 it.each(['host', 'preset', 'agent'])(
   'keeps one raw filesystem Pro publisher at %s level and checks the winner itself',
   async (level) => {
     const directory = await writeRawPro(
       join(root, '.agents/skills/oil-ui-pro'),
-      '0.33.0',
+      '0.0.1',
       'RAW_FIXTURE_ACTION\nUse --frames unchanged.\n',
     );
     const preferred = await writeRawPro(
       join(root, 'preferred/oil-ui-pro'),
-      '0.34.0',
+      '0.0.2',
       'Different preferred local Pro.\n',
     );
     const sameContentOtherPath = await writeRawPro(
       join(root, 'other/oil-ui-pro'),
-      '0.33.0',
+      '0.0.1',
       'RAW_FIXTURE_ACTION\nUse --frames unchanged.\n',
     );
     const host = new Context();
@@ -90,7 +105,7 @@ it.each(['host', 'preset', 'agent'])(
       source: 'user-agents',
       path: join(directory, 'SKILL.md'),
       resourceBase: { kind: 'directory', path: directory },
-      metadata: { version: '0.33.0' },
+      metadata: { version: '0.0.1' },
       invocation: { modelInvocable: true, userInvocable: true },
       rank: 10000,
       locator: directory,
@@ -125,7 +140,7 @@ it.each(['host', 'preset', 'agent'])(
         provider: 'filesystem',
         path: join(directory, 'SKILL.md'),
         resourceBase: { kind: 'directory', path: directory },
-        metadata: { version: '0.33.0' },
+        metadata: { version: '0.0.1' },
         content: 'RAW_FIXTURE_ACTION\nUse --frames unchanged.\n',
       });
 
@@ -136,9 +151,9 @@ it.each(['host', 'preset', 'agent'])(
       expect(status).toMatchObject({
         edition: 'pro',
         activeSkillName: 'oil-ui-pro',
-        activeVersion: '0.33.0',
-        detected: { name: 'oil-ui-pro', version: '0.34.0', path: join(preferred, 'SKILL.md') },
-        effective: { name: 'oil-ui-pro', provider: 'filesystem', version: '0.33.0', path: join(directory, 'SKILL.md') },
+        activeVersion: '0.0.1',
+        detected: { name: 'oil-ui-pro', version: '0.0.2', path: join(preferred, 'SKILL.md') },
+        effective: { name: 'oil-ui-pro', provider: 'filesystem', version: '0.0.1', path: join(directory, 'SKILL.md') },
         proSourcePath: directory,
         activeResourceBase: directory,
         skillReady: true,
@@ -153,7 +168,7 @@ it.each(['host', 'preset', 'agent'])(
         visibleMatchesOriginal: false,
         skillLoadState: 'overridden',
       });
-      expect(await skillStatus({ ...visible!, metadata: { version: '0.0.1' } }, options)).toMatchObject({
+      expect(await skillStatus({ ...visible!, metadata: { version: '0.0.2' } }, options)).toMatchObject({
         nativeSkillReady: false,
         visibleMatchesOriginal: false,
       });
@@ -173,3 +188,28 @@ it.each(['host', 'preset', 'agent'])(
     }
   },
 );
+
+it('accepts an original filesystem Lite winner whose version differs from the bundled manifest', async () => {
+  const directory = await writeRawLite(
+    join(root, '.agents/skills/oil-ui'),
+    '8.2.3',
+    'ORIGINAL_LITE_FIXTURE\nKeep the exact source wording.\n',
+  );
+  const registration = await loadSkillDirectory(directory, 'oil-ui', 'filesystem');
+  const visible = { ...registration, provider: 'filesystem', invocation: registration.invocation! };
+  const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8')) as {
+    version: string;
+  };
+
+  expect(await skillStatus(visible, { preferPro: false, cwd: root })).toMatchObject({
+    edition: 'lite',
+    activeSkillName: 'oil-ui',
+    activeVersion: '8.2.3',
+    bundledVersion: manifest.version,
+    activeResourceBase: directory,
+    visibleMatchesOriginal: true,
+    skillReady: true,
+    nativeSkillReady: true,
+    skillLoadState: 'ready',
+  });
+});

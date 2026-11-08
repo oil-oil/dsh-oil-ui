@@ -3,6 +3,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { INSTALL_REPO } from '../src/skill/install.ts';
+import { assertInstallRepoMatches } from './lib/skill-distribution.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -39,13 +41,17 @@ async function main() {
   if (typeof manifest.source?.repository !== 'string' || !manifest.source.repository) {
     throw new Error('Cannot release without the upstream Skill repository in the manifest.');
   }
+  if (manifest.distribution !== 'original' || manifest.source.release !== `v${manifest.version}`) {
+    throw new Error('Cannot release without an original Skill snapshot from its published public release.');
+  }
+  await assertInstallRepoMatches(path.join(root, 'skills/oil-ui'), INSTALL_REPO);
 
   const notes = [
     `## dsh-oil-ui ${expectedTag}`,
     '',
     `- Plugin version: ${packageJson.version}`,
     `- Bundled oil-ui: ${manifest.version}`,
-    `- Transform version: ${manifest.transformVersion}`,
+    `- Skill distribution: unchanged original (${manifest.source.release})`,
     `- Upstream: ${manifest.source.repository}/commit/${manifest.source.commit}`,
     '',
     'The attached plugin archive was rebuilt and verified after extraction.',

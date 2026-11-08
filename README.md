@@ -37,7 +37,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 - **直接在当前工作目录读写**：不创建额外的 `projects/<uuid>` 嵌套目录，页面、样式、脚本和截图都落在当前目录，和原生 `read` / `write` / `read_image` 完全一致。
 - **只注册 `oil-ui` 独有的 5 个工具**：对比页打包、浏览器截图与交互巡检、公有领域素材检索、AI 生图修图，以及 Skill 状态检查。
-- **从上游 `oil-ui` 自动编译派生**：插件把上游 `SKILL.md` 和 `references/*.md` 里的命令行示例自动改写为原生工具调用。上游更新后，跑一条 `pnpm sync:skill` 就能同步派生，不用手工维护两套文档。
+- **原样内置公开 Skill**：只从已发布的公开 `oil-ui` 同步，正文和资源保持原始字节，不作宿主转换。宿主工具用法放在系统提示、工具说明和共享的 `references/tools.md` 宿主一节。
 
 ---
 
@@ -53,7 +53,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
   <img src="assets/readme/proof-archon.webp" alt="ARCHON 桌面端三方向同屏对比页" width="100%">
 </p>
 
-1. 先调 `oil_ui_skill_status` 检查模型实际可见的 Skill。只有 `activeSkillName=oil-ui-pro` 且 `nativeSkillReady=true` 才加载 Pro；否则读取警告，使用内置 Lite。
+1. 先调 `oil_ui_skill_status` 检查模型实际可见的 Skill。`skillReady=true` 时用原生 skill 工具加载 `activeSkillName`；无论内置 Lite、独立安装的 Lite 还是 Pro，都使用原文。异常时读取 `skillLoadWarning`。
 2. 在 `explore/` 下写出 3 个构图、色调和视觉引擎完全不同的首屏候选，调 `oil_ui_explorer` 打包出单文件 `style-explorer.html`。
 3. 选定方向后写出完整的 `index.html`（或多屏 `screens.html`），调 `oil_ui_shoot` 在真实无头浏览器里截图、模拟点击与输入、检查多端断点，并用原生 `read_image` 看图改到干净为止。
 
@@ -73,11 +73,11 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 同时向聊天输入框注册 3 个以 `oil-ui-` 为前缀的 Slash 快捷命令（与其他 `oil-*` 系列 Skill 区分）：
 
-| 命令                              | 作用                                                                                                         |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `/oil-ui-status [update]`         | 直接查看当前生效版本（`oil-ui` / `oil-ui-pro`）、更新状态与 `image-gen` 状态；带 `update` 参数时直接原地更新 |
-| `/oil-ui-explore <需求描述>`      | 支持附带参考图/文件，直接发起三方向探索并生成 `style-explorer.html` 对比页                                   |
-| `/oil-ui-review [目标页面或文件]` | 支持附带截图/文件，对目标页面抓真图并执行视觉层级 + 可用性双轨走查                                           |
+| 命令                              | 作用                                                                                                                                   |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `/oil-ui-status [update]`         | 直接查看当前生效版本（`oil-ui` / `oil-ui-pro`）、更新状态与 `image-gen` 状态；带 `update` 时更新 filesystem 安装版；内置版提示更新插件 |
+| `/oil-ui-explore <需求描述>`      | 支持附带参考图/文件，直接发起三方向探索并生成 `style-explorer.html` 对比页                                                             |
+| `/oil-ui-review [目标页面或文件]` | 支持附带截图/文件，对目标页面抓真图并执行视觉层级 + 可用性双轨走查                                                                     |
 
 ---
 
@@ -100,9 +100,9 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 每次查询状态时，插件重新发现本机 `oil-ui-pro`：先检查显式配置及 DSH 的项目、用户 Skill 目录（包括 `~/.dsh/skills` 和 `~/.agents/skills`），再检查 oil-cli 支持的用户安装位置：`~/.claude/skills`、`$CODEX_HOME/skills`（未设置时为 `~/.codex/skills`）、`~/.cursor/skills`、`~/.workbuddy/skills`。每处只检查 `oil-ui-pro`，不会递归扫描其他目录；这些跨宿主回退位置不用于发现 image-gen。自定义安装位置用 `proSkillDir` 或 `OIL_UI_PRO_DIR` 指定。该列表依据 [oil-cli 的 installationRoots/targetRoot](https://github.com/oil-oil/oil-cli/blob/e6ee580c01e854919ee50ef1f3de6876c3c52c18/src/skills.js#L139)；默认安装优先已存在的 Claude 目录，Codex 和 DSH 通常共享 `.agents/skills`。
 
-**Pro 原文直接可用，由 Harness filesystem Provider 唯一发布。** 插件只发布内置 `oil-ui`，在 Host、preset、Agent 任何层都不注册同名 Pro，也不读取私有适配规则、不改写 Pro 或生成 Pro 缓存。Pro 的 `references/tools.md` 宿主一节说明如何使用 `oil_ui_shoot`、`oil_ui_media`、`oil_ui_image`、`oil_ui_explorer`；参数对应工具同名字段，版本和生图来源以宿主状态工具为准。新版宿主说明随 Pro `0.33.1` 交付。
+**Lite 与 Pro 原文都直接可用；Pro 由 Harness filesystem Provider 唯一发布。** 插件只发布内置 `oil-ui`，在 Host、preset、Agent 任何层都不注册同名 Pro，也不读取私有适配规则、不改写 Pro 或生成 Pro 缓存。Pro 的 `references/tools.md` 宿主一节说明如何使用 `oil_ui_shoot`、`oil_ui_media`、`oil_ui_image`、`oil_ui_explorer`；参数对应工具同名字段，版本和生图来源以宿主状态工具为准。新版宿主说明随 Pro `0.33.1` 交付。
 
-状态读取当前 Agent 作用域实际胜出的定义，比对原始正文、实际资源目录、入口路径、版本及模型调用权限。正常原文返回 `skillReady=true`、`nativeSkillReady=true`、`visibleMatchesOriginal=true` 和 `skillLoadState=ready`；错误覆盖为 `overridden`，缺少发布或禁止模型调用为 `unavailable`。`nativeSkillReady` 是兼容别名，不表示发生过转换。`/oil-ui-status` 和 `upgradeHint` 同样呈现实际结果；旧 `proAdapterReady` 字段已移除。
+状态读取当前 Agent 作用域实际胜出的定义，与它自己的资源目录里的原始正文比对，同时核对入口路径、版本及模型调用权限。独立安装的 Lite 即使版本与内置版不同，只要原文一致也正常。正常原文返回 `skillReady=true`、`nativeSkillReady=true`、`visibleMatchesOriginal=true` 和 `skillLoadState=ready`；错误覆盖为 `overridden`，缺少发布或禁止模型调用为 `unavailable`。`nativeSkillReady` 是兼容别名，不表示发生过转换。`/oil-ui-status` 和 `upgradeHint` 同样呈现实际结果；旧 `proAdapterReady` 字段已移除。
 
 跨宿主发现与 `proSkillDir` 只用于本地诊断，不会发布 Pro。若 Pro 仅在 Claude 等目录，需安装到 Harness 可见的目录（例如 `~/.agents/skills` 或 `~/.dsh/skills`）。最终决定与回归契约见 [唯一发布者说明](docs/pro-single-publisher.md)。
 
@@ -110,7 +110,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 原来在 `oil-ui` 脚本里的版本更新检查和一次性 Pro 推荐，在 `dsh-oil-ui` 里直接合进了 `oil_ui_skill_status`：
 
-- **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件通常每 10 分钟最多向 `https://ui.oiloil.org/api/store/versions` 核对一次版本号，结果缓存在 `~/.local/state/oil/<name>-update.json`。请求最多等待 8 秒；失败后自动退避，显式更新或发现本地版本高于缓存时会提前检查。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）可直接把当前生效的 Skill 更新到最新。
+- **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件通常每 10 分钟最多向 `https://ui.oiloil.org/api/store/versions` 核对一次版本号，结果缓存在 `~/.local/state/oil/<name>-update.json`。请求最多等待 8 秒；失败后自动退避，显式更新或发现本地版本高于缓存时会提前检查。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）时，只对 filesystem 安装的 Lite/Pro 通过固定提交的 oil-cli 更新；内置 Lite 只提示更新插件，绝不改插件安装目录。
 - **一次性 Pro 提醒**：当本机只装了免费版 `oil-ui` 时，首次调用 `oil_ui_skill_status` 会在 `~/.local/state/oil-ui/recommended-oil-ui-pro` 写下标记，并返回一次 `recommendOnceNotice`，让 Agent 在任务收尾时顺带提一句 [ui.oiloil.org/pro](https://ui.oiloil.org/pro/)，之后不再重复打扰。
 
 ---
@@ -164,6 +164,7 @@ dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
   name: dsh-oil-ui
   config:
     # 本地发现/工作区资源优先 Pro（默认 true）；不会禁用 filesystem 发布
+    bundledSkill: true # 设为 false 时只提供工具，由 filesystem 发布 Skill
     preferPro: true
     # 可选：指定 Pro 对照源目录（默认先扫描 DSH 根，再扫描已核对的 oil-cli 安装位置）
     # proSkillDir: /Users/you/.agents/skills/oil-ui-pro

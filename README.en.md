@@ -37,7 +37,7 @@ DeepSeek Harness already ships with native file tools (`read`, `write`, `edit`),
 
 - **Works directly in `cwd`**: No hidden `projects/<uuid>` nesting. HTML, CSS, scripts, and screenshots live right in the current working directory alongside native `read`, `write`, and `read_image`.
 - **Registers only the 5 specialized `oil-ui` tools**: Comparison page bundling, headless browser captures & interaction scripts, public-domain media search, AI image generation, and Skill status discovery.
-- **Compiled automatically from upstream `oil-ui`**: Upstream `SKILL.md` and `references/*.md` files are automatically transformed so CLI script invocations map cleanly to native `dsh-oil-ui` tool calls. When upstream `oil-ui` changes, a single `pnpm sync:skill` updates the plugin.
+- **Bundles the original public Skill**: Sync only published public `oil-ui` releases, preserving original bytes. Host tool guidance belongs in system prompts, tool descriptions, and the shared host section in `references/tools.md`.
 
 ---
 
@@ -53,7 +53,7 @@ From a short prompt, the agent runs the full loop—**explore directions → bun
   <img src="assets/readme/proof-tempo.webp" alt="Tempo 2026 3-direction mobile comparison page in DeepSeek Harness" width="100%">
 </p>
 
-1. Calls `oil_ui_skill_status` to inspect the model-visible Skill. It loads Pro only when `activeSkillName=oil-ui-pro` and `nativeSkillReady=true`; otherwise it reports the warning and loads bundled Lite.
+1. Calls `oil_ui_skill_status` to inspect the model-visible Skill. When `skillReady=true`, it loads `activeSkillName` with the native skill tool. Bundled Lite, filesystem Lite, and Pro all use their original instructions; failures surface through `skillLoadWarning`.
 2. Builds 3 distinct first-screen candidates in `explore/` and bundles them into a self-contained `style-explorer.html` via `oil_ui_explorer`.
 3. Implements the chosen direction in `index.html` (and `screens.html` for multi-screen mobile flows), verifies states, interactions, and responsive viewports with `oil_ui_shoot`, and inspects every capture with `read_image`.
 
@@ -73,11 +73,11 @@ The plugin registers 5 tools, all resolved relative to the active session's work
 
 It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoid collisions with other `oil-*` Skills):
 
-| Command                   | What it does                                                                                                                                        |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/oil-ui-status [update]` | Inspects the active Oil UI edition (`oil-ui` / `oil-ui-pro`), version update status, and `image-gen` availability; pass `update` to update in place |
-| `/oil-ui-explore <brief>` | Accepts optional reference attachments and queues a 3-direction exploration (`style-explorer.html`)                                                 |
-| `/oil-ui-review [target]` | Accepts optional screenshot/file attachments and queues a two-track UI/UX review (visual hierarchy + task flow)                                     |
+| Command                   | What it does                                                                                                                                                                                    |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/oil-ui-status [update]` | Inspects the active Oil UI edition (`oil-ui` / `oil-ui-pro`), version update status, and `image-gen` availability; pass `update` for filesystem installs; bundled Lite requires a plugin update |
+| `/oil-ui-explore <brief>` | Accepts optional reference attachments and queues a 3-direction exploration (`style-explorer.html`)                                                                                             |
+| `/oil-ui-review [target]` | Accepts optional screenshot/file attachments and queues a two-track UI/UX review (visual hierarchy + task flow)                                                                                 |
 
 ---
 
@@ -100,9 +100,9 @@ It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoi
 
 Each status query rediscovers local `oil-ui-pro` installations. Explicit configuration and DSH project/user Skill roots (including `~/.dsh/skills` and `~/.agents/skills`) take precedence, followed by oil-cli's user installation targets: `~/.claude/skills`, `$CODEX_HOME/skills` (or `~/.codex/skills` when unset), `~/.cursor/skills`, and `~/.workbuddy/skills`. Only the `oil-ui-pro` child is checked; other directories are not recursively scanned, and these cross-host fallbacks do not affect image-gen discovery. Use `proSkillDir` or `OIL_UI_PRO_DIR` for custom locations. This list follows [oil-cli's installationRoots/targetRoot](https://github.com/oil-oil/oil-cli/blob/e6ee580c01e854919ee50ef1f3de6876c3c52c18/src/skills.js#L139): default installation favors an existing Claude directory, while Codex and DSH normally share `.agents/skills`.
 
-**Pro instructions work unchanged and have one publisher: Harness filesystem.** The plugin publishes bundled `oil-ui` only. It never registers `oil-ui-pro` in Host, preset, or Agent scope, reads private adapter rules, rewrites Pro, or creates Pro caches. Pro's host section in `references/tools.md` explains `oil_ui_shoot`, `oil_ui_media`, `oil_ui_image`, and `oil_ui_explorer`: map flags to matching tool fields and use host status for versions and image sources. These host notes ship with Pro `0.33.1`.
+**Both Lite and Pro work unchanged; Pro has one publisher: Harness filesystem.** The plugin publishes bundled `oil-ui` only. It never registers `oil-ui-pro` in Host, preset, or Agent scope, reads private adapter rules, rewrites Pro, or creates Pro caches. Pro's host section in `references/tools.md` explains `oil_ui_shoot`, `oil_ui_media`, `oil_ui_image`, and `oil_ui_explorer`: map flags to matching tool fields and use host status for versions and image sources. These host notes ship with Pro `0.33.1`.
 
-Status checks the definition actually selected in the calling Agent's scope against its original body, resolved resource directory, entry path, version, and model invocation permission. Correct original Pro reports `skillReady=true`, `nativeSkillReady=true`, `visibleMatchesOriginal=true`, and `skillLoadState=ready`. Mismatches report `overridden`; missing or non-invocable definitions report `unavailable`. `nativeSkillReady` is a compatibility alias, not evidence of transformation. `/oil-ui-status` and `upgradeHint` report the same result; the old `proAdapterReady` field is removed.
+Status checks the definition selected in the calling Agent's scope against the original in its own resource directory, entry path, version, and model invocation permission. Filesystem Lite may differ from bundled Lite and still be ready. Correct original instructions report `skillReady=true`, `nativeSkillReady=true`, `visibleMatchesOriginal=true`, and `skillLoadState=ready`. Mismatches report `overridden`; missing or non-invocable definitions report `unavailable`. `nativeSkillReady` is a compatibility alias, not evidence of transformation. `/oil-ui-status` and `upgradeHint` report the same result; the old `proAdapterReady` field is removed.
 
 Cross-host discovery and `proSkillDir` provide local diagnostics, not publication. If Pro exists only in a Claude directory, install it into a Harness-visible root such as `~/.agents/skills` or `~/.dsh/skills`. See the [single-publisher decision](docs/pro-single-publisher.md).
 
@@ -110,7 +110,7 @@ Cross-host discovery and `proSkillDir` provide local diagnostics, not publicatio
 
 The update check and one-time Pro prompt from upstream `oil-ui` are built directly into `oil_ui_skill_status`:
 
-- **Cached version check & self-update**: `oil_ui_skill_status` normally checks `https://ui.oiloil.org/api/store/versions` at most once every 10 minutes, caching the result in `~/.local/state/oil/<name>-update.json`. Requests time out after 8 seconds and failures back off; an explicit update or a local version newer than the cache triggers an earlier check. When a newer version is available, it attaches `updateNotice`; passing `{"update": true}` (or running `/oil-ui-status update`) updates the active Skill in place.
+- **Cached version check & self-update**: `oil_ui_skill_status` normally checks `https://ui.oiloil.org/api/store/versions` at most once every 10 minutes, caching the result in `~/.local/state/oil/<name>-update.json`. Requests time out after 8 seconds and failures back off; an explicit update or a local version newer than the cache triggers an earlier check. When a newer version is available, it attaches `updateNotice`; passing `{"update": true}` (or running `/oil-ui-status update`) updates filesystem Lite/Pro through pinned oil-cli. Bundled Lite only prompts for a plugin update; files inside the plugin installation are never updated in place.
 - **One-time Pro prompt**: When running on the free `oil-ui` edition, the first `oil_ui_skill_status` call writes a marker to `~/.local/state/oil-ui/recommended-oil-ui-pro` and returns `recommendOnceNotice` once so the agent can mention [ui.oiloil.org/en/pro](https://ui.oiloil.org/en/pro/) at the end of its reply—never nagging on subsequent runs.
 
 ---
@@ -164,6 +164,7 @@ The plugin works out of the box and automatically discovers local `oil-ui-pro` a
   name: dsh-oil-ui
   config:
     # Prefer local Pro for discovery/workbench resources (default: true); does not disable filesystem publication
+    bundledSkill: true # false keeps tools but leaves Skill publication to filesystem
     preferPro: true
     # Optional: Pro reference source (default: DSH roots, then verified oil-cli installation paths)
     # proSkillDir: /Users/you/.agents/skills/oil-ui-pro

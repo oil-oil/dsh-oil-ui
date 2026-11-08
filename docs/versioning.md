@@ -2,14 +2,14 @@
 
 这个仓库同时出现插件、内置 Skill 和线上 Skill 三种版本。它们有关联，但不是同一个发布对象。
 
-| 信息                | 唯一来源                                           | 说明                                |
-| ------------------- | -------------------------------------------------- | ----------------------------------- |
-| 插件开发版本        | `package.json#version`                             | 决定 tgz 名称和 Release tag         |
-| 内置 Skill 版本     | `skills/oil-ui.manifest.json#version`              | 当前随插件提交的公开 `oil-ui`       |
-| 内置 Skill 来源     | manifest 的 `source.repository` 与 `source.commit` | 必须能追溯到完整上游 commit         |
-| 转换规则版本        | manifest 的 `transformVersion`                     | 与 `src/skill/transform.ts` 一致    |
-| 正式插件发布        | GitHub Tag / Release                               | 已验证的不可变快照                  |
-| 线上 Skill 最新版本 | `https://ui.oiloil.org/api/store/versions`         | 外部服务当前提供普通版与 Pro 的版本 |
+| 信息                | 唯一来源                                           | 说明                                               |
+| ------------------- | -------------------------------------------------- | -------------------------------------------------- |
+| 插件开发版本        | `package.json#version`                             | 决定 tgz 名称和 Release tag                        |
+| 内置 Skill 版本     | `skills/oil-ui.manifest.json#version`              | 当前随插件提交的公开 `oil-ui`                      |
+| 内置 Skill 来源     | manifest 的 `source.repository` 与 `source.commit` | 必须能追溯到完整上游 commit                        |
+| 分发方式与公开版本  | manifest 的 `distribution` / `source.release`      | 必须为 `original` 与公开 Release tag；没有转换版本 |
+| 正式插件发布        | GitHub Tag / Release                               | 已验证的不可变快照                                 |
+| 线上 Skill 最新版本 | `https://ui.oiloil.org/api/store/versions`         | 外部服务当前提供普通版与 Pro 的版本                |
 
 ## main 与 Release
 
@@ -29,7 +29,7 @@
 - `skills/oil-ui.manifest.json`；
 - 受影响时需要更新的 `lib/index.js`。
 
-`pnpm verify:generated` 会检查当前 manifest 的 transform 版本、上游 commit、全部文件哈希和权限。`pnpm sync:skill --check` 进一步确认指定上游能重现这些内容。
+`pnpm verify:generated` 会检查当前 manifest 的 原文分发标记、上游 commit、全部文件哈希和权限。`pnpm sync:skill --check` 进一步确认指定上游能重现这些内容。
 
 ## 可复现安装
 
@@ -40,3 +40,7 @@ github:oil-oil/dsh-oil-ui#<full-commit-sha>
 ```
 
 分支名和版本号都不能代替 commit 提供同样的可复现性。
+
+同步默认要求 HEAD 是对应版本的公开 Release tag；归档须显式提供 `OIL_UI_SOURCE_COMMIT` 与 `OIL_UI_SOURCE_RELEASE`。只有隔离的候选验证使用 `--allow-unreleased`，其 manifest 的 `source.release=null`，发布检查必须拒绝。标记和 tag 是本地来源证据；定时 workflow 用 GitHub 已发布 Release 的 tag 检出，不跟随上游 main。
+
+公开源归档需解压在任何 Git 仓库之外，再显式提供 `OIL_UI_SOURCE_COMMIT` 与 `OIL_UI_SOURCE_RELEASE`。Git 子目录不能靠归档环境变量绕过自身发布 tag 校验；候选构建仅在隔离副本使用 `--allow-unreleased`。

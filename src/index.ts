@@ -21,7 +21,7 @@ export { Config };
 export const name = 'dsh-oil-ui';
 
 export const MAIN_AGENT_SYSTEM_PROMPT =
-  'For UI tasks, call oil_ui_skill_status first to inspect the model-visible Skill and nativeSkillReady. Load oil-ui-pro with the skill tool only when activeSkillName is oil-ui-pro and nativeSkillReady is true. Pro is loaded unchanged from Harness filesystem; follow its host-tools section in references/tools.md. Otherwise use the bundled oil-ui Skill if available and report skillLoadWarning when present. Read and write project files directly in the current working directory. Use oil_ui_explorer for style-explorer.html comparison pages, oil_ui_shoot for screenshots/interactions/responsive checks/recordings, oil_ui_media for public-domain and museum media search/preview/fetch, and oil_ui_image for generating or editing visual assets. For standard single-page prototypes or small edits, verify directly with oil_ui_shoot and read_image; only dispatch subagent for independent visual/UX review on complex multi-page revamps or when explicitly requested.';
+  'For UI tasks, call oil_ui_skill_status first for the effective Skill, version, update notice, and image source. Use this host status tool instead of running check_update.sh or check_update.py; it also handles one-time notices. When skillReady is true, load activeSkillName with the native skill tool: oil-ui and oil-ui-pro both work unchanged, regardless of their publisher. Report skillLoadWarning when present. Follow references/tools.md host-tools section: use oil_ui_explorer for comparison pages, oil_ui_shoot for screenshots/interactions/recordings, oil_ui_media for media search/preview/fetch, and oil_ui_image for generating or editing images; map CLI flags such as --stitch and --frames to the matching tool fields. Use status.imageSource and oilBalance instead of invoking the image script to detect availability. Bundled Skill updates require updating the plugin; filesystem installations use oil-cli. Read and write project files directly in the current working directory. Review subagents receive the effective original reviewer manual in their system prompt; they do not need to reload it. Use read_image to inspect screenshots.';
 
 export function buildSubagentSystemPrompt(reviewerManual: string, referencesPath?: string): string {
   return [
@@ -94,6 +94,7 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.inject(['skills'], async (ctx) => {
     skillsRegistry = ctx.skills;
+    if (config.bundledSkill === false) return;
     if (typeof ctx.skills.registerProvider === 'function') {
       ctx.skills.registerProvider((control) => {
         invalidateSkills = () => control.invalidate?.();
@@ -127,7 +128,7 @@ export function apply(ctx: Context, config: Config) {
           const lines = [
             `模型可见 Skill：${status.effective ? `${status.activeSkillName}（${status.edition === 'pro' ? 'Pro' : 'Lite'}）v${status.activeVersion}` : '未找到'}`,
             ...(status.skillLoadWarning ? [`注意：${status.skillLoadWarning}`] : []),
-            `最新版本：${status.latestVersion ?? status.activeVersion}${status.updateAvailable ? '（有新版本可用，可运行 /oil-ui-status update 更新）' : ''}`,
+            `最新版本：${status.latestVersion ?? status.activeVersion}${status.updateAvailable ? '（有新版本可用，更新方式见下方提示）' : ''}`,
             `本地 Pro：${status.proInstalled ? `已检测到（${status.proSourcePath}）` : '未安装'}`,
             `本地生图（image-gen）：${status.imageGenAvailable ? `可用（${status.imageGenScriptPath}）` : '未检测到'}`,
             `生图来源：${status.imageSource === 'image-gen' ? 'image-gen' : status.imageSource === 'oiloil' ? 'oiloil' : '无'}`,
@@ -161,7 +162,7 @@ export function apply(ctx: Context, config: Config) {
             };
           }
           const prompt = [
-            'Call oil_ui_skill_status first. Load oil-ui-pro only if activeSkillName is oil-ui-pro and nativeSkillReady is true; otherwise load bundled oil-ui with the skill tool and report skillLoadWarning when present.',
+            'Call oil_ui_skill_status first. When skillReady is true, load its activeSkillName (oil-ui-pro or oil-ui) unchanged with the skill tool; report skillLoadWarning when present.',
             'Explore 3 genuinely distinct design directions in explore/a.html, explore/b.html, and explore/c.html, package them into style-explorer.html with oil_ui_explorer, and inspect the comparison page and cards with oil_ui_shoot.',
             ...(brief ? ['', `Design brief: ${brief}`] : []),
           ].join('\n');
@@ -188,7 +189,7 @@ export function apply(ctx: Context, config: Config) {
         handler: (invocation) => {
           const target = invocation.rawInput.trim();
           const prompt = [
-            'Call oil_ui_skill_status first. Load oil-ui-pro only if activeSkillName is oil-ui-pro and nativeSkillReady is true; otherwise load bundled oil-ui with the skill tool and report skillLoadWarning when present.',
+            'Call oil_ui_skill_status first. When skillReady is true, load its activeSkillName (oil-ui-pro or oil-ui) unchanged with the skill tool; report skillLoadWarning when present.',
             'Capture desktop and mobile screenshots and key interactive states with oil_ui_shoot, then conduct a two-track UI/UX review covering visual hierarchy/craft and usability/task flow.',
             ...(target ? ['', `Review target: ${target}`] : []),
           ].join('\n');
@@ -243,7 +244,7 @@ export function apply(ctx: Context, config: Config) {
             edition: effective!.name === 'oil-ui-pro' ? 'pro' : 'lite',
             name: effective!.name as ActiveSkill['name'],
             directory: (effective!.resourceBase as { path: string }).path,
-            source: effective!.name === 'oil-ui-pro' ? 'local-pro' : 'bundled-lite',
+            source: 'filesystem',
           };
           referencesPath = join(active.directory, 'references');
         }
