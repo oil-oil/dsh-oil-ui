@@ -57,7 +57,7 @@ it('resolves npm and pnpm Windows command shims to their package Node entries', 
       nodePath: path.join(root, 'node.exe'),
     });
     expect(npm.command).toBe(path.join(root, 'node.exe'));
-    expect(await realpath(npm.args[0])).toBe(await realpath(npmEntry));
+    expect(await realpath(String(npm.args[0]))).toBe(await realpath(npmEntry));
     expect(npm.args.slice(1)).toEqual(['run', 'pack:plugin']);
     const pnpm = pnpmInvocation(['pack'], {
       env: { PATH: globalPrefix, PATHEXT: '.COM;.EXE;.BAT;.CMD' },
@@ -65,7 +65,7 @@ it('resolves npm and pnpm Windows command shims to their package Node entries', 
       nodePath: path.join(root, 'node.exe'),
     });
     expect(pnpm.command).toBe(path.join(root, 'node.exe'));
-    expect(await realpath(pnpm.args[0])).toBe(await realpath(pnpmEntry));
+    expect(await realpath(String(pnpm.args[0]))).toBe(await realpath(pnpmEntry));
     expect(pnpm.args.slice(1)).toEqual(['pack']);
   } finally {
     await rm(root, { recursive: true, force: true });
