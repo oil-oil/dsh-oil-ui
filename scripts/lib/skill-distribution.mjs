@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
-import { lstat, readdir, readFile, stat } from 'node:fs/promises'
+import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { publicSkillFiles } from '../public-skill-files.mjs'
 
 export const excludedSkillNames = new Set(['.git', '.DS_Store', '__pycache__'])
-export const documentationOnlySkillPaths = new Set(['assets/readme', 'README.en.md', '.github'])
+export const documentationOnlySkillPaths = new Set(['assets/readme', 'README.en.md', 'README.ja.md', '.github'])
 export const skillExclusionRules = Object.freeze([
   { name: '.github', reason: 'Repository maintenance and CI configuration are not part of the Skill runtime.' },
   { name: '.git', reason: 'Repository metadata is not part of the Skill runtime.' },
@@ -13,6 +13,7 @@ export const skillExclusionRules = Object.freeze([
   { name: '*.pyc', reason: 'Compiled Python bytecode is a regenerable cache.' },
   { name: 'assets/readme', reason: 'README showcase images are not runtime resources.' },
   { name: 'README.en.md', reason: 'Duplicate English README; README.md is retained.' },
+  { name: 'README.ja.md', reason: 'Japanese repository introduction; it is not linked by Skill instructions or needed at runtime.' },
 ])
 
 const proOnlyPattern = /^(references\/(direction-concept|direction-workspace|cards)\.md|assets\/cards(?:\/|$))/
@@ -58,6 +59,21 @@ export function assertPublicSkillFiles(paths, label = 'Skill tree') {
 
 export async function sha256(filePath) {
   return createHash('sha256').update(await readFile(filePath)).digest('hex')
+}
+
+export async function assertInstallRepoMatches(root, expectedRepo) {
+  const base = await realpath(root)
+  let checker
+  try { checker = await realpath(path.join(base, 'scripts/check_update.py')) }
+  catch (error) { if (error.code === 'ENOENT') return; throw error }
+  if (!inside(base, checker)) throw new Error('The public update checker escapes the supplied Skill root.')
+  const source = await readFile(checker, 'utf8')
+  // Both public checker generations used a simple string assignment (CLI or INSTALL_REPO).
+  const assignments = source.match(/^\s*(?:INSTALL_REPO|CLI)\s*=.*$/gm) ?? []
+  for (const assignment of assignments) {
+    const pin = assignment.match(/=\s*['"](github:oil-oil\/oil-cli#[0-9a-f]{40})['"]\s*(?:#.*)?$/)?.[1]
+    if (pin !== expectedRepo) throw new Error('oil-cli pin differs from public scripts/check_update.py; synchronize the reviewed pin before release.')
+  }
 }
 
 export async function verifySkillEntries(root, entries) {
@@ -106,6 +122,9 @@ export async function verifySkillEntries(root, entries) {
 export async function verifySkillSnapshot(root, manifest) {
   if (!manifest || manifest.name !== 'oil-ui' || !Array.isArray(manifest.files)) {
     throw new Error('Invalid oil-ui Skill manifest.')
+  }
+  if (manifest.distribution !== 'original' || 'transformVersion' in manifest) {
+    throw new Error('Skill manifest must describe an unchanged original distribution. Run npm run sync:skill.')
   }
   if (manifest.fileCount !== manifest.files.length || manifest.fileCount !== publicSkillFiles.length) {
     throw new Error(`Manifest fileCount must equal the reviewed ${publicSkillFiles.length}-file distribution.`)

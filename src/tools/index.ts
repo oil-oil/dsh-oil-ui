@@ -41,9 +41,12 @@ export function registerTools(ctx: Context, options: ToolRegistrationOptions): v
         isConcurrencySafe: (args) =>
           !Boolean(args && typeof args === 'object' && (args as { update?: unknown }).update),
         description:
-          '查看当前生效的 Oil UI 版本、更新状态、生图来源（image-gen / oiloil / 无）、oiloil 登录余额与子 Agent 评审手册注入状态。仅在用户明确要求更新时传入 update=true。',
+          '核对当前 Agent 实际生效 Skill 的原文、版本和资源目录，返回更新状态、生图来源（image-gen / oiloil / 无）及 oiloil 登录余额。宿主状态优先于脚本探测。仅在用户明确要求时传 update=true：filesystem 安装版用 oil-cli 更新，内置版只提示更新插件。',
         parameters: {
-          update: { type: 'boolean', description: '仅在用户明确要求时检查并更新 Skill。' },
+          update: {
+            type: 'boolean',
+            description: '仅在用户明确要求时更新 filesystem 安装版；内置版提示更新插件，不写入安装目录。',
+          },
         },
         presentCall: (args): GenericCallView => ({
           card: 'generic',

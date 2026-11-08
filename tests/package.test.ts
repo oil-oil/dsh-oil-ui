@@ -22,6 +22,9 @@ vi.mock('node:os', async (original) => ({
 it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpacked archive', async () => {
   const root = await mkdtemp(join(tmpdir(), 'oil-package-contract-'));
   const repository = process.cwd();
+  const bundledManifest = JSON.parse(await readFile(join(repository, 'skills/oil-ui.manifest.json'), 'utf8')) as {
+    version: string;
+  };
   const disposers: (() => void | Promise<void>)[] = [];
   const previousEnv = {
     DSH_HOME: process.env.DSH_HOME,
@@ -132,7 +135,8 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     if (!skill) throw new Error('Packaged Lite Skill could not be loaded');
     expect(skill.name).toBe('oil-ui');
     expect(skill.resourceBase).toEqual({ kind: 'directory', path: join(unpack, 'package/skills/oil-ui') });
-    expect(skill.content).toContain('oil_ui_shoot');
+    const packagedSkillMarkdown = await readFile(join(unpack, 'package/skills/oil-ui/SKILL.md'), 'utf8');
+    expect(skill.content).toBe(packagedSkillMarkdown.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, ''));
 
     const cwd = join(root, 'workspace');
     await mkdir(join(cwd, 'explore'), { recursive: true });
@@ -146,7 +150,7 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
       edition: 'lite',
       activeSkillName: 'oil-ui',
-      bundledVersion: '0.33.1',
+      bundledVersion: bundledManifest.version,
       manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       visibleMatchesOriginal: true,
     });
@@ -177,8 +181,8 @@ it('rebuilds stale lib and runs Lite, status, explorer and shoot from the unpack
     expect(await tools.get('oil_ui_skill_status')!.execute({}, run)).toMatchObject({
       edition: 'lite',
       activeSkillName: 'oil-ui',
-      activeVersion: '0.33.1',
-      bundledVersion: '0.33.1',
+      activeVersion: bundledManifest.version,
+      bundledVersion: bundledManifest.version,
       manifestPath: join(unpack, 'package/skills/oil-ui.manifest.json'),
       proInstalled: true,
       nativeSkillReady: true,

@@ -27,6 +27,15 @@ const PNPM_VERSION = '10.16.1';
 const DSH_PROFILE = 'web';
 const CHILD_TIMEOUT_MS = 120_000;
 const HOST_TIMEOUT_MS = 90_000;
+const LITE_PROVIDER = 'oil-ui-provider';
+const OIL_UI_TOOLS = ['oil_ui_shoot', 'oil_ui_media', 'oil_ui_image', 'oil_ui_explorer', 'oil_ui_skill_status'];
+const LITE_HOST_TOOLS = OIL_UI_TOOLS.slice(0, 4);
+const SCENARIOS = [
+  { id: 'plugin-lite-only', bundledSkill: true, filesystemLite: false, filesystemPro: false },
+  { id: 'filesystem-lite-only', bundledSkill: false, filesystemLite: true, filesystemPro: false },
+  { id: 'filesystem-lite-overrides-bundle', bundledSkill: true, filesystemLite: true, filesystemPro: false },
+  { id: 'filesystem-pro-with-both-lite-publishers', bundledSkill: true, filesystemLite: true, filesystemPro: true },
+];
 
 function invariant(condition, message) {
   assert.ok(condition, message);
@@ -292,47 +301,93 @@ async function exposePnpmOnPath(root, pnpmPath) {
   return bin;
 }
 
-function fixtureFiles() {
-  const rawBody = [
-    '',
-    '# Original Pro fixture',
-    '',
-    'RAW_PRO_BODY_SENTINEL: this exact instruction text must survive native loading.',
-    '',
-    'Read `references/reviewer-manual.md` when the task explicitly requests a review.',
-    '',
-  ].join('\n');
-  // DSH's filesystem provider trims the parsed body; keep the fixture itself realistic.
-  const body = rawBody.trim();
+function makeSkillFixture({ name, version, description, body }) {
+  const rawBody = `\n${body.trim()}\n`;
   const skill = [
     '---',
-    'name: oil-ui-pro',
-    'description: A fictional raw Pro skill used for the DSH native loader smoke check.',
+    `name: ${name}`,
+    `description: ${description}`,
     'metadata:',
-    '  version: "0.0.0"',
+    `  version: "${version}"`,
     '---',
     rawBody,
   ].join('\n');
+  return { body: rawBody.trim(), skill: Buffer.from(skill, 'utf8') };
+}
+
+function proFixtureFiles() {
+  const fixture = makeSkillFixture({
+    name: 'oil-ui-pro',
+    version: '0.0.0',
+    description: 'A fictional raw Pro skill used for the DSH native loader smoke check.',
+    body: [
+      '# Original Pro fixture',
+      '',
+      'RAW_PRO_BODY_SENTINEL: this exact instruction text must survive native loading.',
+      '',
+      'Read `references/reviewer-manual.md` when the task explicitly requests a review.',
+    ].join('\n'),
+  });
   const reviewerManual = [
     '# Fictional reviewer manual',
     '',
     'RAW_PRO_REFERENCE_SENTINEL: preserve this resource byte for byte.',
     '',
   ].join('\n');
-  return {
-    body,
-    skill: Buffer.from(skill, 'utf8'),
-    reviewerManual: Buffer.from(reviewerManual, 'utf8'),
-  };
+  return { ...fixture, reviewerManual: Buffer.from(reviewerManual, 'utf8') };
 }
 
-async function writeFixture(agentsHome) {
-  const fixture = fixtureFiles();
-  const directory = path.join(agentsHome, 'skills', 'oil-ui-pro');
-  await mkdir(path.join(directory, 'references'), { recursive: true });
+function filesystemLiteFixtureFiles() {
+  return makeSkillFixture({
+    name: 'oil-ui',
+    version: '9.8.7',
+    description: 'A fictional raw filesystem Lite skill used for the DSH native loader smoke check.',
+    body: [
+      '# Filesystem Lite fixture',
+      '',
+      'RAW_FILESYSTEM_LITE_BODY_SENTINEL: this exact original text must survive native loading.',
+      '',
+      '## 宿主工具',
+      '',
+      ...LITE_HOST_TOOLS.map((name) => `- \`${name}\``),
+    ].join('\n'),
+  });
+}
+
+async function writeFixture(agentsHome, name, fixture) {
+  const directory = path.join(agentsHome, 'skills', name);
+  await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, 'SKILL.md'), fixture.skill, { mode: 0o600 });
-  await writeFile(path.join(directory, 'references', 'reviewer-manual.md'), fixture.reviewerManual, { mode: 0o600 });
+  if (name === 'oil-ui-pro') {
+    await mkdir(path.join(directory, 'references'), { recursive: true });
+    await writeFile(path.join(directory, 'references', 'reviewer-manual.md'), fixture.reviewerManual, {
+      mode: 0o600,
+    });
+  } else {
+    await mkdir(path.join(directory, 'references'), { recursive: true });
+    const toolsReference = [
+      '# Fictional raw Lite tools reference',
+      '',
+      '## 宿主工具',
+      '',
+      ...LITE_HOST_TOOLS.map((tool) => `- \`${tool}\``),
+      '',
+    ].join('\n');
+    await writeFile(path.join(directory, 'references', 'tools.md'), toolsReference, { mode: 0o600 });
+  }
   return { directory, ...fixture };
+}
+
+function skillBodyFromMarkdown(markdown) {
+  const boundary = /^---\r?\n[\s\S]*?\r?\n---\r?\n/u.exec(markdown);
+  invariant(boundary, 'A Skill fixture is missing its YAML frontmatter boundary.');
+  return markdown.slice(boundary[0].length);
+}
+
+function scenarioById(id) {
+  const scenario = SCENARIOS.find((candidate) => candidate.id === id);
+  invariant(scenario, `Unknown smoke scenario: ${id ?? '(missing)'}.`);
+  return scenario;
 }
 
 async function readTreeBytes(root) {
@@ -360,33 +415,95 @@ async function directoryExists(directory) {
   }
 }
 
-function assertSameFileTree(before, after) {
-  assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort(), 'The raw Pro fixture file list changed.');
+function assertSameFileTree(before, after, label) {
+  assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort(), `The ${label} fixture file list changed.`);
   for (const [name, bytes] of before) {
-    assert.ok(after.get(name)?.equals(bytes), `The raw Pro fixture changed bytes: ${name}`);
+    assert.ok(after.get(name)?.equals(bytes), `The ${label} fixture changed bytes: ${name}`);
   }
 }
 
-async function hostMain(args) {
-  const [workspace, resultPath, dshDirectory, pnpmPath, npmrcPath, npmGlobalConfigPath, packageCachePath] = args;
-  invariant(workspace && resultPath && dshDirectory && pnpmPath, 'The isolated host arguments are incomplete.');
-  const isolated = {
-    env: process.env,
-    dirs: {
-      userConfig: npmrcPath,
-      globalConfig: npmGlobalConfigPath,
-      npmCache: packageCachePath,
-      dshHome: process.env.DSH_HOME,
-    },
+async function assertSkillSnapshot(definition, result, expected, label) {
+  invariant(definition, `${label} was not readable from the Agent view.`);
+  invariant(definition.name === expected.name, `${label} definition returned the wrong Skill name.`);
+  invariant(definition.provider === expected.provider, `${label} definition returned the wrong provider.`);
+  invariant(
+    String(definition.metadata?.version) === expected.version,
+    `${label} definition returned version ${String(definition.metadata?.version)} instead of ${expected.version}.`,
+  );
+  invariant(definition.content === expected.body, `${label} definition changed the original Markdown body.`);
+  invariant(
+    definition.resourceBase?.kind === 'directory' &&
+      (await realpath(definition.resourceBase.path)) === (await realpath(expected.directory)) &&
+      (await realpath(definition.path)) === (await realpath(path.join(expected.directory, 'SKILL.md'))),
+    `${label} definition returned the wrong entry path or resource directory.`,
+  );
+
+  invariant(result.name === expected.name, `${label} native tool returned the wrong Skill name.`);
+  invariant(result.provider === expected.provider, `${label} native tool returned the wrong provider.`);
+  invariant(result.content === expected.body, `${label} native tool changed the original Markdown body.`);
+  invariant(
+    result.resourceBase?.kind === 'directory' &&
+      (await realpath(result.resourceBase.path)) === (await realpath(expected.directory)),
+    `${label} native tool returned the wrong resource directory.`,
+  );
+}
+
+async function bundledLiteFromProfile(dshHome) {
+  const profileDirectory = path.join(dshHome, 'profiles', DSH_PROFILE);
+  const profileRequire = createRequire(path.join(profileDirectory, 'package.json'));
+  const packageJsonPath = profileRequire.resolve('dsh-oil-ui/package.json');
+  const packageDirectory = path.dirname(packageJsonPath);
+  const directory = path.join(packageDirectory, 'skills', 'oil-ui');
+  const [markdown, manifestBytes] = await Promise.all([
+    readFile(path.join(directory, 'SKILL.md'), 'utf8'),
+    readFile(path.join(packageDirectory, 'skills', 'oil-ui.manifest.json'), 'utf8'),
+  ]);
+  const manifest = JSON.parse(manifestBytes);
+  return {
+    name: 'oil-ui',
+    body: skillBodyFromMarkdown(markdown),
+    version: String(manifest.version),
+    provider: LITE_PROVIDER,
+    directory,
   };
+}
+
+async function assertHostToolsReference(directory, label) {
+  const toolsReference = await readFile(path.join(directory, 'references', 'tools.md'), 'utf8');
+  invariant(/^## 宿主工具\s*$/mu.test(toolsReference), `${label} is missing the original “## 宿主工具” section.`);
+  const missing = LITE_HOST_TOOLS.filter((tool) => !toolsReference.includes(tool));
+  invariant(missing.length === 0, `${label} is missing host tool names: ${missing.join(', ')}.`);
+}
+
+async function hostMain(args) {
+  const [workspace, resultPath, dshDirectory, pnpmPath, scenarioId, patchPath] = args;
+  invariant(
+    workspace && resultPath && dshDirectory && pnpmPath && scenarioId,
+    'The isolated host arguments are incomplete.',
+  );
+  const scenario = scenarioById(scenarioId);
   let app;
   let handle;
   let summary;
   let failure;
-  const expectedFixture = {
-    ...fixtureFiles(),
-    directory: path.join(process.env.DSH_AGENTS_HOME, 'skills', 'oil-ui-pro'),
-  };
+  const expectedPro = scenario.filesystemPro
+    ? {
+        ...proFixtureFiles(),
+        name: 'oil-ui-pro',
+        version: '0.0.0',
+        provider: 'filesystem',
+        directory: path.join(process.env.DSH_AGENTS_HOME, 'skills', 'oil-ui-pro'),
+      }
+    : null;
+  const expectedFilesystemLite = scenario.filesystemLite
+    ? {
+        ...filesystemLiteFixtureFiles(),
+        name: 'oil-ui',
+        version: '9.8.7',
+        provider: 'filesystem',
+        directory: path.join(process.env.DSH_AGENTS_HOME, 'skills', 'oil-ui'),
+      }
+    : null;
   try {
     process.chdir(workspace);
     const nativeFetch = globalThis.fetch;
@@ -406,11 +523,11 @@ async function hostMain(args) {
     app = await runProfile({
       environment,
       profile: DSH_PROFILE,
-      patchFiles: [],
+      patchFiles: patchPath ? [patchPath] : [],
       args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
       packageManager: {
         command: pnpmPath,
-        env: isolated.env,
+        env: process.env,
       },
     });
 
@@ -428,99 +545,115 @@ async function hostMain(args) {
     invariant(skillTool, 'The standard Agent preset does not expose the native skill tool.');
 
     const globalCatalog = await app.ctx.skills.list();
+    const pluginLiteCandidates = globalCatalog.filter(
+      (skill) => skill.name === 'oil-ui' && skill.provider === LITE_PROVIDER,
+    );
     const globalPros = globalCatalog.filter((skill) => skill.name === 'oil-ui-pro');
-    const globalPluginProCount = globalPros.filter((skill) => skill.provider !== 'filesystem').length;
     const agentCatalog = await app.ctx.skills.list({ cwd: workspace, scope: agent });
     const agentPro = agentCatalog.filter((skill) => skill.name === 'oil-ui-pro');
+    const agentPluginPros = agentPro.filter((skill) => skill.provider !== 'filesystem');
+    const pluginProCandidates = globalPros.filter((skill) => skill.provider !== 'filesystem');
     invariant(
-      globalPluginProCount === 0,
+      pluginProCandidates.length === 0 && agentPluginPros.length === 0,
       'The plugin provider unexpectedly publishes oil-ui-pro in the global registry.',
     );
     invariant(
-      agentPro.length === 1 && agentPro[0].provider === 'filesystem',
-      'The Agent view must expose exactly one filesystem-owned oil-ui-pro.',
+      agentPro.length === Number(scenario.filesystemPro) &&
+        (!scenario.filesystemPro || agentPro[0]?.provider === 'filesystem'),
+      'The Agent view exposed the wrong number or owner of filesystem oil-ui-pro definitions.',
     );
 
-    const pro = await skillTool.execute({ name: 'oil-ui-pro' }, { agent, signal });
     invariant(
-      pro.name === 'oil-ui-pro' && pro.provider === 'filesystem',
-      'The native skill tool did not load the isolated HOME Pro fixture from filesystem.',
-    );
-    invariant(
-      Buffer.from(pro.content, 'utf8').equals(Buffer.from(expectedFixture.body, 'utf8')),
-      'The native skill tool changed the original Pro instruction bytes.',
-    );
-    invariant(
-      pro.resourceBase?.kind === 'directory' &&
-        path.resolve(pro.resourceBase.path) === path.resolve(expectedFixture.directory),
-      'The native skill tool returned a mismatched Pro resource directory.',
+      scenario.bundledSkill ? pluginLiteCandidates.length === 1 : pluginLiteCandidates.length === 0,
+      `The bundled Lite Provider registration did not match scenario ${scenario.id}.`,
     );
 
-    const oilTools = ['oil_ui_shoot', 'oil_ui_media', 'oil_ui_image', 'oil_ui_explorer', 'oil_ui_skill_status'];
-    const missingTools = oilTools.filter((name) => app.ctx.tools.get(name, agent) === undefined);
+    const agentToolNames =
+      typeof app.ctx.tools.schemas === 'function'
+        ? app.ctx.tools.schemas(agent).map((tool) => tool.name)
+        : app.ctx.tools.definitions(agent).map((tool) => tool.name);
+    const missingTools = OIL_UI_TOOLS.filter((name) => !agentToolNames.includes(name));
     invariant(missingTools.length === 0, `Missing Oil UI tools in the Agent view: ${missingTools.join(', ')}.`);
 
+    const bundledLite = scenario.bundledSkill ? await bundledLiteFromProfile(process.env.DSH_HOME) : null;
+    const expectedLite = expectedFilesystemLite ?? bundledLite;
+    invariant(expectedLite, `Scenario ${scenario.id} has no expected Lite publisher.`);
+    await assertHostToolsReference(expectedLite.directory, `Lite Skill in ${scenario.id}`);
     const liteDefinition = await app.ctx.skills.get('oil-ui', { cwd: workspace, scope: agent, signal });
-    invariant(liteDefinition, 'The packaged Lite Skill is not readable from the Agent view.');
     const liteResult = await skillTool.execute({ name: 'oil-ui' }, { agent, signal });
-    invariant(
-      liteResult.name === 'oil-ui' && liteResult.content === liteDefinition.content,
-      'The native skill tool could not read the Lite Skill body.',
-    );
-    invariant(
-      liteDefinition.resourceBase?.kind === 'directory',
-      'The readable Lite Skill has no filesystem resource directory.',
-    );
-    const manifestPath = path.resolve(liteDefinition.resourceBase.path, '..', 'oil-ui.manifest.json');
-    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-    invariant(
-      String(liteDefinition.metadata?.version) === String(manifest.version),
-      'The readable Lite Skill version does not match its installed manifest.',
-    );
+    await assertSkillSnapshot(liteDefinition, liteResult, expectedLite, 'Lite Skill');
+
+    let proResult;
+    let proDefinition;
+    if (expectedPro) {
+      proDefinition = await app.ctx.skills.get('oil-ui-pro', { cwd: workspace, scope: agent, signal });
+      proResult = await skillTool.execute({ name: 'oil-ui-pro' }, { agent, signal });
+      await assertSkillSnapshot(proDefinition, proResult, expectedPro, 'Pro Skill');
+    }
 
     const statusTool = app.ctx.tools.get('oil_ui_skill_status', agent);
+    invariant(statusTool, 'The standard Agent preset does not expose oil_ui_skill_status.');
     const status = await statusTool.execute({}, { agent, signal });
+    const expectedActive = expectedPro ?? expectedLite;
+    const activeResult = expectedPro ? proResult : liteResult;
+    const expectedEdition = expectedPro ? 'pro' : 'lite';
     invariant(
-      status.activeSkillName === 'oil-ui-pro' &&
-        status.edition === 'pro' &&
-        status.activeVersion === '0.0.0' &&
-        status.effective?.name === 'oil-ui-pro' &&
-        status.effective.provider === 'filesystem' &&
-        status.effective.version === '0.0.0',
-      'Skill status did not describe the filesystem Pro fixture actually loaded by the native skill tool.',
+      status.activeSkillName === expectedActive.name &&
+        status.edition === expectedEdition &&
+        status.activeVersion === expectedActive.version &&
+        status.effective?.name === expectedActive.name &&
+        status.effective.provider === expectedActive.provider &&
+        String(status.effective.version) === expectedActive.version,
+      `Skill status did not describe the actual ${expectedEdition} definition loaded by the native skill tool.`,
     );
     invariant(
       status.effective.resourceBase?.kind === 'directory' &&
-        (await realpath(status.effective.resourceBase.path)) === (await realpath(expectedFixture.directory)) &&
-        (await realpath(status.effective.path)) ===
-          (await realpath(path.join(expectedFixture.directory, 'SKILL.md'))) &&
-        (await realpath(status.activeResourceBase)) === (await realpath(expectedFixture.directory)),
-      'Skill status returned a mismatched Pro entry path or resource directory.',
+        (await realpath(status.effective.resourceBase.path)) === (await realpath(expectedActive.directory)) &&
+        (await realpath(status.effective.path)) === (await realpath(path.join(expectedActive.directory, 'SKILL.md'))) &&
+        (await realpath(status.activeResourceBase)) === (await realpath(expectedActive.directory)) &&
+        activeResult.content === expectedActive.body,
+      'Skill status resource paths or its native skill body did not match the selected original Skill.',
     );
+    invariant(status.skillReady === true, 'oil_ui_skill_status did not report skillReady=true.');
     invariant(status.nativeSkillReady === true, 'oil_ui_skill_status did not report nativeSkillReady=true.');
     invariant(
       status.visibleMatchesOriginal === true,
       'oil_ui_skill_status did not report visibleMatchesOriginal=true.',
     );
     invariant(status.skillLoadState === 'ready', 'oil_ui_skill_status did not report skillLoadState=ready.');
+    invariant(
+      status.proVisible === scenario.filesystemPro && status.proInstalled === scenario.filesystemPro,
+      'Skill status reported the wrong Pro visibility or installation state.',
+    );
     summary = {
       dshVersion:
         (await readFile(path.join(dshDirectory, 'package.json'), 'utf8')).match(/"version"\s*:\s*"([^"]+)"/u)?.[1] ??
         'unknown',
       profile: DSH_PROFILE,
       agentPreset: 'standard',
+      scenario: scenario.id,
+      bundledSkillEnabled: scenario.bundledSkill,
+      bundledLiteProviderPresent: pluginLiteCandidates.length === 1,
+      liteProvider: liteDefinition.provider,
+      liteVersion: String(liteDefinition.metadata?.version),
+      liteDirectory: await realpath(liteDefinition.resourceBase.path),
+      liteBodyMatchesOriginal: liteDefinition.content === expectedLite.body,
+      liteHostToolsSectionPresent: true,
       globalProProviders: globalPros.map((skill) => skill.provider),
-      pluginProAbsent: globalPluginProCount === 0,
+      pluginProAbsent: pluginProCandidates.length === 0 && agentPluginPros.length === 0,
       agentFilesystemProCount: agentPro.length,
-      originalProVisibleMatchesBytes: pro.content === expectedFixture.body,
-      originalProResourceDirectoryMatches:
-        path.resolve(pro.resourceBase.path) === path.resolve(expectedFixture.directory),
-      oilUiToolCount: oilTools.length,
-      liteVersionMatchesManifest: String(liteDefinition.metadata?.version) === String(manifest.version),
+      ...(proResult
+        ? {
+            proVersion: String(proDefinition.metadata?.version),
+            proDirectory: await realpath(proDefinition.resourceBase.path),
+            originalProBodyUnchanged: proDefinition.content === expectedPro.body,
+          }
+        : {}),
+      oilUiToolCount: OIL_UI_TOOLS.length,
       statusSkillName: status.activeSkillName,
       statusProvider: status.effective.provider,
-      proVersion: status.activeVersion,
-      liteVersion: String(liteDefinition.metadata?.version),
+      activeVersion: status.activeVersion,
+      skillReady: status.skillReady,
       nativeSkillReady: status.nativeSkillReady,
       visibleMatchesOriginal: status.visibleMatchesOriginal,
       skillLoadState: status.skillLoadState,
@@ -553,92 +686,120 @@ async function main() {
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-oil-ui-smoke-'));
   try {
-    const isolated = await createIsolation(tempRoot);
-    const workspace = path.join(tempRoot, 'workspace');
-    await mkdir(workspace, { recursive: true });
-    const expectedFixture = await writeFixture(isolated.dirs.agentsHome);
-    const rawFixtureBefore = await readTreeBytes(expectedFixture.directory);
+    const bootstrapRoot = path.join(tempRoot, 'bootstrap');
+    await mkdir(bootstrapRoot, { recursive: true });
+    const bootstrap = await createIsolation(bootstrapRoot);
     const installedDsh = await findInstalledDsh();
-    const pnpm = await selectPnpm(tempRoot, isolated);
+    const pnpm = await selectPnpm(tempRoot, bootstrap);
     const pnpmBin = await exposePnpmOnPath(tempRoot, pnpm.path);
     const npmExecPath = process.env.npm_execpath;
     invariant(npmExecPath && path.isAbsolute(npmExecPath), 'Run this script with npm run smoke:dsh.');
     await access(npmExecPath);
-    const commandEnv = {
-      ...isolated.env,
-      PATH: `${pnpmBin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ''}`,
-    };
     const archive = path.join(tempRoot, 'plugin.tgz');
     await runChild(process.execPath, [npmExecPath, 'run', 'pack:plugin', '--', archive], {
       cwd: projectRoot,
-      env: commandEnv,
+      env: {
+        ...bootstrap.env,
+        PATH: `${pnpmBin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ''}`,
+      },
       timeoutMs: CHILD_TIMEOUT_MS,
       label: 'Temporary Oil UI plugin package build',
     });
     await access(archive);
 
-    await runChild(installedDsh.cliPath, ['plugin', '--profile', DSH_PROFILE, 'add', archive], {
-      cwd: workspace,
-      env: commandEnv,
-      timeoutMs: CHILD_TIMEOUT_MS,
-      label: `Isolated DSH ${DSH_PROFILE} plugin install`,
-    });
+    const scenarioResults = [];
+    for (const scenario of SCENARIOS) {
+      const scenarioRoot = path.join(tempRoot, scenario.id);
+      await mkdir(scenarioRoot, { recursive: true });
+      const isolated = await createIsolation(scenarioRoot);
+      const workspace = path.join(scenarioRoot, 'workspace');
+      await mkdir(workspace, { recursive: true });
 
-    const resultPath = path.join(tempRoot, 'host-result.json');
-    const hostEnv = isolated.env;
-    try {
-      await runChild(
-        process.execPath,
-        [
-          scriptPath,
-          '--host',
-          workspace,
-          resultPath,
-          installedDsh.directory,
-          pnpm.path,
-          isolated.dirs.userConfig,
-          isolated.dirs.globalConfig,
-          isolated.dirs.npmCache,
-        ],
-        {
-          cwd: workspace,
-          env: hostEnv,
-          timeoutMs: HOST_TIMEOUT_MS,
-          label: 'Isolated DSH Host smoke',
-        },
-      );
-    } catch (error) {
-      if (await directoryExists(resultPath)) {
-        const hostResult = JSON.parse(await readFile(resultPath, 'utf8'));
-        if (hostResult.ok === false) {
-          throw new Error(
-            `Isolated DSH Host smoke failed: ${hostResult.failure?.name ?? 'Error'}: ${hostResult.failure?.message ?? 'unknown error'}`,
-          );
-        }
+      const fixtures = [];
+      if (scenario.filesystemLite) {
+        const fixture = await writeFixture(isolated.dirs.agentsHome, 'oil-ui', filesystemLiteFixtureFiles());
+        fixtures.push({
+          name: 'filesystem Lite',
+          directory: fixture.directory,
+          before: await readTreeBytes(fixture.directory),
+        });
       }
-      throw error;
-    }
+      if (scenario.filesystemPro) {
+        const fixture = await writeFixture(isolated.dirs.agentsHome, 'oil-ui-pro', proFixtureFiles());
+        fixtures.push({
+          name: 'filesystem Pro',
+          directory: fixture.directory,
+          before: await readTreeBytes(fixture.directory),
+        });
+      }
 
-    const hostResult = JSON.parse(await readFile(resultPath, 'utf8'));
-    if (!hostResult.ok) {
-      throw new Error(
-        `Isolated DSH Host smoke failed: ${hostResult.failure?.name ?? 'Error'}: ${hostResult.failure?.message ?? 'unknown error'}`,
-      );
+      const commandEnv = {
+        ...isolated.env,
+        PATH: `${pnpmBin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ''}`,
+      };
+      await runChild(installedDsh.cliPath, ['plugin', '--profile', DSH_PROFILE, 'add', archive], {
+        cwd: workspace,
+        env: commandEnv,
+        timeoutMs: CHILD_TIMEOUT_MS,
+        label: `Isolated DSH ${DSH_PROFILE} plugin install (${scenario.id})`,
+      });
+
+      let patchPath = '';
+      if (!scenario.bundledSkill) {
+        patchPath = path.join(scenarioRoot, 'disable-bundled-lite.patch.yml');
+        await writeFile(patchPath, '- id: dsh-oil-ui\n  config:\n    bundledSkill: false\n', { mode: 0o600 });
+      }
+
+      const resultPath = path.join(scenarioRoot, 'host-result.json');
+      try {
+        await runChild(
+          process.execPath,
+          [scriptPath, '--host', workspace, resultPath, installedDsh.directory, pnpm.path, scenario.id, patchPath],
+          {
+            cwd: workspace,
+            env: isolated.env,
+            timeoutMs: HOST_TIMEOUT_MS,
+            label: `Isolated DSH Host smoke (${scenario.id})`,
+          },
+        );
+      } catch (error) {
+        if (await directoryExists(resultPath)) {
+          const hostResult = JSON.parse(await readFile(resultPath, 'utf8'));
+          if (hostResult.ok === false) {
+            throw new Error(
+              `Isolated DSH Host smoke (${scenario.id}) failed: ${hostResult.failure?.name ?? 'Error'}: ${hostResult.failure?.message ?? 'unknown error'}`,
+            );
+          }
+        }
+        throw error;
+      }
+
+      const hostResult = JSON.parse(await readFile(resultPath, 'utf8'));
+      if (!hostResult.ok) {
+        throw new Error(
+          `Isolated DSH Host smoke (${scenario.id}) failed: ${hostResult.failure?.name ?? 'Error'}: ${hostResult.failure?.message ?? 'unknown error'}`,
+        );
+      }
+      for (const fixture of fixtures) {
+        const after = await readTreeBytes(fixture.directory);
+        assertSameFileTree(fixture.before, after, fixture.name);
+      }
+      const proCache = path.join(isolated.dirs.dshHome, 'cache', 'dsh-oil-ui');
+      const proCacheCreated = await directoryExists(proCache);
+      invariant(!proCacheCreated, `The ${scenario.id} run created an Oil UI Pro compilation cache.`);
+      scenarioResults.push({
+        ...hostResult.summary,
+        rawFilesystemFixturesUnchanged: true,
+        proCacheCreated,
+      });
     }
-    const rawFixtureAfter = await readTreeBytes(expectedFixture.directory);
-    assertSameFileTree(rawFixtureBefore, rawFixtureAfter);
-    const proCache = path.join(isolated.dirs.dshHome, 'cache', 'dsh-oil-ui');
-    const proCacheCreated = await directoryExists(proCache);
-    invariant(!proCacheCreated, 'The smoke run created an Oil UI Pro compilation cache.');
 
     process.stdout.write(
       `${JSON.stringify(
         {
           ok: true,
           pnpmSource: pnpm.source,
-          rawProBytesUnchanged: true,
-          proCacheCreated,
-          ...hostResult.summary,
+          scenarios: scenarioResults,
         },
         null,
         2,

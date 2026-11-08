@@ -10,8 +10,8 @@ import {
   createSkillProvider,
   checkSkillUpdate,
   loadReviewerManual,
+  loadSkillDirectory,
 } from '../src/skill/upstream.ts';
-import { TRANSFORM_VERSION, isHarnessNativeSkillMarkdown } from '../src/skill/transform.ts';
 import { createHash } from 'node:crypto';
 import { delimiter, join, relative, sep } from 'node:path';
 
@@ -60,6 +60,11 @@ function shellQuote(value: string) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+function nextPatchVersion(version: string) {
+  const [major = 0, minor = 0, patch = 0] = version.split('.').map((part) => Number.parseInt(part, 10));
+  return `${major}.${minor}.${patch + 1}`;
+}
+
 async function installProUpdateShim() {
   const directory = await pro(
     join(root, 'updateable-pro'),
@@ -96,26 +101,61 @@ async function installProUpdateShim() {
   return { directory, fetcher };
 }
 
+async function installLiteUpdateShim() {
+  const directory = join(root, '.agents/skills/oil-ui');
+  const body = 'Original Lite update fixture keeps `--frames` and `scripts/shoot.mjs` intact.\n';
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    join(directory, 'SKILL.md'),
+    `---\nname: oil-ui\ndescription: Synthetic filesystem Lite\nmetadata:\n  version: '1.0.0'\n---\n${body}`,
+  );
+  const bin = join(root, 'bin-lite-update');
+  await mkdir(bin, { recursive: true });
+  const runner = join(root, 'fake-lite-npx.cjs');
+  const callLog = join(root, 'lite-update-call.json');
+  await writeFile(
+    runner,
+    [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      'const args = process.argv.slice(2);',
+      "const pathIndex = args.indexOf('--path');",
+      "if (pathIndex < 0 || !args[pathIndex + 1]) throw new Error('Missing --path fixture argument');",
+      "if (args[args.indexOf('update') + 1] !== 'oil-ui') throw new Error('Unexpected Skill identity');",
+      `fs.writeFileSync(${JSON.stringify(callLog)}, JSON.stringify(args));`,
+      "const skillPath = path.join(args[pathIndex + 1], 'SKILL.md');",
+      "const current = fs.readFileSync(skillPath, 'utf8');",
+      'const updated = current.replace("version: \'1.0.0\'", "version: \'1.1.0\'");',
+      "if (updated === current) throw new Error('Fixture Lite version was not 1.0.0');",
+      'fs.writeFileSync(skillPath, updated);',
+    ].join('\n'),
+  );
+  const executable = join(bin, process.platform === 'win32' ? 'npx.cmd' : 'npx');
+  await writeFile(executable, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(runner)} "$@"\n`);
+  await chmod(executable, 0o755);
+  vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
+  vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
+  vi.stubEnv('XDG_STATE_HOME', join(root, 'state-lite-update-fixture'));
+  const fetcher = vi.fn(async () => Response.json({ skills: { 'oil-ui': { latest: '1.1.0' } } }));
+  vi.stubGlobal('fetch', fetcher);
+  return { directory, body, callLog, fetcher };
+}
+
 describe('bundled open-source Skill and local Pro activation', () => {
-  it('registers the compiled native Harness open-source body and resource directory', async () => {
+  it('registers the original open-source body and resource directory unchanged', async () => {
     const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8'));
     const registered = await loadUpstreamSkill({ preferPro: false });
     const raw = await readFile(join(skillDirectory, 'SKILL.md'), 'utf8');
-    expect(isHarnessNativeSkillMarkdown(raw)).toBe(true);
-    expect(raw).not.toContain('check_update.sh');
-    expect(raw).toContain('oil_ui_shoot');
+    expect(manifest.distribution).toBe('original');
+    expect(manifest).not.toHaveProperty('transformVersion');
     expect(registered.content).toBe(raw.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, ''));
     expect(registered.name).toBe('oil-ui');
+    expect(registered.source).toBe('bundled-lite');
     expect(registered.metadata?.version).toBe(manifest.version);
     expect(registered.resourceBase).toEqual({ kind: 'directory', path: skillDirectory });
     expect(registered.invocation).toEqual({ modelInvocable: true, userInvocable: true });
-
-    const toolsMd = await readFile(join(skillDirectory, 'references/tools.md'), 'utf8');
-    expect(toolsMd).toContain('oil_ui_shoot');
-    expect(toolsMd).not.toContain('node scripts/shoot.mjs');
-    const uxDispatch = await readFile(join(skillDirectory, 'references/ux-review.md'), 'utf8');
-    expect(uxDispatch).toContain('子 Agent 启动时系统提示词中已自动注入本目录');
-    expect(uxDispatch).not.toContain('模板路径换成本 Skill 目录下的绝对路径');
+    const manual = await readFile(join(skillDirectory, 'references/reviewer-manual.md'), 'utf8');
+    expect(await loadReviewerManual({ preferPro: false })).toBe(manual);
   });
 
   it('bundles the reviewed public files with matching offline manifest evidence and no Pro tree', async () => {
@@ -200,7 +240,7 @@ describe('bundled open-source Skill and local Pro activation', () => {
       skillLoadState: 'ready',
       visibleMatchesOriginal: true,
     });
-    expect(status.note).toContain('Pro instructions are loaded unchanged');
+    expect(status.note).toContain('All Oil UI instructions are loaded unchanged');
     expect(status).not.toHaveProperty('proAdapterReady');
     expect(status).not.toHaveProperty('proAdapterError');
     expect(status).not.toHaveProperty('transformDiagnostics');
@@ -461,6 +501,83 @@ describe('discovery arbitration and update backoff', () => {
     },
   );
 
+  it.skipIf(process.platform === 'win32')(
+    'updates an original filesystem Lite and reloads that same directory',
+    async () => {
+      const { directory, body, callLog, fetcher } = await installLiteUpdateShim();
+      const original = await loadSkillDirectory(directory, 'oil-ui', 'filesystem');
+      const visible = { ...original, provider: 'filesystem', invocation: original.invocation! };
+      const refreshVisible = vi.fn(async () => {
+        const refreshed = await loadSkillDirectory(directory, 'oil-ui', 'filesystem');
+        return { ...refreshed, provider: 'filesystem', invocation: refreshed.invocation! };
+      });
+
+      const status = await skillStatus(
+        visible,
+        { preferPro: false, cwd: root, update: true },
+        undefined,
+        refreshVisible,
+      );
+      const raw = await readFile(join(directory, 'SKILL.md'), 'utf8');
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(refreshVisible).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(await readFile(callLog, 'utf8'))).toContain('oil-ui');
+      expect(raw).toContain("version: '1.1.0'");
+      expect(raw).toContain(body);
+      expect(status).toMatchObject({
+        updated: true,
+        latestVersion: '1.1.0',
+        edition: 'lite',
+        activeSkillName: 'oil-ui',
+        activeVersion: '1.1.0',
+        effective: { provider: 'filesystem', path: join(directory, 'SKILL.md') },
+        activeResourceBase: directory,
+        visibleMatchesOriginal: true,
+        skillLoadState: 'ready',
+      });
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'offers bundled Lite updates without invoking npx or writing the installation',
+    async () => {
+      vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
+      vi.stubEnv('XDG_STATE_HOME', join(root, 'state-bundled-update-fixture'));
+      const manifest = JSON.parse(await readFile(join(skillDirectory, '../oil-ui.manifest.json'), 'utf8')) as {
+        version: string;
+      };
+      const latestVersion = nextPatchVersion(manifest.version);
+      const sourcePath = join(skillDirectory, 'SKILL.md');
+      const original = await readFile(sourcePath, 'utf8');
+      const bin = join(root, 'bin-bundled-update');
+      const callLog = join(root, 'bundled-update-call.txt');
+      await mkdir(bin, { recursive: true });
+      const executable = join(bin, 'npx');
+      await writeFile(executable, `#!/bin/sh\nprintf invoked > ${shellQuote(callLog)}\nexit 0\n`);
+      await chmod(executable, 0o755);
+      vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
+      const fetcher = vi.fn(async () => Response.json({ skills: { 'oil-ui': { latest: latestVersion } } }));
+      vi.stubGlobal('fetch', fetcher);
+      const loaded = await loadUpstreamSkill({ preferPro: false });
+      const visible = { ...loaded, provider: 'oil-ui-provider', invocation: loaded.invocation! };
+
+      const status = await skillStatus(visible, { preferPro: false, update: true });
+
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      await expect(readFile(callLog, 'utf8')).rejects.toThrow();
+      expect(await readFile(sourcePath, 'utf8')).toBe(original);
+      expect(status).toMatchObject({
+        bundledVersion: manifest.version,
+        updateAvailable: true,
+        updated: false,
+        nativeSkillReady: true,
+        visibleMatchesOriginal: true,
+      });
+      expect(status.updateNotice).toContain('Update the dsh-oil-ui plugin');
+    },
+  );
+
   it.skipIf(process.platform === 'win32').each(['stale', 'tampered'] as const)(
     'does not infer readiness from updated files when the same-scope winner is %s',
     async (winnerState) => {
@@ -634,22 +751,5 @@ describe('raw Pro resources and Lite package evidence', () => {
     const loaded = await loadReviewerManual({ proSkillDir: dir }, active);
     expect(loaded).toBe(bundled);
     expect(loaded).not.toContain('PRIVATE OUTSIDE MANUAL');
-  });
-
-  it('keeps native docs free of CLI remnants and describes thumbnail scaling without narrowing the viewport', async () => {
-    const manual = await readFile(join(skillDirectory, 'references/reviewer-manual.md'), 'utf8');
-    expect(manual).not.toContain('size: "480x300"');
-    expect(manual).toMatch(/原比例缩放到 480px 或 180px/);
-    for (const [file, flag] of [
-      ['layout-and-viewport', '--compare'],
-      ['media', '--sheet'],
-      ['style-explorer', '--help'],
-    ]) {
-      expect(await readFile(join(skillDirectory, `references/${file}.md`), 'utf8')).not.toContain(flag);
-    }
-    const tools = await readFile(join(skillDirectory, 'references/tools.md'), 'utf8');
-    expect(tools).toContain('默认 `1440x900`');
-    expect(tools).toContain('https://example.org/image.jpg');
-    expect(TRANSFORM_VERSION.length).toBeGreaterThan(0);
   });
 });
