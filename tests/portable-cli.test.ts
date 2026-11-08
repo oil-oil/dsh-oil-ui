@@ -50,19 +50,23 @@ it('resolves npm and pnpm Windows command shims to their package Node entries', 
     await writeFile(npmEntry, '#!/usr/bin/env node\n');
     await writeFile(pnpmEntry, '#!/usr/bin/env node\n');
 
-    expect(
-      npmInvocation(npmShim, ['run', 'pack:plugin'], {
-        platform: 'win32',
-        nodePath: path.join(root, 'node.exe'),
-      }),
-    ).toEqual({ command: path.join(root, 'node.exe'), args: [await realpath(npmEntry), 'run', 'pack:plugin'] });
-    expect(
-      pnpmInvocation(['pack'], {
-        env: { PATH: globalPrefix, PATHEXT: '.COM;.EXE;.BAT;.CMD' },
-        platform: 'win32',
-        nodePath: path.join(root, 'node.exe'),
-      }),
-    ).toEqual({ command: path.join(root, 'node.exe'), args: [await realpath(pnpmEntry), 'pack'] });
+    // Windows can spell the same temp directory as a long path or an 8.3 short
+    // path (RUNNER~1); compare resolved files, not path strings.
+    const npm = npmInvocation(npmShim, ['run', 'pack:plugin'], {
+      platform: 'win32',
+      nodePath: path.join(root, 'node.exe'),
+    });
+    expect(npm.command).toBe(path.join(root, 'node.exe'));
+    expect(await realpath(npm.args[0])).toBe(await realpath(npmEntry));
+    expect(npm.args.slice(1)).toEqual(['run', 'pack:plugin']);
+    const pnpm = pnpmInvocation(['pack'], {
+      env: { PATH: globalPrefix, PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+      platform: 'win32',
+      nodePath: path.join(root, 'node.exe'),
+    });
+    expect(pnpm.command).toBe(path.join(root, 'node.exe'));
+    expect(await realpath(pnpm.args[0])).toBe(await realpath(pnpmEntry));
+    expect(pnpm.args.slice(1)).toEqual(['pack']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
