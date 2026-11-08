@@ -60,3 +60,6 @@ GitHub 直接安装依赖已提交的 `lib/` 和 `skills/`，不能把它们当�
 
 - 内置 Lite 是不可变插件资产，更新只提示更新插件；仅实际胜出的 filesystem 安装可由 oil-cli 更新。不要把 Provider 标签当作安装归属。
 - oil-cli 固定值在 `src/skill/install.ts`；同步 workflow 和发布检查必须与公开 `scripts/check_update.py` 对齐（存在时）。本地未来版本模拟用 `npm run test:sync-workflow`。
+
+- Cordis 注入 callback 只能读取声明的服务；`ctx.agents?.list()` 也需要注入 `agents`。真实冒烟必须检查插件加载错误和系统提示，并实际调用原生 read，不能只验证 Host 启动或五工具存在。
+- `DSH_SMOKE_PROFILE=headless npm run smoke:dsh` 验证 headless 原生组合；仅临时关闭模型 runner，保留 startup 服务，不把 web preset 塞入 headless。安装说明使用 npm 临时提供固定 pnpm，兼容 DSH 自身的 Node 要求，不改全局 Corepack。

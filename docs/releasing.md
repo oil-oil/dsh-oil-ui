@@ -14,6 +14,7 @@ pnpm install --frozen-lockfile
 npm run release:check
 OIL_UI_SOURCE_DIR=../oil-ui npm run test:integration
 npm run smoke:dsh
+DSH_SMOKE_PROFILE=headless npm run smoke:dsh
 ```
 
 `release:check` 会执行完整检查、生成并解包验证 tarball，再核对发布元数据。打包测试会实际加载解包后的 Lite，调用 `oil_ui_skill_status`、`oil_ui_explorer` 和 `oil_ui_shoot` 的离线解析，防止源码目录与安装目录不同造成运行时路径失效。发布后还要下载正式附件，核对安装和实际加载。需要模拟 tag 校验时运行：
@@ -80,3 +81,7 @@ Pro 仓库的 `adapters/dsh/` 只为已发布的旧插件（0.4.9 及更早）�
 公开新版发布后：从其 tag 同步，核对 source.release/commit、原文哈希与相同 pin，运行 build、check、pack、integration、smoke:dsh、test:sync-workflow 和 release:check，再把插件版本改为正式版并由维护者发布。若在此之前已发布 `0.4.11`，后续同步须使用新版本。不得从未发布 Pro 构建同步正式快照；`--allow-unreleased` 仅用于隔离验证，其 manifest 禁止发布。
 
 定时 sync-skill workflow 只查询最新已发布公开 Release，检出其 tag，验证 pin 后创建同步 PR。本地用 `npm run test:sync-workflow` 模拟虚构升级，不调用 GitHub 写操作。
+
+## 安装回归
+
+发布前同时执行 web 与 headless 冒烟；使用与目标 DSH 相容的 Node（0.2.2-rc.1 要求 >=24.9.0）。至少在最低支持版和当前 latest 上确认加载日志无插件错误、系统提示生效、原生工具及其他插件保留，再检查状态、Lite/虚构 Pro 和卸载恢复。Desktop 需额外使用其自带 Node/DSH/pnpm 与 Desktop patch；普通 CLI 冒烟不能宣称验证了 Electron 设置页。Corepack 故障应通过 npm 临时提供固定 pnpm 复测，不要求用户改全局安装。此次实测范围与尚未覆盖项见 [安装验证报告](real-install-verification.md)。

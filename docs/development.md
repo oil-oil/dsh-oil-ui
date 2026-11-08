@@ -69,9 +69,10 @@ OIL_UI_SOURCE_DIR=/path/to/oil-ui pnpm test:integration
 
 ```bash
 npm run smoke:dsh
+DSH_SMOKE_PROFILE=headless npm run smoke:dsh
 ```
 
-脚本使用真实 CLI 安装包，分别启动 Host 和标准 preset Agent，覆盖内置 Lite、仅 filesystem Lite、两者并存、追加 filesystem Pro。每次核对原生 skill 返回原文、状态对应实际胜出定义、资源目录、五个工具及 manifest 版本；Pro 只有 filesystem 一个发布者。仅 filesystem 场景通过正式配置 `bundledSkill: false` 关闭插件的 Lite 发布，工具继续注册。全部使用隔离 HOME/DSH/XDG，外部 Skill 是虚构内容，不提交模型任务、不调用付费服务，退出清理。
+默认 web 模式启动真实 Host 和标准 preset Agent；`DSH_SMOKE_PROFILE=headless` 使用真实 headless 组合和其原生 Agent，不挂载 web preset，只通过临时 patch 关闭提交模型任务的 runner，保留启动服务和沙箱策略。两种模式均覆盖内置 Lite、仅 filesystem Lite、两者并存、追加 filesystem Pro。每次还检查 Cordis 日志缓冲没有插件加载错误、Oil UI 系统提示确实生效、内置 read/write/edit/bash/skill 未丢失，并实际调用原生 read。核对原生 skill 返回原文、状态对应实际胜出定义、资源目录、五个工具及 manifest 版本；Pro 只有 filesystem 一个发布者。仅 filesystem 场景通过正式配置 `bundledSkill: false` 关闭插件的 Lite 发布，工具继续注册。全部使用隔离 HOME/DSH/XDG，外部 Skill 是虚构内容，不提交模型任务、不调用付费服务，退出清理。
 
 本地模拟定时同步 workflow：
 
@@ -119,3 +120,7 @@ dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
 公开源归档需解压在任何 Git 仓库之外，再显式提供 `OIL_UI_SOURCE_COMMIT` 与 `OIL_UI_SOURCE_RELEASE`。Git 子目录不能靠归档环境变量绕过自身发布 tag 校验；候选构建仅在隔离副本使用 `--allow-unreleased`。
 
 已人工核对 Pro 的公开 copy 清单：`lite/README.ja.md` 生成的 `README.ja.md` 是日文仓库介绍，未被 Skill 入口或运行时参考链接；和 README 展示图片、重复英文 README 一样显式排除。未知新增文件仍必须失败，不能自动扩展白名单。
+
+## 真实安装调查
+
+安装命令成功和 HTTP Host 存活都不能替代插件加载断言。DSH 的 Cordis 注入中，读取 `ctx.agents` 等服务必须显式声明依赖；可选链不能绕过未注入服务的 getter。系统提示注入必须同时依赖 `systemPrompt` 与 `agents`。真实安装来源、Node/DSH 版本、Desktop 组合、卸载恢复和真实模型验证见 [安装验证报告](real-install-verification.md)。

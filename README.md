@@ -117,30 +117,34 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ## 安装
 
-当前插件声明支持 DeepSeek Harness `>=0.2.1-rc.2 <0.3.0-0`（CI 已覆盖 `0.2.1-rc.2`、`0.2.1-rc.3`、`0.2.1-rc.4`、`0.2.1-rc.5` 与 `0.2.2-rc.1`），Node.js 需要 22.19.0 或更高版本。
+插件声明的 DSH 兼容范围为 `>=0.2.1-rc.2 <0.3.0-0`；这不是对未来所有预发布版的运行保证。Node 版本同时受 DSH 约束：DSH `0.2.1-rc.3/rc.5` 已在 Node `22.19.0` 验证，DSH `0.2.2-rc.1` 自身要求 Node `>=24.9.0`。Desktop 使用自带运行时，无需替换系统 Node。真实安装范围和已知问题见[安装验证报告](docs/real-install-verification.md)。
 
-- **DSH Desktop（官方桌面客户端）**：直接在桌面端 **「设置 → 插件 → 添加插件」** 中输入 `github:oil-oil/dsh-oil-ui`（国内网络输入 `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`）安装。桌面端使用独立的 `DSH_HOME` 目录，请勿在终端执行 `--profile desktop`。
+- **DSH Desktop（官方桌面客户端）**：直接在桌面端 **「设置 → 插件 → 添加插件」** 中输入 `github:oil-oil/dsh-oil-ui`（国内网络输入 `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`）安装。桌面端使用独立的 `DSH_HOME`：macOS 0.12.1 位于 `~/Library/Application Support/dsh-desktop/harness`，插件实际装入其中的 `profiles/web`，并不使用终端的 `~/.dsh/profiles/web`。请勿在终端执行 `--profile desktop`。
 - **旧版（如 `v0.3.1` ~ `v0.4.8`）升级或提示「与 DSH 0.2.2-rc.1 不兼容，请卸载后重新安装」**：早期版本在本地包内写死了旧版 `engines.dsh`，且 Git 插件再次直接添加会提示「已安装」而不会覆盖旧锁文件。请**先卸载旧版，再重新安装**：
   - 桌面端 / Web 界面：在 **「设置 → 插件 → 已安装」** 中找到 `dsh-oil-ui`（异常），先点 **「卸载 / 移除」**，再点 **「添加插件」** 输入 `github:oil-oil/dsh-oil-ui`（或 `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`）。
-  - 终端命令行（`dsh web`）：先执行 `dsh plugin --profile web remove dsh-oil-ui`，再执行下方安装命令。
+  - 终端命令行（`dsh web`）：先执行 `npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web remove dsh-oil-ui`，再执行下方安装命令。
 
 ### 1. 一行命令安装到 DeepSeek Harness
 
 如果你使用 `web` profile 的 DeepSeek Harness Web 界面，在终端运行：
 
 ```bash
-dsh plugin --profile web add github:oil-oil/dsh-oil-ui
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 ```
 
-国内网络可直接使用 AtomGit 镜像一行安装：
+AtomGit 镜像也可安装，但可能落后于 GitHub；安装后核对插件版本，不要把镜像 main 当成最新 Release：
 
 ```bash
-dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
 若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#362053dcfb169eb133abbb6ade1a1ca198439fe2`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
 
-仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需任何额外构建授权，直接启动 `dsh web` 即可使用。
+以上命令用 npm 临时提供固定的 pnpm，不要求预装 pnpm，也不改变全局 Corepack。已确认 Corepack 在新目录可能选择入口缺失的 pnpm `12.18.0`；若见 `Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs`，这是安装器启动失败，不要按 DSH 的泛化提示授权构建或修改其源码。固定 pnpm 后重试即可；本插件没有安装期构建脚本。
+
+需要正式快照时，从 [Releases](https://github.com/oil-oil/dsh-oil-ui/releases) 下载 `.tgz`，再执行 `npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./dsh-oil-ui-X.Y.Z.tgz`。
+
+仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需额外构建授权。重启对应 profile 后调用 `oil_ui_skill_status`，再加载返回的 Skill；安装命令退出 0、Host 可启动，都不能单独证明插件加载无误。已发布 `0.4.11` 的 `agents` 注入错误在当前开发分支修复，修复须随新版发布后才会到达普通用户。
 
 <details>
 <summary>从本地源码打包安装</summary>
@@ -148,9 +152,9 @@ dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```bash
 git clone https://github.com/oil-oil/dsh-oil-ui.git
 cd dsh-oil-ui
-pnpm install --frozen-lockfile
-pnpm pack:plugin .work/dsh-oil-ui.tgz
-dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
+npm exec --yes --package=pnpm@10.16.1 -- pnpm install --frozen-lockfile
+npm exec --yes --package=pnpm@10.16.1 -- pnpm pack:plugin .work/dsh-oil-ui.tgz
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
 ```
 
 </details>
