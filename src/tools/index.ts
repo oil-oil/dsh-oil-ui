@@ -144,7 +144,11 @@ export function registerTools(ctx: Context, options: ToolRegistrationOptions): v
             description:
               '只截取匹配元素的区域，自动滚入视口；不与 fullPage、record、frames、motion、entry、evidence 同用。',
           },
-          steps: { ...stringOrStrings, description: '交互动作字符串或动作组数组，组内用分号分隔。' },
+          steps: {
+            ...stringOrStrings,
+            description:
+              '交互动作字符串，例如 "click #open; wait 300"。也可传真实字符串数组，每项为独立动作组（重新打开页面），组内用分号分隔；不要将 JSON 数组编码成字符串。',
+          },
           record: { ...boolOrString, description: '是否录屏，兼容字符串 true/false。' },
           entry: { type: 'boolean', description: '是否在打开页面前开始录屏。' },
           holdMs: { type: 'integer', description: '交互后的停留时长，单位毫秒，范围 0–120000。' },

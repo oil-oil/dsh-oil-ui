@@ -58,6 +58,52 @@ afterEach(async () => {
   await rm(isolatedHome, { recursive: true, force: true });
 });
 
+it('declares agents before accessing it in the system-prompt injection', () => {
+  const sections: string[] = [];
+  const disposers: (() => void | Promise<void>)[] = [];
+  const list = vi.fn(() => []);
+  const ctx = {
+    effect(register: () => () => void | Promise<void>) {
+      disposers.push(register());
+    },
+    inject(services: string[], register: (ctx: unknown) => unknown) {
+      if (!services.includes('systemPrompt')) return;
+      register(
+        new Proxy(
+          {
+            ...ctx,
+            systemPrompt: {
+              section: ({ name }: { name: string }) => {
+                sections.push(name);
+                return () => {};
+              },
+            },
+            agents: { list },
+          },
+          {
+            get(target, property, receiver) {
+              if ((property === 'agents' || property === 'systemPrompt') && !services.includes(property)) {
+                throw new Error(`cannot get property "${property}" without inject`);
+              }
+              return Reflect.get(target, property, receiver);
+            },
+          },
+        ),
+      );
+    },
+    on() {
+      return () => {};
+    },
+  };
+  try {
+    expect(() => apply(ctx as unknown as Context, { previewPort: 0, preferPro: false })).not.toThrow();
+    expect(sections).toEqual(['oil-ui']);
+    expect(list).toHaveBeenCalledOnce();
+  } finally {
+    for (const dispose of disposers) void dispose();
+  }
+});
+
 it('presents all five tools with native call views and declares explorer/image deliverable paths', async () => {
   const tools = new Map<string, ToolDefinition>();
   const disposers: (() => void | Promise<void>)[] = [];

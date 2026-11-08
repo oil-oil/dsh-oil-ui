@@ -24,7 +24,8 @@ import { randomUUID } from 'node:crypto';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const scriptPath = fileURLToPath(import.meta.url);
 const PNPM_VERSION = '10.16.1';
-const DSH_PROFILE = 'web';
+const DSH_PROFILE = process.env.DSH_SMOKE_PROFILE ?? 'web';
+invariant(['web', 'headless'].includes(DSH_PROFILE), 'DSH_SMOKE_PROFILE must be web or headless.');
 const CHILD_TIMEOUT_MS = 120_000;
 const HOST_TIMEOUT_MS = 90_000;
 const LITE_PROVIDER = 'oil-ui-provider';
@@ -71,6 +72,7 @@ function isolatedEnvironment(root) {
     LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
     DSH_HOME: dshHome,
     DSH_AGENTS_HOME: agentsHome,
+    DSH_SMOKE_PROFILE: DSH_PROFILE,
     XDG_CONFIG_HOME: xdgConfig,
     XDG_CACHE_HOME: xdgCache,
     XDG_DATA_HOME: xdgData,
@@ -153,9 +155,15 @@ function runChild(command, args, { cwd, env, timeoutMs = CHILD_TIMEOUT_MS, label
       cwd,
       env,
       detached: process.platform !== 'win32',
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
+    let output = '';
+    const capture = (chunk) => {
+      output = (output + chunk.toString()).slice(-6000);
+    };
+    child.stdout.on('data', capture);
+    child.stderr.on('data', capture);
     let timedOut = false;
     let settled = false;
     let terminationPromise;
@@ -177,7 +185,8 @@ function runChild(command, args, { cwd, env, timeoutMs = CHILD_TIMEOUT_MS, label
         await terminationPromise;
         reject(new Error(`${label} exceeded ${timeoutMs} ms and its process group was terminated.`));
       } else if (code !== 0) {
-        reject(new Error(`${label} failed (exit ${code ?? 'unknown'}${signal ? `, ${signal}` : ''}).`));
+        const diagnostic = output.replace(/([?&]token=)[^\s]+/gu, '$1[REDACTED]').trim();
+        reject(new Error(`${label} failed (exit ${code ?? 'unknown'}${signal ? `, ${signal}` : ''}).\n${diagnostic}`));
       } else {
         resolve();
       }
@@ -524,7 +533,10 @@ async function hostMain(args) {
       environment,
       profile: DSH_PROFILE,
       patchFiles: patchPath ? [patchPath] : [],
-      args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
+      args:
+        DSH_PROFILE === 'web'
+          ? ['--no-open', '--host', '127.0.0.1', '--port', '0']
+          : ['Offline smoke fixture; the model runner is disabled by a temporary patch.'],
       packageManager: {
         command: pnpmPath,
         env: process.env,
@@ -536,11 +548,30 @@ async function hostMain(args) {
       sessionId,
       meta: { cwd: workspace },
       setup: async (scope) => {
-        await app.ctx.agentPresets.mount(scope, 'standard');
+        if (DSH_PROFILE === 'web') await app.ctx.agentPresets.mount(scope, 'standard');
       },
     });
     const agent = handle.agent;
     const signal = new AbortController().signal;
+    const startupErrors = (app.ctx.logger.buffer ?? []).filter(
+      (message) => message.type === 'error' && message.name.includes('dsh-oil-ui'),
+    );
+    invariant(
+      startupErrors.length === 0,
+      `Plugin startup failed: ${startupErrors.map((message) => message.args.map(String).join(' ')).join('; ')}`,
+    );
+    const assembly = await app.ctx.systemPrompt.assemble({ scope: agent, signal });
+    invariant(
+      assembly.sections.some((section) => section.name === 'oil-ui'),
+      'Oil UI system prompt is missing.',
+    );
+    for (const toolName of ['read', 'write', 'edit', 'bash', 'skill']) {
+      invariant(app.ctx.tools.get(toolName, agent), `Built-in tool is missing: ${toolName}.`);
+    }
+    const nativeProbe = path.join(workspace, 'native-read-probe.txt');
+    await writeFile(nativeProbe, 'OIL_DSH_NATIVE_READ_SENTINEL');
+    const nativeRead = await app.ctx.tools.get('read', agent).execute({ file_path: nativeProbe }, { agent, signal });
+    invariant(JSON.stringify(nativeRead).includes('OIL_DSH_NATIVE_READ_SENTINEL'), 'Built-in read failed.');
     const skillTool = app.ctx.tools.get('skill', agent);
     invariant(skillTool, 'The standard Agent preset does not expose the native skill tool.');
 
@@ -576,10 +607,14 @@ async function hostMain(args) {
     invariant(missingTools.length === 0, `Missing Oil UI tools in the Agent view: ${missingTools.join(', ')}.`);
 
     const bundledLite = scenario.bundledSkill ? await bundledLiteFromProfile(process.env.DSH_HOME) : null;
-    const expectedLite = expectedFilesystemLite ?? bundledLite;
+    const liteDefinition = await app.ctx.skills.get('oil-ui', { cwd: workspace, scope: agent, signal });
+    // Headless has no scoped web preset; both Lite providers share the global layer.
+    const expectedLite =
+      DSH_PROFILE === 'headless' && liteDefinition?.provider === LITE_PROVIDER
+        ? bundledLite
+        : (expectedFilesystemLite ?? bundledLite);
     invariant(expectedLite, `Scenario ${scenario.id} has no expected Lite publisher.`);
     await assertHostToolsReference(expectedLite.directory, `Lite Skill in ${scenario.id}`);
-    const liteDefinition = await app.ctx.skills.get('oil-ui', { cwd: workspace, scope: agent, signal });
     const liteResult = await skillTool.execute({ name: 'oil-ui' }, { agent, signal });
     await assertSkillSnapshot(liteDefinition, liteResult, expectedLite, 'Lite Skill');
 
@@ -630,7 +665,7 @@ async function hostMain(args) {
         (await readFile(path.join(dshDirectory, 'package.json'), 'utf8')).match(/"version"\s*:\s*"([^"]+)"/u)?.[1] ??
         'unknown',
       profile: DSH_PROFILE,
-      agentPreset: 'standard',
+      agentPreset: DSH_PROFILE === 'web' ? 'standard' : null,
       scenario: scenario.id,
       bundledSkillEnabled: scenario.bundledSkill,
       bundledLiteProviderPresent: pluginLiteCandidates.length === 1,
@@ -650,6 +685,9 @@ async function hostMain(args) {
           }
         : {}),
       oilUiToolCount: OIL_UI_TOOLS.length,
+      pluginStartupErrors: startupErrors.length,
+      systemPromptPresent: true,
+      nativeReadPassed: true,
       statusSkillName: status.activeSkillName,
       statusProvider: status.effective.provider,
       activeVersion: status.activeVersion,
@@ -684,7 +722,9 @@ async function hostMain(args) {
 async function main() {
   if (process.argv[2] === '--host') return hostMain(process.argv.slice(3));
 
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-oil-ui-smoke-'));
+  // macOS /var aliases /private/var. Mixed spellings make pnpm encode an
+  // unnecessarily long relative tarball path into one store filename.
+  const tempRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'dsh-oil-ui-smoke-')));
   try {
     const bootstrapRoot = path.join(tempRoot, 'bootstrap');
     await mkdir(bootstrapRoot, { recursive: true });
@@ -745,9 +785,17 @@ async function main() {
       });
 
       let patchPath = '';
+      const patches = [];
       if (!scenario.bundledSkill) {
-        patchPath = path.join(scenarioRoot, 'disable-bundled-lite.patch.yml');
-        await writeFile(patchPath, '- id: dsh-oil-ui\n  config:\n    bundledSkill: false\n', { mode: 0o600 });
+        patches.push('- id: dsh-oil-ui\n  config:\n    bundledSkill: false\n');
+      }
+      if (DSH_PROFILE === 'headless') {
+        // Mount the real headless services without submitting a model task.
+        patches.push('- id: headless-runner\n  disabled: true\n');
+      }
+      if (patches.length) {
+        patchPath = path.join(scenarioRoot, 'smoke-only.patch.yml');
+        await writeFile(patchPath, patches.join('\n'), { mode: 0o600 });
       }
 
       const resultPath = path.join(scenarioRoot, 'host-result.json');
