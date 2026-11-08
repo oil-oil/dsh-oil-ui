@@ -144,7 +144,7 @@ npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add git+https:
 
 需要正式快照时，从 [Releases](https://github.com/oil-oil/dsh-oil-ui/releases) 下载 `.tgz`，再执行 `npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./dsh-oil-ui-X.Y.Z.tgz`。
 
-仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需额外构建授权。重启对应 profile 后调用 `oil_ui_skill_status`，再加载返回的 Skill；安装命令退出 0、Host 可启动，都不能单独证明插件加载无误。已发布 `0.4.11` 的 `agents` 注入错误在当前开发分支修复，修复须随新版发布后才会到达普通用户。
+仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需额外构建授权。重启对应 profile 后调用 `oil_ui_skill_status`，再加载返回的 Skill；安装命令退出 0、Host 可启动，都不能单独证明插件加载无误。`0.4.11` 的 `agents` 注入错误已在 `0.4.12` 修复；还在用 0.4.11 的用户请卸载后重装最新版。
 
 <details>
 <summary>从本地源码打包安装</summary>
@@ -170,7 +170,7 @@ npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./.work/ds
 | `skipping profile bundle` / `incompatible with dsh`                      | 核对提示中的包名及实际插件版本；可能是其他旧插件。升级到相容版本；不要用 `allow-version --accept-risk` 绕过检查。                                                     |
 | `missing peer @deepseek-ai/*`                                            | profile 安装时可能出现宿主提供依赖的 peer 告警。它本身不等于加载失败；以重启后无插件加载错误、五工具和实际 Skill 状态为准。不要盲目往 profile 补装另一套 DSH/Cordis。 |
 | 提示已安装，但仍加载旧版                                                 | 在相同 profile 先 remove，再用目标 Release commit 或正式 `.tgz` add；仅重复 add Git 地址不会替换旧锁文件。                                                            |
-| `cannot get property "agents" without inject`                            | 已发布 0.4.11 的缺陷，修复在本开发分支；新版发布后卸载重装。重启、授权构建或更换模型不能修复它。                                                                      |
+| `cannot get property "agents" without inject`                            | 0.4.11 的缺陷，已在 0.4.12 修复；卸载后重装最新版。重启、授权构建或更换模型不能修复它。                                                                               |
 | `ENOENT` 指向插件的 Skill / references                                   | 保留缺失路径和已装版本，重新安装正式完整 `.tgz`；不要手工复制资源到 DSH 或修改安装目录。                                                                              |
 | 本地 `.tgz` 报 `ERR_PNPM_ENAMETOOLONG`                                   | 把包放到较短、同一物理路径下再安装；macOS 避免混用 `/var` 与 `/private/var`。                                                                                         |
 | 下载超时、HTTP 504、Git 连接失败                                         | 保留第一个网络错误后重试，必要时换 GitHub / AtomGit 或下载正式 `.tgz`。镜像可能延迟；网络失败不能靠授权插件构建解决。                                                 |
