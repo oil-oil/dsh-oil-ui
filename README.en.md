@@ -138,7 +138,7 @@ In China, you can also install directly from the AtomGit mirror:
 dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
-For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#710527e48b5108fc300a75e9b739c6a26b51c1cc`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
+For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#362053dcfb169eb133abbb6ade1a1ca198439fe2`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
 
 Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed directly to the repository, no build allowance is required—just launch `dsh web` after installing.
 
