@@ -117,30 +117,34 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ## 安装
 
-当前插件声明支持 DeepSeek Harness `>=0.2.1-rc.2 <0.3.0-0`（CI 已覆盖 `0.2.1-rc.2`、`0.2.1-rc.3`、`0.2.1-rc.4`、`0.2.1-rc.5` 与 `0.2.2-rc.1`），Node.js 需要 22.19.0 或更高版本。
+插件声明的 DSH 兼容范围为 `>=0.2.1-rc.2 <0.3.0-0`；这不是对未来所有预发布版的运行保证。Node 版本同时受 DSH 约束：DSH `0.2.1-rc.3/rc.5` 已在 Node `22.19.0` 验证，DSH `0.2.2-rc.1` 自身要求 Node `>=24.9.0`。Desktop 使用自带运行时，无需替换系统 Node。真实安装范围和已知问题见[安装验证报告](docs/real-install-verification.md)。
 
-- **DSH Desktop（官方桌面客户端）**：直接在桌面端 **「设置 → 插件 → 添加插件」** 中输入 `github:oil-oil/dsh-oil-ui`（国内网络输入 `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`）安装。桌面端使用独立的 `DSH_HOME` 目录，请勿在终端执行 `--profile desktop`。
+- **DSH Desktop（官方桌面客户端）**：直接在桌面端 **「设置 → 插件 → 添加插件」** 中输入 `github:oil-oil/dsh-oil-ui`（国内网络输入 `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`）安装。桌面端使用独立的 `DSH_HOME`：macOS 0.12.1 位于 `~/Library/Application Support/dsh-desktop/harness`，插件实际装入其中的 `profiles/web`，并不使用终端的 `~/.dsh/profiles/web`。请勿在终端执行 `--profile desktop`。
 - **旧版（如 `v0.3.1` ~ `v0.4.8`）升级或提示「与 DSH 0.2.2-rc.1 不兼容，请卸载后重新安装」**：早期版本在本地包内写死了旧版 `engines.dsh`，且 Git 插件再次直接添加会提示「已安装」而不会覆盖旧锁文件。请**先卸载旧版，再重新安装**：
   - 桌面端 / Web 界面：在 **「设置 → 插件 → 已安装」** 中找到 `dsh-oil-ui`（异常），先点 **「卸载 / 移除」**，再点 **「添加插件」** 输入 `github:oil-oil/dsh-oil-ui`（或 `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`）。
-  - 终端命令行（`dsh web`）：先执行 `dsh plugin --profile web remove dsh-oil-ui`，再执行下方安装命令。
+  - 终端命令行（`dsh web`）：先执行 `npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web remove dsh-oil-ui`，再执行下方安装命令。
 
 ### 1. 一行命令安装到 DeepSeek Harness
 
 如果你使用 `web` profile 的 DeepSeek Harness Web 界面，在终端运行：
 
 ```bash
-dsh plugin --profile web add github:oil-oil/dsh-oil-ui
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 ```
 
-国内网络可直接使用 AtomGit 镜像一行安装：
+AtomGit 镜像也可安装，但可能落后于 GitHub；安装后核对插件版本，不要把镜像 main 当成最新 Release：
 
 ```bash
-dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
 若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#362053dcfb169eb133abbb6ade1a1ca198439fe2`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
 
-仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需任何额外构建授权，直接启动 `dsh web` 即可使用。
+以上命令用 npm 临时提供固定的 pnpm，不要求预装 pnpm，也不改变全局 Corepack。已确认 Corepack 在新目录可能选择入口缺失的 pnpm `12.18.0`；若见 `Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs`，这是安装器启动失败，不要按 DSH 的泛化提示授权构建或修改其源码。固定 pnpm 后重试即可；本插件没有安装期构建脚本。
+
+需要正式快照时，从 [Releases](https://github.com/oil-oil/dsh-oil-ui/releases) 下载 `.tgz`，再执行 `npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./dsh-oil-ui-X.Y.Z.tgz`。
+
+仓库已包含预编译好的 `lib/index.js` 和内置的免费版 `oil-ui`，安装后无需额外构建授权。重启对应 profile 后调用 `oil_ui_skill_status`，再加载返回的 Skill；安装命令退出 0、Host 可启动，都不能单独证明插件加载无误。`0.4.11` 的 `agents` 注入错误已在 `0.4.12` 修复；还在用 0.4.11 的用户请卸载后重装最新版。
 
 <details>
 <summary>从本地源码打包安装</summary>
@@ -148,12 +152,41 @@ dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```bash
 git clone https://github.com/oil-oil/dsh-oil-ui.git
 cd dsh-oil-ui
-pnpm install --frozen-lockfile
-pnpm pack:plugin .work/dsh-oil-ui.tgz
-dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
+npm exec --yes --package=pnpm@10.16.1 -- pnpm install --frozen-lockfile
+npm exec --yes --package=pnpm@10.16.1 -- pnpm pack:plugin .work/dsh-oil-ui.tgz
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
 ```
 
 </details>
+
+### 安装失败或装完没有生效
+
+先在同一个终端确认 `node --version`、`dsh --version`，并记下实际使用的 profile。安装和重启必须指向同一 profile；Desktop 与终端使用不同的数据目录。不要删除整个 profile 来排错。
+
+| 现象 / 原始错误                                                          | 处理                                                                                                                                                                  |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm was not found`；`Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs` | 重跑上面的 `npm exec --yes --package=pnpm@10.16.1 -- dsh ...`。安装、卸载、源码打包都使用这个入口；不必改全局 Corepack。                                              |
+| `Unsupported engine` / `EBADENGINE`                                      | 核对报错属于哪个包。DSH 0.2.2-rc.1 要求 Node >=24.9.0；切换到相容的运行时后重试。                                                                                     |
+| `skipping profile bundle` / `incompatible with dsh`                      | 核对提示中的包名及实际插件版本；可能是其他旧插件。升级到相容版本；不要用 `allow-version --accept-risk` 绕过检查。                                                     |
+| `missing peer @deepseek-ai/*`                                            | profile 安装时可能出现宿主提供依赖的 peer 告警。它本身不等于加载失败；以重启后无插件加载错误、五工具和实际 Skill 状态为准。不要盲目往 profile 补装另一套 DSH/Cordis。 |
+| 提示已安装，但仍加载旧版                                                 | 在相同 profile 先 remove，再用目标 Release commit 或正式 `.tgz` add；仅重复 add Git 地址不会替换旧锁文件。                                                            |
+| `cannot get property "agents" without inject`                            | 0.4.11 的缺陷，已在 0.4.12 修复；卸载后重装最新版。重启、授权构建或更换模型不能修复它。                                                                               |
+| `ENOENT` 指向插件的 Skill / references                                   | 保留缺失路径和已装版本，重新安装正式完整 `.tgz`；不要手工复制资源到 DSH 或修改安装目录。                                                                              |
+| 本地 `.tgz` 报 `ERR_PNPM_ENAMETOOLONG`                                   | 把包放到较短、同一物理路径下再安装；macOS 避免混用 `/var` 与 `/private/var`。                                                                                         |
+| 下载超时、HTTP 504、Git 连接失败                                         | 保留第一个网络错误后重试，必要时换 GitHub / AtomGit 或下载正式 `.tgz`。镜像可能延迟；网络失败不能靠授权插件构建解决。                                                 |
+
+重启后让 Agent 调用 `oil_ui_skill_status`：应为 `skillReady=true`，再用原生 `skill` 加载 `activeSkillName`。五个工具存在但有加载错误，也算失败。反馈问题时附上 OS、Node/DSH/插件版本、profile、完整安装命令和首个错误；日志分享前遮盖 Key、令牌、认证 URL 和个人路径。
+
+维护者可在源码仓库执行以下真实安装自检（会下载 DSH/pnpm；隔离 HOME/profile，不启动模型、不调付费服务）：
+
+```bash
+# Node >=24.9.0：最新受测 DSH
+npm run smoke:install
+# Node >=22.19.0：旧版 DSH
+npm run smoke:install -- --dsh-version 0.2.1-rc.5
+```
+
+Windows / Linux 的相同入口由 CI 执行，web 与 headless 均测试。CI 尚未通过的组合不能视为验证完成；边界和证据见[补充验证记录](docs/real-install-followup.md)。
 
 ### 2. 可选配置与运行依赖
 

@@ -117,30 +117,34 @@ The update check and one-time Pro prompt from upstream `oil-ui` are built direct
 
 ## Installation
 
-The package declares support for DeepSeek Harness `>=0.2.1-rc.2 <0.3.0-0` (CI verified on `0.2.1-rc.2`, `0.2.1-rc.3`, `0.2.1-rc.4`, `0.2.1-rc.5`, and `0.2.2-rc.1`) and requires Node.js 22.19.0 or later.
+The declared DSH range is `>=0.2.1-rc.2 <0.3.0-0`; it does not guarantee every future prerelease. DSH also sets its own Node requirement: `0.2.1-rc.3/rc.5` was tested on Node `22.19.0`, while DSH `0.2.2-rc.1` requires Node `>=24.9.0`. Desktop uses its bundled runtime. See the [real-install verification report](docs/real-install-verification.md) for coverage and known issues.
 
-- **DSH Desktop (official desktop app)**: Install directly from **Settings → Plugins → Add Plugin** inside the app using `github:oil-oil/dsh-oil-ui` (or `git+https://atomgit.com/oil-oil/dsh-oil-ui.git` in China). Desktop uses its own isolated `DSH_HOME` directory; do not run `--profile desktop` in the terminal.
+- **DSH Desktop (official desktop app)**: Install directly from **Settings → Plugins → Add Plugin** inside the app using `github:oil-oil/dsh-oil-ui` (or `git+https://atomgit.com/oil-oil/dsh-oil-ui.git` in China). Desktop uses its own `DSH_HOME`: macOS 0.12.1 stores it at `~/Library/Application Support/dsh-desktop/harness`, installing into `profiles/web` there rather than the terminal’s `~/.dsh/profiles/web`. Do not run `--profile desktop` in the terminal.
 - **Upgrading from an older version (`v0.3.1` – `v0.4.8`) or fixing `incompatible with DSH 0.2.2-rc.1 (uninstall and reinstall)`**: Earlier versions pinned an exact `engines.dsh` version in the installed package manifest, and re-adding a Git plugin in-place reports `already-installed` without replacing the locked revision. **Uninstall the old version first, then install again**:
   - Desktop / Web UI: In **Settings → Plugins → Installed**, remove `dsh-oil-ui`, then click **Add Plugin** and enter `github:oil-oil/dsh-oil-ui` (or `git+https://atomgit.com/oil-oil/dsh-oil-ui.git`).
-  - CLI (`dsh web`): Run `dsh plugin --profile web remove dsh-oil-ui` first, then run the install command below.
+  - CLI (`dsh web`): Run `npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web remove dsh-oil-ui` first, then run the install command below.
 
 ### 1. One-line install into DeepSeek Harness
 
 For the DeepSeek Harness Web UI with the `web` profile, run:
 
 ```bash
-dsh plugin --profile web add github:oil-oil/dsh-oil-ui
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add github:oil-oil/dsh-oil-ui
 ```
 
-In China, you can also install directly from the AtomGit mirror:
+The AtomGit mirror is another source, but can lag behind GitHub. Verify the installed version; mirror main is not necessarily the latest Release:
 
 ```bash
-dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
 For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#362053dcfb169eb133abbb6ade1a1ca198439fe2`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
 
-Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed directly to the repository, no build allowance is required—just launch `dsh web` after installing.
+These commands temporarily provide pinned pnpm through npm; no preinstalled pnpm or global Corepack changes are required. A clean Corepack environment can select pnpm `12.18.0` with a missing entry point. For `Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs`, retry with pinned pnpm; do not grant build permissions or edit DSH source based on its generic Git-install hint. This plugin has no install-time build script.
+
+For a release snapshot, download its `.tgz` from [Releases](https://github.com/oil-oil/dsh-oil-ui/releases), then run `npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./dsh-oil-ui-X.Y.Z.tgz`.
+
+Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed directly to the repository, no build allowance is required. Restart the target profile, call `oil_ui_skill_status`, and load the returned Skill. Installer exit 0 or a running Host alone does not prove successful plugin activation. The `agents` injection error in `0.4.11` is fixed in `0.4.12`; users still on 0.4.11 should uninstall and reinstall the latest release.
 
 <details>
 <summary>Build and install from a local checkout</summary>
@@ -148,12 +152,41 @@ Because prebuilt `lib/index.js` and the bundled `oil-ui` Skill are committed dir
 ```bash
 git clone https://github.com/oil-oil/dsh-oil-ui.git
 cd dsh-oil-ui
-pnpm install --frozen-lockfile
-pnpm pack:plugin .work/dsh-oil-ui.tgz
-dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
+npm exec --yes --package=pnpm@10.16.1 -- pnpm install --frozen-lockfile
+npm exec --yes --package=pnpm@10.16.1 -- pnpm pack:plugin .work/dsh-oil-ui.tgz
+npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add ./.work/dsh-oil-ui.tgz
 ```
 
 </details>
+
+### Installation or activation failures
+
+Check `node --version` and `dsh --version` in the same terminal, and record the target profile. Install and restart the same profile; Desktop has a separate data root. Keep the profile intact while investigating.
+
+| Symptom / original error                                                 | Action                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm was not found`; `Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs` | Repeat the command with `npm exec --yes --package=pnpm@10.16.1 -- dsh ...`. Use the same entry for removal and source packaging; global Corepack changes are unnecessary.                                                                                                 |
+| `Unsupported engine` / `EBADENGINE`                                      | Identify which package emitted it. DSH 0.2.2-rc.1 requires Node >=24.9.0; retry with a compatible runtime.                                                                                                                                                                |
+| `skipping profile bundle` / `incompatible with dsh`                      | Check the named package and its installed version; another old plugin may be responsible. Upgrade to a compatible release rather than bypassing the check with `allow-version --accept-risk`.                                                                             |
+| `missing peer @deepseek-ai/*`                                            | A profile install can warn about dependencies supplied by the Host. The warning alone does not prove a loading failure; verify no plugin loading errors, five tools, and actual Skill status after restarting. Do not blindly add another DSH/Cordis copy to the profile. |
+| Already installed, but an old version still loads                        | Remove, then add the intended Release commit or official `.tgz` in the same profile. Repeating a Git add does not replace its old lock entry.                                                                                                                             |
+| `cannot get property "agents" without inject`                            | A 0.4.11 defect fixed in 0.4.12. Uninstall and reinstall the latest release; restarting, granting builds, or switching models will not fix it.                                                                                                                            |
+| `ENOENT` points to plugin Skill / references                             | Preserve the missing path and installed version, then reinstall the complete official `.tgz`. Do not copy resources into DSH or edit installed plugin files.                                                                                                              |
+| Local `.tgz` gives `ERR_PNPM_ENAMETOOLONG`                               | Use a shorter, consistent physical path. On macOS avoid mixing `/var` and `/private/var`.                                                                                                                                                                                 |
+| Download timeout, HTTP 504, Git connection failure                       | Keep the first network error and retry; try GitHub / AtomGit or an official `.tgz`. Mirrors can lag; build permissions do not fix network errors.                                                                                                                         |
+
+After restarting, ask the Agent to call `oil_ui_skill_status`; expect `skillReady=true`, then load `activeSkillName` with native `skill`. Five registered tools do not excuse a plugin loading error. Report OS, Node/DSH/plugin versions, profile, exact installation command, and the first error. Redact keys, tokens, authenticated URLs, and personal paths before sharing logs.
+
+Maintainers can run a real installation self-check from the checkout (downloads DSH/pnpm into isolated HOME/profile; no model or paid services):
+
+```bash
+# Node >=24.9.0: latest tested DSH
+npm run smoke:install
+# Node >=22.19.0: older DSH
+npm run smoke:install -- --dsh-version 0.2.1-rc.5
+```
+
+CI runs the same entry on Windows and Linux with both web and headless. Pending CI combinations remain unverified; see the [follow-up verification record](docs/real-install-followup.md).
 
 ### 2. Optional configuration & runtime dependencies
 

@@ -20,13 +20,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { isNodeScript, npmInvocation, packageBinEntry } from './lib/portable-cli.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const scriptPath = fileURLToPath(import.meta.url);
 const PNPM_VERSION = '10.16.1';
-const DSH_PROFILE = 'web';
+const DSH_PROFILE = process.env.DSH_SMOKE_PROFILE ?? 'web';
+invariant(['web', 'headless'].includes(DSH_PROFILE), 'DSH_SMOKE_PROFILE must be web or headless.');
 const CHILD_TIMEOUT_MS = 120_000;
+const BOOTSTRAP_TIMEOUT_MS = 1_200_000;
+const PLUGIN_INSTALL_TIMEOUT_MS = 600_000;
 const HOST_TIMEOUT_MS = 90_000;
+let smokeStage = 'argument parsing';
+let smokeDshLabel = 'existing-installation';
 const LITE_PROVIDER = 'oil-ui-provider';
 const OIL_UI_TOOLS = ['oil_ui_shoot', 'oil_ui_media', 'oil_ui_image', 'oil_ui_explorer', 'oil_ui_skill_status'];
 const LITE_HOST_TOOLS = OIL_UI_TOOLS.slice(0, 4);
@@ -51,6 +57,8 @@ function isolatedEnvironment(root) {
   const xdgState = path.join(root, 'xdg-state');
   const temp = path.join(root, 'tmp');
   const npmCache = path.join(root, 'npm-cache');
+  const npmPrefix = path.join(root, 'npm-prefix');
+  const corepackHome = path.join(root, 'corepack-home');
   const userConfig = path.join(root, 'empty.npmrc');
   const globalConfig = path.join(root, 'empty-global.npmrc');
   const pathValue = process.env.PATH ?? process.env.Path ?? '';
@@ -71,15 +79,21 @@ function isolatedEnvironment(root) {
     LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
     DSH_HOME: dshHome,
     DSH_AGENTS_HOME: agentsHome,
+    DSH_SMOKE_PROFILE: DSH_PROFILE,
     XDG_CONFIG_HOME: xdgConfig,
     XDG_CACHE_HOME: xdgCache,
     XDG_DATA_HOME: xdgData,
     XDG_STATE_HOME: xdgState,
+    COREPACK_HOME: corepackHome,
+    GIT_CONFIG_GLOBAL: globalConfig,
+    GIT_CONFIG_NOSYSTEM: '1',
     TMPDIR: temp,
     TMP: temp,
     TEMP: temp,
     npm_config_cache: npmCache,
     NPM_CONFIG_CACHE: npmCache,
+    npm_config_prefix: npmPrefix,
+    NPM_CONFIG_PREFIX: npmPrefix,
     npm_config_userconfig: userConfig,
     NPM_CONFIG_USERCONFIG: userConfig,
     npm_config_globalconfig: globalConfig,
@@ -94,9 +108,12 @@ function isolatedEnvironment(root) {
   if (process.platform === 'win32') {
     const parsed = path.parse(home);
     rootEnv.HOMEDRIVE = parsed.root.replace(/[\\/]$/, '');
-    rootEnv.HOMEPATH = home.slice(parsed.root.length);
+    rootEnv.HOMEPATH = home.slice(parsed.root.length - 1);
   }
-  return { env: rootEnv, dirs: { home, dshHome, agentsHome, temp, npmCache, userConfig, globalConfig } };
+  return {
+    env: rootEnv,
+    dirs: { home, dshHome, agentsHome, temp, npmCache, npmPrefix, corepackHome, userConfig, globalConfig },
+  };
 }
 
 async function createIsolation(root) {
@@ -112,6 +129,8 @@ async function createIsolation(root) {
       isolated.env.XDG_STATE_HOME,
       isolated.dirs.temp,
       isolated.dirs.npmCache,
+      isolated.dirs.npmPrefix,
+      isolated.dirs.corepackHome,
     ].map((directory) => mkdir(directory, { recursive: true })),
   );
   await writeFile(isolated.dirs.userConfig, '', { mode: 0o600 });
@@ -123,10 +142,15 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function terminateProcessTree(child) {
+function safeDiagnostic(output) {
+  return output.replace(/([?&]token=)[^\s]+/gu, '$1[REDACTED]').trim();
+}
+
+async function terminateProcessTree(child, env) {
   if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
   if (process.platform === 'win32') {
     const killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
+      env,
       stdio: 'ignore',
       windowsHide: true,
     });
@@ -153,21 +177,27 @@ function runChild(command, args, { cwd, env, timeoutMs = CHILD_TIMEOUT_MS, label
       cwd,
       env,
       detached: process.platform !== 'win32',
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
+    let output = '';
+    const capture = (chunk) => {
+      output = (output + chunk.toString()).slice(-6000);
+    };
+    child.stdout.on('data', capture);
+    child.stderr.on('data', capture);
     let timedOut = false;
     let settled = false;
     let terminationPromise;
     const timer = setTimeout(() => {
       timedOut = true;
-      terminationPromise = terminateProcessTree(child);
+      terminationPromise = terminateProcessTree(child, env);
     }, timeoutMs);
     child.once('error', (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      reject(new Error(`${label} could not start (${error.code ?? error.name}).`));
+      reject(new Error(`${label} could not start (${error.code ?? error.name}): ${error.message}`));
     });
     child.once('close', async (code, signal) => {
       if (settled) return;
@@ -175,9 +205,15 @@ function runChild(command, args, { cwd, env, timeoutMs = CHILD_TIMEOUT_MS, label
       clearTimeout(timer);
       if (timedOut) {
         await terminationPromise;
-        reject(new Error(`${label} exceeded ${timeoutMs} ms and its process group was terminated.`));
+        const diagnostic = safeDiagnostic(output);
+        reject(
+          new Error(
+            `${label} exceeded ${timeoutMs} ms and its process group was terminated.${diagnostic ? `\n${diagnostic}` : ''}`,
+          ),
+        );
       } else if (code !== 0) {
-        reject(new Error(`${label} failed (exit ${code ?? 'unknown'}${signal ? `, ${signal}` : ''}).`));
+        const diagnostic = safeDiagnostic(output);
+        reject(new Error(`${label} failed (exit ${code ?? 'unknown'}${signal ? `, ${signal}` : ''}).\n${diagnostic}`));
       } else {
         resolve();
       }
@@ -185,56 +221,63 @@ function runChild(command, args, { cwd, env, timeoutMs = CHILD_TIMEOUT_MS, label
   });
 }
 
-async function findInstalledDsh() {
-  const lookup = process.platform === 'win32' ? 'where.exe' : 'which';
-  const lookupEnv = { PATH: process.env.PATH ?? process.env.Path ?? '' };
-  for (const name of ['LANG', 'LC_ALL']) {
-    if (process.env[name] !== undefined) lookupEnv[name] = process.env[name];
-  }
-  if (process.platform === 'win32') {
-    for (const name of ['SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT']) {
-      if (process.env[name] !== undefined) lookupEnv[name] = process.env[name];
-    }
-  }
-  const child = spawn(lookup, ['dsh'], {
-    env: lookupEnv,
-    stdio: ['ignore', 'pipe', 'ignore'],
-    windowsHide: true,
-  });
-  const chunks = [];
-  child.stdout.on('data', (chunk) => chunks.push(chunk));
-  const result = await new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', (code) => resolve(code));
-  });
-  const lines = Buffer.concat(chunks)
-    .toString('utf8')
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  invariant(result === 0 && lines.length > 0, 'The installed DSH CLI was not found by which dsh.');
-  const cliPath = await realpath(lines[0]);
-  let directory = path.dirname(cliPath);
-  while (directory !== path.dirname(directory)) {
-    try {
-      const manifest = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'));
-      if (manifest.name === '@deepseek-ai/dsh') {
-        const profileBoot = path.join(directory, 'lib', 'profile-boot.js');
-        const require = createRequire(path.join(directory, 'package.json'));
-        const appBoot = require.resolve('@deepseek-ai/dsh-app-boot');
-        await access(profileBoot);
-        await access(appBoot);
-        return { cliPath, directory, version: manifest.version, profileBoot, appBoot };
+async function findInstalledDsh(explicitPackageDirectory) {
+  if (explicitPackageDirectory) return readInstalledDshPackage(explicitPackageDirectory);
+  const pathValue = process.env.PATH ?? process.env.Path ?? '';
+  const names = process.platform === 'win32' ? ['dsh', 'dsh.cmd', 'dsh.exe'] : ['dsh'];
+  for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const shim = path.join(directory, name);
+      if (!(await directoryExists(shim))) continue;
+      let resolvedShim = shim;
+      try {
+        resolvedShim = await realpath(shim);
+      } catch {}
+      let ancestor = path.dirname(resolvedShim);
+      while (ancestor !== path.dirname(ancestor)) {
+        const candidates = [
+          ancestor,
+          path.join(ancestor, 'node_modules', '@deepseek-ai', 'dsh'),
+          path.join(ancestor, '..', 'node_modules', '@deepseek-ai', 'dsh'),
+        ];
+        for (const candidate of candidates) {
+          try {
+            const manifest = JSON.parse(await readFile(path.join(candidate, 'package.json'), 'utf8'));
+            if (manifest.name === '@deepseek-ai/dsh') return readInstalledDshPackage(candidate);
+          } catch (error) {
+            if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+          }
+        }
+        ancestor = path.dirname(ancestor);
       }
-    } catch (error) {
-      if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
     }
-    directory = path.dirname(directory);
   }
-  throw new Error('which dsh resolved a CLI outside an @deepseek-ai/dsh installation.');
+  throw new Error('The installed DSH CLI was not found in PATH or its npm package directory.');
+}
+
+async function readInstalledDshPackage(directory) {
+  const packageJsonPath = path.join(directory, 'package.json');
+  const manifest = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+  invariant(manifest.name === '@deepseek-ai/dsh', `${directory} is not an @deepseek-ai/dsh installation.`);
+  const cliPath = packageBinEntry(directory, 'dsh');
+  const profileBoot = path.join(directory, 'lib', 'profile-boot.js');
+  const require = createRequire(packageJsonPath);
+  const appBoot = require.resolve('@deepseek-ai/dsh-app-boot');
+  await access(profileBoot);
+  await access(appBoot);
+  return { cliPath, directory: await realpath(directory), version: manifest.version, profileBoot, appBoot };
 }
 
 async function selectPnpm(root, isolated) {
+  const configuredEntry = process.env.DSH_SMOKE_PNPM_ENTRY;
+  if (configuredEntry) {
+    invariant(path.isAbsolute(configuredEntry), 'DSH_SMOKE_PNPM_ENTRY must be an absolute Node CLI entry path.');
+    const resolved = await realpath(configuredEntry);
+    invariant((await stat(resolved)).isFile(), 'DSH_SMOKE_PNPM_ENTRY must point to a file.');
+    invariant(isNodeScript(resolved), 'DSH_SMOKE_PNPM_ENTRY must point to pnpm’s Node CLI entry, not a shell wrapper.');
+    return { path: resolved, source: 'temporary-install' };
+  }
+
   const configured = process.env.DSH_SMOKE_PNPM;
   if (configured !== undefined && configured !== '') {
     invariant(path.isAbsolute(configured), 'DSH_SMOKE_PNPM must be an absolute pnpm executable path.');
@@ -242,6 +285,7 @@ async function selectPnpm(root, isolated) {
     const file = await stat(resolved);
     invariant(file.isFile(), 'DSH_SMOKE_PNPM must point to a file.');
     if (process.platform !== 'win32') await access(resolved, 1);
+    invariant(isNodeScript(resolved), 'DSH_SMOKE_PNPM must point to pnpm’s Node CLI entry, not a shell wrapper.');
     return { path: resolved, source: 'provided' };
   }
 
@@ -257,30 +301,92 @@ async function selectPnpm(root, isolated) {
     ...isolated.env,
     PATH: process.env.PATH ?? process.env.Path ?? '',
   };
-  await runChild(
-    process.execPath,
-    [
-      npmExecPath,
-      'install',
-      '--prefix',
-      installPrefix,
-      '--no-save',
-      '--ignore-scripts',
-      '--no-audit',
-      '--no-fund',
-      '--registry=https://registry.npmjs.org',
-      `pnpm@${PNPM_VERSION}`,
-    ],
-    {
-      cwd: root,
-      env: npmEnvironment,
-      timeoutMs: CHILD_TIMEOUT_MS,
-      label: `Temporary pnpm ${PNPM_VERSION} download`,
-    },
-  );
-  const command = path.join(installPrefix, 'node_modules', '.bin', process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm');
-  const resolved = await realpath(command);
+  const invocation = npmInvocation(npmExecPath, [
+    'install',
+    '--prefix',
+    installPrefix,
+    '--no-save',
+    '--ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+    '--registry=https://registry.npmjs.org',
+    `pnpm@${PNPM_VERSION}`,
+  ]);
+  await runChild(invocation.command, invocation.args, {
+    cwd: root,
+    env: npmEnvironment,
+    timeoutMs: CHILD_TIMEOUT_MS,
+    label: `Temporary pnpm ${PNPM_VERSION} download`,
+  });
+  const resolved = packageBinEntry(path.join(installPrefix, 'node_modules', 'pnpm'), 'pnpm');
   return { path: resolved, source: `temporary-pnpm-${PNPM_VERSION}` };
+}
+
+function parseDshOptions(argv) {
+  let installMode = false;
+  let version;
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === '--install') {
+      invariant(!installMode, '--install may be provided only once.');
+      installMode = true;
+    } else if (argv[index] === '--dsh' || argv[index] === '--dsh-version') {
+      invariant(!version && argv[index + 1], `${argv[index]} requires one exact DSH version.`);
+      version = argv[index + 1];
+      index += 1;
+    } else {
+      invariant(argv[index] === '--', `Unknown smoke argument: ${argv[index]}`);
+    }
+  }
+  if (version || installMode) {
+    version ??= '0.2.2-rc.1';
+    invariant(
+      /^0\.2\.(?:1-rc\.5|2-rc\.1)$/u.test(version),
+      'Supported install smoke versions: 0.2.1-rc.5 and 0.2.2-rc.1.',
+    );
+  }
+  return { installMode: installMode || Boolean(version), version };
+}
+
+async function installDshAndPnpm(root, isolated, version) {
+  smokeStage = `install DSH ${version} and pnpm ${PNPM_VERSION}`;
+  assertRuntimeForDsh(version);
+  const npmExecPath = process.env.npm_execpath;
+  const invocation = npmInvocation(npmExecPath, [
+    'install',
+    '--prefix',
+    isolated.dirs.npmPrefix,
+    '--no-save',
+    '--no-audit',
+    '--no-fund',
+    '--registry=https://registry.npmjs.org',
+    `@deepseek-ai/dsh@${version}`,
+    `pnpm@${PNPM_VERSION}`,
+  ]);
+  await runChild(invocation.command, invocation.args, {
+    cwd: root,
+    env: isolated.env,
+    timeoutMs: BOOTSTRAP_TIMEOUT_MS,
+    label: `Temporary DSH ${version} and pnpm ${PNPM_VERSION} installation`,
+  });
+  const modules = path.join(isolated.dirs.npmPrefix, 'node_modules');
+  const dshDirectory = path.join(modules, '@deepseek-ai', 'dsh');
+  const pnpmDirectory = path.join(modules, 'pnpm');
+  return {
+    dsh: await readInstalledDshPackage(dshDirectory),
+    pnpm: { path: packageBinEntry(pnpmDirectory, 'pnpm'), source: `temporary-pnpm-${PNPM_VERSION}` },
+  };
+}
+
+function assertRuntimeForDsh(version) {
+  const minimum = version === '0.2.2-rc.1' ? [24, 9, 0] : [22, 19, 0];
+  const actual = process.versions.node.split('.').map(Number);
+  const supported =
+    actual[0] > minimum[0] ||
+    (actual[0] === minimum[0] && (actual[1] > minimum[1] || (actual[1] === minimum[1] && actual[2] >= minimum[2])));
+  invariant(
+    supported,
+    `DSH ${version} requires Node >=${minimum.join('.')}; this run uses Node ${process.versions.node}. Select a compatible Node runtime and retry.`,
+  );
 }
 
 async function exposePnpmOnPath(root, pnpmPath) {
@@ -524,9 +630,13 @@ async function hostMain(args) {
       environment,
       profile: DSH_PROFILE,
       patchFiles: patchPath ? [patchPath] : [],
-      args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
+      args:
+        DSH_PROFILE === 'web'
+          ? ['--no-open', '--host', '127.0.0.1', '--port', '0']
+          : ['Offline smoke fixture; the model runner is disabled by a temporary patch.'],
       packageManager: {
-        command: pnpmPath,
+        command: process.execPath,
+        args: [pnpmPath],
         env: process.env,
       },
     });
@@ -536,11 +646,32 @@ async function hostMain(args) {
       sessionId,
       meta: { cwd: workspace },
       setup: async (scope) => {
-        await app.ctx.agentPresets.mount(scope, 'standard');
+        if (DSH_PROFILE === 'web') await app.ctx.agentPresets.mount(scope, 'standard');
       },
     });
     const agent = handle.agent;
     const signal = new AbortController().signal;
+    const startupErrors = (app.ctx.logger.buffer ?? []).filter(
+      (message) => message.type === 'error' && message.name.includes('dsh-oil-ui'),
+    );
+    invariant(
+      startupErrors.length === 0,
+      `Plugin startup failed: ${startupErrors.map((message) => message.args.map(String).join(' ')).join('; ')}`,
+    );
+    const assembly = await app.ctx.systemPrompt.assemble({ scope: agent, signal });
+    invariant(
+      assembly.sections.some((section) => section.name === 'oil-ui'),
+      'Oil UI system prompt is missing.',
+    );
+    // DSH ships its shell tool as `pwsh` on Windows and `bash` elsewhere.
+    const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash';
+    for (const toolName of ['read', 'write', 'edit', shellTool, 'skill']) {
+      invariant(app.ctx.tools.get(toolName, agent), `Built-in tool is missing: ${toolName}.`);
+    }
+    const nativeProbe = path.join(workspace, 'native-read-probe.txt');
+    await writeFile(nativeProbe, 'OIL_DSH_NATIVE_READ_SENTINEL');
+    const nativeRead = await app.ctx.tools.get('read', agent).execute({ file_path: nativeProbe }, { agent, signal });
+    invariant(JSON.stringify(nativeRead).includes('OIL_DSH_NATIVE_READ_SENTINEL'), 'Built-in read failed.');
     const skillTool = app.ctx.tools.get('skill', agent);
     invariant(skillTool, 'The standard Agent preset does not expose the native skill tool.');
 
@@ -576,10 +707,14 @@ async function hostMain(args) {
     invariant(missingTools.length === 0, `Missing Oil UI tools in the Agent view: ${missingTools.join(', ')}.`);
 
     const bundledLite = scenario.bundledSkill ? await bundledLiteFromProfile(process.env.DSH_HOME) : null;
-    const expectedLite = expectedFilesystemLite ?? bundledLite;
+    const liteDefinition = await app.ctx.skills.get('oil-ui', { cwd: workspace, scope: agent, signal });
+    // Headless has no scoped web preset; both Lite providers share the global layer.
+    const expectedLite =
+      DSH_PROFILE === 'headless' && liteDefinition?.provider === LITE_PROVIDER
+        ? bundledLite
+        : (expectedFilesystemLite ?? bundledLite);
     invariant(expectedLite, `Scenario ${scenario.id} has no expected Lite publisher.`);
     await assertHostToolsReference(expectedLite.directory, `Lite Skill in ${scenario.id}`);
-    const liteDefinition = await app.ctx.skills.get('oil-ui', { cwd: workspace, scope: agent, signal });
     const liteResult = await skillTool.execute({ name: 'oil-ui' }, { agent, signal });
     await assertSkillSnapshot(liteDefinition, liteResult, expectedLite, 'Lite Skill');
 
@@ -630,7 +765,7 @@ async function hostMain(args) {
         (await readFile(path.join(dshDirectory, 'package.json'), 'utf8')).match(/"version"\s*:\s*"([^"]+)"/u)?.[1] ??
         'unknown',
       profile: DSH_PROFILE,
-      agentPreset: 'standard',
+      agentPreset: DSH_PROFILE === 'web' ? 'standard' : null,
       scenario: scenario.id,
       bundledSkillEnabled: scenario.bundledSkill,
       bundledLiteProviderPresent: pluginLiteCandidates.length === 1,
@@ -650,6 +785,9 @@ async function hostMain(args) {
           }
         : {}),
       oilUiToolCount: OIL_UI_TOOLS.length,
+      pluginStartupErrors: startupErrors.length,
+      systemPromptPresent: true,
+      nativeReadPassed: true,
       statusSkillName: status.activeSkillName,
       statusProvider: status.effective.provider,
       activeVersion: status.activeVersion,
@@ -662,17 +800,26 @@ async function hostMain(args) {
     failure = {
       name: error instanceof Error ? error.name : 'Error',
       message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     };
   } finally {
     try {
       if (handle) await handle.dispose();
     } catch (error) {
-      failure ??= { name: 'CleanupError', message: error instanceof Error ? error.message : String(error) };
+      failure ??= {
+        name: 'CleanupError',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      };
     }
     try {
       if (app?.shutdown) await app.shutdown.shutdown(0);
     } catch (error) {
-      failure ??= { name: 'ShutdownError', message: error instanceof Error ? error.message : String(error) };
+      failure ??= {
+        name: 'ShutdownError',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      };
     }
   }
   await writeFile(resultPath, JSON.stringify(failure ? { ok: false, failure } : { ok: true, summary }), {
@@ -683,23 +830,31 @@ async function hostMain(args) {
 
 async function main() {
   if (process.argv[2] === '--host') return hostMain(process.argv.slice(3));
+  const { installMode, version: requestedDshVersion } = parseDshOptions(process.argv.slice(2));
+  smokeDshLabel = requestedDshVersion ?? 'existing-installation';
 
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'dsh-oil-ui-smoke-'));
+  // macOS /var aliases /private/var. Mixed spellings make pnpm encode an
+  // unnecessarily long relative tarball path into one store filename.
+  const tempRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'dsh-oil-ui-smoke-')));
   try {
     const bootstrapRoot = path.join(tempRoot, 'bootstrap');
     await mkdir(bootstrapRoot, { recursive: true });
     const bootstrap = await createIsolation(bootstrapRoot);
-    const installedDsh = await findInstalledDsh();
-    const pnpm = await selectPnpm(tempRoot, bootstrap);
+    const requestedInstall = installMode ? await installDshAndPnpm(tempRoot, bootstrap, requestedDshVersion) : null;
+    smokeStage = 'resolve the DSH installation';
+    const installedDsh = requestedInstall?.dsh ?? (await findInstalledDsh());
+    smokeStage = `install or resolve pnpm ${PNPM_VERSION}`;
+    const pnpm = requestedInstall?.pnpm ?? (await selectPnpm(tempRoot, bootstrap));
     const pnpmBin = await exposePnpmOnPath(tempRoot, pnpm.path);
     const npmExecPath = process.env.npm_execpath;
-    invariant(npmExecPath && path.isAbsolute(npmExecPath), 'Run this script with npm run smoke:dsh.');
-    await access(npmExecPath);
     const archive = path.join(tempRoot, 'plugin.tgz');
-    await runChild(process.execPath, [npmExecPath, 'run', 'pack:plugin', '--', archive], {
+    const packInvocation = npmInvocation(npmExecPath, ['run', 'pack:plugin', '--', archive]);
+    smokeStage = 'build and package the Oil UI plugin';
+    await runChild(packInvocation.command, packInvocation.args, {
       cwd: projectRoot,
       env: {
         ...bootstrap.env,
+        DSH_SMOKE_PNPM_ENTRY: pnpm.path,
         PATH: `${pnpmBin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ''}`,
       },
       timeoutMs: CHILD_TIMEOUT_MS,
@@ -709,6 +864,7 @@ async function main() {
 
     const scenarioResults = [];
     for (const scenario of SCENARIOS) {
+      smokeStage = `isolate scenario ${scenario.id}`;
       const scenarioRoot = path.join(tempRoot, scenario.id);
       await mkdir(scenarioRoot, { recursive: true });
       const isolated = await createIsolation(scenarioRoot);
@@ -735,23 +891,34 @@ async function main() {
 
       const commandEnv = {
         ...isolated.env,
+        DSH_SMOKE_PNPM_ENTRY: pnpm.path,
         PATH: `${pnpmBin}${path.delimiter}${process.env.PATH ?? process.env.Path ?? ''}`,
       };
-      await runChild(installedDsh.cliPath, ['plugin', '--profile', DSH_PROFILE, 'add', archive], {
+      smokeStage = `install plugin for ${DSH_PROFILE}/${scenario.id}`;
+      await runChild(process.execPath, [installedDsh.cliPath, 'plugin', '--profile', DSH_PROFILE, 'add', archive], {
         cwd: workspace,
         env: commandEnv,
-        timeoutMs: CHILD_TIMEOUT_MS,
+        timeoutMs: PLUGIN_INSTALL_TIMEOUT_MS,
         label: `Isolated DSH ${DSH_PROFILE} plugin install (${scenario.id})`,
       });
 
       let patchPath = '';
+      const patches = [];
       if (!scenario.bundledSkill) {
-        patchPath = path.join(scenarioRoot, 'disable-bundled-lite.patch.yml');
-        await writeFile(patchPath, '- id: dsh-oil-ui\n  config:\n    bundledSkill: false\n', { mode: 0o600 });
+        patches.push('- id: dsh-oil-ui\n  config:\n    bundledSkill: false\n');
+      }
+      if (DSH_PROFILE === 'headless') {
+        // Mount the real headless services without submitting a model task.
+        patches.push('- id: headless-runner\n  disabled: true\n');
+      }
+      if (patches.length) {
+        patchPath = path.join(scenarioRoot, 'smoke-only.patch.yml');
+        await writeFile(patchPath, patches.join('\n'), { mode: 0o600 });
       }
 
       const resultPath = path.join(scenarioRoot, 'host-result.json');
       try {
+        smokeStage = `start Host for ${DSH_PROFILE}/${scenario.id}`;
         await runChild(
           process.execPath,
           [scriptPath, '--host', workspace, resultPath, installedDsh.directory, pnpm.path, scenario.id, patchPath],
@@ -767,7 +934,7 @@ async function main() {
           const hostResult = JSON.parse(await readFile(resultPath, 'utf8'));
           if (hostResult.ok === false) {
             throw new Error(
-              `Isolated DSH Host smoke (${scenario.id}) failed: ${hostResult.failure?.name ?? 'Error'}: ${hostResult.failure?.message ?? 'unknown error'}`,
+              `Isolated DSH Host smoke (${scenario.id}) failed: ${hostResult.failure?.name ?? 'Error'}: ${hostResult.failure?.message ?? 'unknown error'}${hostResult.failure?.stack ? `\n${hostResult.failure.stack}` : ''}`,
             );
           }
         }
@@ -777,7 +944,7 @@ async function main() {
       const hostResult = JSON.parse(await readFile(resultPath, 'utf8'));
       if (!hostResult.ok) {
         throw new Error(
-          `Isolated DSH Host smoke (${scenario.id}) failed: ${hostResult.failure?.name ?? 'Error'}: ${hostResult.failure?.message ?? 'unknown error'}`,
+          `Isolated DSH Host smoke (${scenario.id}) failed: ${hostResult.failure?.name ?? 'Error'}: ${hostResult.failure?.message ?? 'unknown error'}${hostResult.failure?.stack ? `\n${hostResult.failure.stack}` : ''}`,
         );
       }
       for (const fixture of fixtures) {
@@ -798,6 +965,11 @@ async function main() {
       `${JSON.stringify(
         {
           ok: true,
+          dshVersion: installedDsh.version,
+          installSmoke: installMode,
+          profile: DSH_PROFILE,
+          nodeVersion: process.version,
+          platform: process.platform,
           pnpmSource: pnpm.source,
           scenarios: scenarioResults,
         },
@@ -811,6 +983,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`DSH smoke failed: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `DSH smoke failed (dsh=${smokeDshLabel}, profile=${DSH_PROFILE}, node=${process.version}, platform=${process.platform}, stage=${smokeStage}): ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+  );
   process.exitCode = 1;
 });

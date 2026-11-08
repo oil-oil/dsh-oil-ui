@@ -8,8 +8,14 @@ import { pathToFileURL } from 'node:url';
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import type { SkillCandidate } from '@deepseek-ai/dsh-skill';
 import type { createSkillProvider } from '../src/skill/upstream.ts';
+import YAML from 'yaml';
 
 const exec = promisify(execFile);
+
+it('adds only its own bundle entry without overriding or disabling the host', async () => {
+  const patch = YAML.parse(await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8'));
+  expect(patch).toEqual([{ insert: [{ id: 'dsh-oil-ui', name: 'dsh-oil-ui' }] }]);
+});
 const isolatedHome = vi.hoisted(() => ({ path: '' }));
 vi.mock('node:os', async (original) => ({
   ...(await original<typeof import('node:os')>()),

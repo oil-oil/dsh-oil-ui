@@ -29,18 +29,19 @@ GitHub 直接安装依赖已提交的 `lib/` 和 `skills/`，不能把它们当�
 
 ## 标准命令
 
-| 命令                      | 用途                                                   |
-| ------------------------- | ------------------------------------------------------ |
-| `pnpm check`              | 格式、类型、默认测试和生成物验证                       |
-| `pnpm build`              | 更新 `lib/index.js`                                    |
-| `pnpm test`               | 默认离线测试，不依赖相邻仓库或真实凭据                 |
-| `pnpm test:integration`   | 显式上游集成测试，需要 `OIL_UI_SOURCE_DIR`             |
-| `pnpm sync:skill`         | 从 `OIL_UI_SOURCE_DIR` 或 `../oil-ui` 同步内置 Skill   |
-| `pnpm sync:skill --check` | 只检查上游能否重现提交快照，不覆盖文件                 |
-| `pnpm verify:generated`   | 临时重建并比较 `lib/`，核对 Skill manifest、哈希和权限 |
-| `pnpm pack:plugin`        | 构建、打包并解包验证                                   |
-| `npm run smoke:dsh`       | 隔离 HOME，真实 DSH 安装包与标准 preset 冒烟           |
-| `pnpm release:check`      | 发布前完整检查                                         |
+| 命令                      | 用途                                                               |
+| ------------------------- | ------------------------------------------------------------------ |
+| `pnpm check`              | 格式、类型、默认测试和生成物验证                                   |
+| `pnpm build`              | 更新 `lib/index.js`                                                |
+| `pnpm test`               | 默认离线测试，不依赖相邻仓库或真实凭据                             |
+| `pnpm test:integration`   | 显式上游集成测试，需要 `OIL_UI_SOURCE_DIR`                         |
+| `pnpm sync:skill`         | 从 `OIL_UI_SOURCE_DIR` 或 `../oil-ui` 同步内置 Skill               |
+| `pnpm sync:skill --check` | 只检查上游能否重现提交快照，不覆盖文件                             |
+| `pnpm verify:generated`   | 临时重建并比较 `lib/`，核对 Skill manifest、哈希和权限             |
+| `pnpm pack:plugin`        | 构建、打包并解包验证                                               |
+| `npm run smoke:dsh`       | 隔离 HOME，真实 DSH 安装包与标准 preset 冒烟                       |
+| `npm run smoke:install`   | npm 临时安装固定 DSH/pnpm 后执行真实安装冒烟，可用 `--dsh-version` |
+| `pnpm release:check`      | 发布前完整检查                                                     |
 
 ## 修改规则
 
@@ -60,3 +61,8 @@ GitHub 直接安装依赖已提交的 `lib/` 和 `skills/`，不能把它们当�
 
 - 内置 Lite 是不可变插件资产，更新只提示更新插件；仅实际胜出的 filesystem 安装可由 oil-cli 更新。不要把 Provider 标签当作安装归属。
 - oil-cli 固定值在 `src/skill/install.ts`；同步 workflow 和发布检查必须与公开 `scripts/check_update.py` 对齐（存在时）。本地未来版本模拟用 `npm run test:sync-workflow`。
+
+- Cordis 注入 callback 只能读取声明的服务；`ctx.agents?.list()` 也需要注入 `agents`。真实冒烟必须检查插件加载错误和系统提示，并实际调用原生 read，不能只验证 Host 启动或五工具存在。
+- `DSH_SMOKE_PROFILE=headless npm run smoke:dsh` 验证 headless 原生组合；仅临时关闭模型 runner，保留 startup 服务，不把 web preset 塞入 headless。安装说明使用 npm 临时提供固定 pnpm，兼容 DSH 自身的 Node 要求，不改全局 Corepack。
+
+- 跨平台真实安装 CI 必须以 npm 临时提供固定 pnpm，使用隔离 HOME、DSH_HOME、npm prefix；覆盖 Ubuntu/Windows、Node24+DSH0.2.2-rc.1 和 Node22+DSH0.2.1-rc.5、web/headless。不得把依赖版本单元测试或仅 Host 存活当成安装通过；检查加载错误、五工具、实际原文 Skill 和原生工具，虚构 Pro，不读取凭据。Windows 通过包的 JS bin + Node 启动，不直接 spawn `.cmd`，也不借 shell 拼接用户路径。

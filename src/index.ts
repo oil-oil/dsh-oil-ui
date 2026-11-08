@@ -272,7 +272,7 @@ export function apply(ctx: Context, config: Config) {
     }
   };
 
-  ctx.inject(['systemPrompt'], (ctx) => {
+  ctx.inject(['systemPrompt', 'agents'], (ctx) => {
     ctx.effect(() => {
       const dispose = ctx.systemPrompt.section({
         name: 'oil-ui',

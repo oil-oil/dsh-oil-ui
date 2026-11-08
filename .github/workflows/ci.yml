@@ -50,3 +50,34 @@ jobs:
         run: git checkout -- package.json pnpm-lock.yaml
       - name: Verify validation leaves the checkout unchanged
         run: git diff --exit-code
+
+  install-smoke:
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        profile: [web, headless]
+        dsh:
+          - version: '0.2.1-rc.5'
+            node: '22'
+          - version: '0.2.2-rc.1'
+            node: '24'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.dsh.node }}
+      - name: Install project dependencies with temporary pnpm
+        run: npm exec --yes --package=pnpm@10.16.1 -- pnpm install --frozen-lockfile
+      - name: Verify cross-platform CLI launch helpers
+        run: npm test -- tests/portable-cli.test.ts
+      - name: Install the current plugin archive into isolated DSH and smoke the Host
+        env:
+          DSH_SMOKE_PROFILE: ${{ matrix.profile }}
+        run: npm run smoke:install -- --dsh-version ${{ matrix.dsh.version }}
+      - name: Verify the install smoke leaves the checkout unchanged
+        run: git diff --exit-code

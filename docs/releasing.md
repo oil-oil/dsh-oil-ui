@@ -14,6 +14,7 @@ pnpm install --frozen-lockfile
 npm run release:check
 OIL_UI_SOURCE_DIR=../oil-ui npm run test:integration
 npm run smoke:dsh
+DSH_SMOKE_PROFILE=headless npm run smoke:dsh
 ```
 
 `release:check` 会执行完整检查、生成并解包验证 tarball，再核对发布元数据。打包测试会实际加载解包后的 Lite，调用 `oil_ui_skill_status`、`oil_ui_explorer` 和 `oil_ui_shoot` 的离线解析，防止源码目录与安装目录不同造成运行时路径失效。发布后还要下载正式附件，核对安装和实际加载。需要模拟 tag 校验时运行：
@@ -71,12 +72,27 @@ Pro 仓库的 `adapters/dsh/` 只为已发布的旧插件（0.4.9 及更早）�
 
 本次虚构 Pro 冒烟只验证原文发布、作用域、工具和状态契约，不代表真实模型已经执行设计或付费生图。
 
-## 本次架构调整的交付顺序
+## 当前快照与后续同步
 
-当前代码保留插件 `0.4.11-dev.0`，建议正式发布 `0.4.11`；Pro/公开版建议下一补丁 `0.33.2`。先验收 Pro 改动并按其流程完成同一发布提交的 Linux 和 Windows 完整 CI，再配对发布 Pro 与公开版。Pro 的 `sync_all.py` 不触碰插件。
+插件当前发布 `0.4.12`，修复了 `0.4.11` 的 `agents` 注入错误；内置公开 Skill 为 `0.33.2`（`v0.33.2` / `16b30579489155ed4fae723c4d031e9f4d3c36df`）。实际来源始终以 manifest 为准。
 
-本次仅将已发布公开 `0.33.1` 恢复为原始字节，仍记录 commit `98187634fc45c934d36f71d050e8773d6bdea83b`。它的更新脚本保留历史 oil-cli pin，插件代码和 Pro 候选统一为 `e6ee580c01e854919ee50ef1f3de6876c3c52c18`。不能为消除差异改写已发布 Skill。`release:check` 的 pin 检查会在这里阻塞，直到新公开版发布后重新同步；默认离线 check 不把历史快照误当成新公开版。
-
-公开新版发布后：从其 tag 同步，核对 source.release/commit、原文哈希与相同 pin，运行 build、check、pack、integration、smoke:dsh、test:sync-workflow 和 release:check，再把插件版本改为正式版并由维护者发布。若在此之前已发布 `0.4.11`，后续同步须使用新版本。不得从未发布 Pro 构建同步正式快照；`--allow-unreleased` 仅用于隔离验证，其 manifest 禁止发布。
+公开新版发布后：从其 tag 同步，核对 source.release/commit、原文哈希与公开 installer pin，运行 build、check、pack、integration、smoke:dsh、smoke:install、test:sync-workflow 和 release:check，再把插件版本改为新的正式版并由维护者发布。不得从未发布 Pro 构建同步正式快照；`--allow-unreleased` 仅用于隔离验证，其 manifest 禁止发布。
 
 定时 sync-skill workflow 只查询最新已发布公开 Release，检出其 tag，验证 pin 后创建同步 PR。本地用 `npm run test:sync-workflow` 模拟虚构升级，不调用 GitHub 写操作。
+
+## 安装回归
+
+发布前同时执行 web 与 headless 冒烟；使用与目标 DSH 相容的 Node（0.2.2-rc.1 要求 >=24.9.0）。至少在最低支持版和当前 latest 上确认加载日志无插件错误、系统提示生效、原生工具及其他插件保留，再检查状态、Lite/虚构 Pro 和卸载恢复。Desktop 需额外使用其自带 Node/DSH/pnpm 与 Desktop patch；普通 CLI 冒烟不能宣称验证了 Electron 设置页。Corepack 故障应通过 npm 临时提供固定 pnpm 复测，不要求用户改全局安装。此次实测范围与尚未覆盖项见 [安装验证报告](real-install-verification.md)。
+
+### 跨平台真实安装 CI
+
+`ci.yml` 的真实安装 job 独立于依赖版本的单元测试矩阵：Ubuntu / Windows，Node 24 + DSH 0.2.2-rc.1、Node 22 + DSH 0.2.1-rc.5，分别跑 web/headless。只用 npm 临时安装固定 pnpm 10.16.1 与指定 DSH 到隔离 prefix，以 README 的 tgz 安装路径启动真实 Host，不要求系统预装 pnpm。CI 结果需在实际提交推送后核对；本地 macOS 成功不能替代它。触发范围沿用 main 的 push、面向 main 的 PR 和手动 workflow_dispatch；仅推送功能分支时，在 Actions 手动选择该分支运行 `ci`，或由维护者后续创建 PR。
+
+```bash
+# 在相应 Node 下运行；默认最新受测版本
+npm run smoke:install
+npm run smoke:install -- --dsh-version 0.2.1-rc.5
+# PowerShell 的 headless 选择：$env:DSH_SMOKE_PROFILE='headless'
+```
+
+自检下载或安装失败必须返回非零，保留原始错误并给出检查 Node、网络、profile、pnpm 的提示；不得忽略加载错误使 CI 变绿。不带凭据、不访问付费服务。发布前确认真实安装 job 全部通过，且包含当前修复的正式附件、GitHub main / Release commit 和 AtomGit 镜像能够实际加载。镜像自动同步是异步的，核对 main 的 commit，不能仅凭“已启用”认定追平。补充证据见 [本轮验证](real-install-followup.md)。
