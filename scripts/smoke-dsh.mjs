@@ -663,7 +663,9 @@ async function hostMain(args) {
       assembly.sections.some((section) => section.name === 'oil-ui'),
       'Oil UI system prompt is missing.',
     );
-    for (const toolName of ['read', 'write', 'edit', 'bash', 'skill']) {
+    // DSH ships its shell tool as `pwsh` on Windows and `bash` elsewhere.
+    const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash';
+    for (const toolName of ['read', 'write', 'edit', shellTool, 'skill']) {
       invariant(app.ctx.tools.get(toolName, agent), `Built-in tool is missing: ${toolName}.`);
     }
     const nativeProbe = path.join(workspace, 'native-read-probe.txt');
