@@ -74,7 +74,7 @@ Pro 仓库的 `adapters/dsh/` 只为已发布的旧插件（0.4.9 及更早）�
 
 ## 当前快照与后续同步
 
-插件当前发布 `0.4.12`，修复了 `0.4.11` 的 `agents` 注入错误；内置公开 Skill 为 `0.33.2`（`v0.33.2` / `16b30579489155ed4fae723c4d031e9f4d3c36df`）。实际来源始终以 manifest 为准。
+插件已发布 `0.4.12`（修复了 `0.4.11` 的 `agents` 注入错误），当前开发版为 `0.4.13-dev.0`；内置公开 Skill 为 `0.33.2`（`v0.33.2` / `16b30579489155ed4fae723c4d031e9f4d3c36df`）。实际来源始终以 manifest 为准。
 
 公开新版发布后：从其 tag 同步，核对 source.release/commit、原文哈希与公开 installer pin，运行 build、check、pack、integration、smoke:dsh、smoke:install、test:sync-workflow 和 release:check，再把插件版本改为新的正式版并由维护者发布。不得从未发布 Pro 构建同步正式快照；`--allow-unreleased` 仅用于隔离验证，其 manifest 禁止发布。
 
