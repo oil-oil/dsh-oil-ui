@@ -138,7 +138,7 @@ The AtomGit mirror is another source, but can lag behind GitHub. Verify the inst
 npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
-For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#362053dcfb169eb133abbb6ade1a1ca198439fe2`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
+For headless CLI runs, replace `--profile web` with `--profile headless`. For reproducible installation, pin the full commit, for example `github:oil-oil/dsh-oil-ui#6ad4be02be7464288cf8aff431f71b74455e8a4b`. Replace it with the Release commit you actually need instead of relying on a moving branch name.
 
 These commands temporarily provide pinned pnpm through npm; no preinstalled pnpm or global Corepack changes are required. A clean Corepack environment can select pnpm `12.18.0` with a missing entry point. For `Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs`, retry with pinned pnpm; do not grant build permissions or edit DSH source based on its generic Git-install hint. This plugin has no install-time build script.
 
