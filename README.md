@@ -137,7 +137,7 @@ AtomGit 镜像也可安装，但可能落后于 GitHub；安装后核对插件�
 npm exec --yes --package=pnpm@10.16.1 -- dsh plugin --profile web add git+https://atomgit.com/oil-oil/dsh-oil-ui.git
 ```
 
-若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#6ad4be02be7464288cf8aff431f71b74455e8a4b`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
+若使用命令行无头模式，将 `--profile web` 换成 `--profile headless`。需要可复现安装时，用完整 commit 锁定快照，例如 `github:oil-oil/dsh-oil-ui#cb14eef6723fdd518acb581c922aaaaea13105ac`；请把它替换成你实际要安装的 Release commit，不要只依赖移动的分支名。
 
 以上命令用 npm 临时提供固定的 pnpm，不要求预装 pnpm，也不改变全局 Corepack。已确认 Corepack 在新目录可能选择入口缺失的 pnpm `12.18.0`；若见 `Cannot find module .../pnpm/12.18.0/bin/pnpm.cjs`，这是安装器启动失败，不要按 DSH 的泛化提示授权构建或修改其源码。固定 pnpm 后重试即可；本插件没有安装期构建脚本。
 
