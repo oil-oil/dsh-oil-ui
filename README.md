@@ -65,7 +65,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 | 工具                  | 作用                                                                                                                                                                                                                                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `oil_ui_skill_status` | 刷新 Skill 状态，返回当前生效的 `activeSkillName`、生图来源与 oiloil 余额，同时处理版本更新检查和一次性 Pro 提示                                                                                                                                                                                     |
+| `oil_ui_skill_status` | 刷新 Skill 状态，返回当前生效的 `activeSkillName`、生图来源与 oiloil 余额，同时处理版本更新检查                                                                                                                                                                                                      |
 | `oil_ui_explorer`     | 读取 `explore/manifest.json`（兼容常见简写字段），把多个首屏候选内联打包成可交互的 `style-explorer.html` 对比页                                                                                                                                                                                      |
 | `oil_ui_shoot`        | 在真实浏览器里打开本地页面或 URL：支持指定视口尺寸、2x 特写、多状态连拍（`states`）、交互步骤脚本（`steps`）、动效序列图（`frames`）、按需录屏（`record` / `motion`）以及按共有元素同比例拼图（`stitch` 项的 `matchWidth` / `scale`、全局 `crop`），并自动检查控制台报错、横向溢出、断图与文字对比度 |
 | `oil_ui_media`        | 搜索、预览和下载免版权/公有领域图片、博物馆馆藏（Met、AIC、Cleveland、Wikimedia、Openverse 等）、视频与地图素材                                                                                                                                                                                      |
@@ -106,12 +106,11 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 跨宿主发现与 `proSkillDir` 只用于本地诊断，不会发布 Pro。若 Pro 仅在 Claude 等目录，需安装到 Harness 可见的目录（例如 `~/.agents/skills` 或 `~/.dsh/skills`）。最终决定与回归契约见 [唯一发布者说明](docs/pro-single-publisher.md)。
 
-### 版本检查与一次性 Pro 提醒
+### 版本检查与一键更新
 
-原来在 `oil-ui` 脚本里的版本更新检查和一次性 Pro 推荐，在 `dsh-oil-ui` 里直接合进了 `oil_ui_skill_status`：
+`oil_ui_skill_status` 直接内置版本更新检查：
 
 - **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件通常每 10 分钟最多向 `https://ui.oiloil.org/api/store/versions` 核对一次版本号，结果缓存在 `~/.local/state/oil/<name>-update.json`。请求最多等待 8 秒；失败后自动退避，显式更新或发现本地版本高于缓存时会提前检查。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）时，只对 filesystem 安装的 Lite/Pro 通过固定提交的 oil-cli 更新；内置 Lite 只提示更新插件，绝不改插件安装目录。
-- **一次性 Pro 提醒**：当本机只装了免费版 `oil-ui` 时，首次调用 `oil_ui_skill_status` 会在 `~/.local/state/oil-ui/recommended-oil-ui-pro` 写下标记，并返回一次 `recommendOnceNotice`，让 Agent 在任务收尾时顺带提一句 [ui.oiloil.org/pro](https://ui.oiloil.org/pro/)，之后不再重复打扰。
 
 ---
 
