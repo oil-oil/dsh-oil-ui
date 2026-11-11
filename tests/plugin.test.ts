@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { existsSync } from 'node:fs';
 import { chmod, mkdtemp, rm, mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, sep } from 'node:path';
@@ -971,9 +972,9 @@ it.skipIf(process.platform === 'win32')(
   },
 );
 
-it('triggers one-time Pro recommendation once on lite edition and reports cached update notices', async () => {
+it('reports cached update notices on lite edition without emitting a one-time Pro recommendation', async () => {
   vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
-  const root = await mkdtemp(join(tmpdir(), 'dsh-oil-ui-recommend-'));
+  const root = await mkdtemp(join(tmpdir(), 'dsh-oil-ui-update-notice-'));
   localHome.path = root;
   const stateDir = join(root, 'state');
   vi.stubEnv('XDG_STATE_HOME', stateDir);
@@ -989,15 +990,12 @@ it('triggers one-time Pro recommendation once on lite edition and reports cached
     );
     const first = await skillStatus(null, { preferPro: false });
     expect(first.edition).toBe('lite');
-    expect(first.recommendOnceTriggered).toBe(true);
-    expect(first.recommendOnceNotice).toContain('Oil UI Pro');
     expect(first.updateAvailable).toBe(true);
     expect(first.latestVersion).toBe(latestVersion);
     expect(first.updateNotice).toContain('Update available');
-
-    const second = await skillStatus(null, { preferPro: false });
-    expect(second.recommendOnceTriggered).toBe(false);
-    expect(second.recommendOnceNotice).toBeNull();
+    expect('recommendOnceTriggered' in first).toBe(false);
+    expect('recommendOnceNotice' in first).toBe(false);
+    expect(existsSync(join(stateDir, 'oil-ui', 'recommended-oil-ui-pro'))).toBe(false);
   } finally {
     localHome.path = '';
     vi.unstubAllEnvs();

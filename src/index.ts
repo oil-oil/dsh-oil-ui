@@ -21,7 +21,7 @@ export { Config };
 export const name = 'dsh-oil-ui';
 
 export const MAIN_AGENT_SYSTEM_PROMPT =
-  'For UI tasks, call oil_ui_skill_status first for the effective Skill, version, update notice, and image source. Use this host status tool instead of running check_update.sh or check_update.py; it also handles one-time notices. When skillReady is true, load activeSkillName with the native skill tool: oil-ui and oil-ui-pro both work unchanged, regardless of their publisher. Report skillLoadWarning when present. Follow references/tools.md host-tools section: use oil_ui_explorer for comparison pages, oil_ui_shoot for screenshots/interactions/recordings, oil_ui_media for media search/preview/fetch, and oil_ui_image for generating or editing images; map CLI flags such as --stitch and --frames to the matching tool fields. Use status.imageSource and oilBalance instead of invoking the image script to detect availability. Bundled Skill updates require updating the plugin; filesystem installations use oil-cli. Read and write project files directly in the current working directory. Review subagents receive the effective original reviewer manual in their system prompt; they do not need to reload it. Use read_image to inspect screenshots.';
+  'For UI tasks, call oil_ui_skill_status first for the effective Skill, version, update notice, and image source. Use this host status tool instead of running check_update.sh or check_update.py. When skillReady is true, load activeSkillName with the native skill tool: oil-ui and oil-ui-pro both work unchanged, regardless of their publisher. Report skillLoadWarning when present. Follow references/tools.md host-tools section: use oil_ui_explorer for comparison pages, oil_ui_shoot for screenshots/interactions/recordings, oil_ui_media for media search/preview/fetch, and oil_ui_image for generating or editing images; map CLI flags such as --stitch and --frames to the matching tool fields. Use status.imageSource and oilBalance instead of invoking the image script to detect availability. Bundled Skill updates require updating the plugin; filesystem installations use oil-cli. Read and write project files directly in the current working directory. Review subagents receive the effective original reviewer manual in their system prompt; they do not need to reload it. Use read_image to inspect screenshots.';
 
 export function buildSubagentSystemPrompt(reviewerManual: string, referencesPath?: string): string {
   return [
@@ -137,7 +137,6 @@ export function apply(ctx: Context, config: Config) {
               : []),
             ...(status.updateCheckError ? [`版本检查异常：${status.updateCheckError}`] : []),
             ...(status.updateNotice ? [status.updateNotice] : []),
-            ...(status.recommendOnceNotice ? [status.recommendOnceNotice] : []),
           ];
           return {
             kind: 'success',

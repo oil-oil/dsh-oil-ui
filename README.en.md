@@ -65,7 +65,7 @@ The plugin registers 5 tools, all resolved relative to the active session's work
 
 | Tool                  | What it does                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `oil_ui_skill_status` | Refreshes Skill status and returns `activeSkillName`, image source, and oiloil balance; also checks for updates and handles the one-time Pro recommendation notice                                                                                                                                                                                                                                   |
+| `oil_ui_skill_status` | Refreshes Skill status and returns `activeSkillName`, image source, and oiloil balance; also checks for updates                                                                                                                                                                                                                                                                                      |
 | `oil_ui_explorer`     | Reads `explore/manifest.json` (normalizing common shorthand fields) and bundles candidate HTML files into a single interactive `style-explorer.html` comparison page                                                                                                                                                                                                                                 |
 | `oil_ui_shoot`        | Captures real browser screenshots of local files or URLs: supports custom viewports, 2x zoom crops, multi-state captures (`states`), scripted interactions (`steps`), motion frame sequences (`frames`), optional recordings (`record` / `motion`), and normalized image comparisons (`stitch` items with `matchWidth` / `scale`, plus global `crop`), and built-in console/overflow/contrast checks |
 | `oil_ui_media`        | Searches, previews, and downloads public-domain images, museum collections (Met, AIC, Cleveland, Wikimedia, Openverse), video clips, and map tiles                                                                                                                                                                                                                                                   |
@@ -106,12 +106,11 @@ Status checks the definition selected in the calling Agent's scope against the o
 
 Cross-host discovery and `proSkillDir` provide local diagnostics, not publication. If Pro exists only in a Claude directory, install it into a Harness-visible root such as `~/.agents/skills` or `~/.dsh/skills`. See the [single-publisher decision](docs/pro-single-publisher.md).
 
-### Version Check & One-Time Pro Notice
+### Version Check & Self-Update
 
-The update check and one-time Pro prompt from upstream `oil-ui` are built directly into `oil_ui_skill_status`:
+`oil_ui_skill_status` includes cached version update checks:
 
 - **Cached version check & self-update**: `oil_ui_skill_status` normally checks `https://ui.oiloil.org/api/store/versions` at most once every 10 minutes, caching the result in `~/.local/state/oil/<name>-update.json`. Requests time out after 8 seconds and failures back off; an explicit update or a local version newer than the cache triggers an earlier check. When a newer version is available, it attaches `updateNotice`; passing `{"update": true}` (or running `/oil-ui-status update`) updates filesystem Lite/Pro through pinned oil-cli. Bundled Lite only prompts for a plugin update; files inside the plugin installation are never updated in place.
-- **One-time Pro prompt**: When running on the free `oil-ui` edition, the first `oil_ui_skill_status` call writes a marker to `~/.local/state/oil-ui/recommended-oil-ui-pro` and returns `recommendOnceNotice` once so the agent can mention [ui.oiloil.org/en/pro](https://ui.oiloil.org/en/pro/) at the end of its reply—never nagging on subsequent runs.
 
 ---
 

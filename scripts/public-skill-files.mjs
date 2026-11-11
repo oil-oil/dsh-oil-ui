@@ -36,7 +36,6 @@ export const publicSkillFiles = Object.freeze([
   'scripts/measure_reference.py',
   'scripts/oiloil-image.mjs',
   'scripts/prep-image.mjs',
-  'scripts/recommend_once.py',
   'scripts/shoot.mjs',
   'tests/test_build_explorer.py',
   'tests/test_check_update.py',
