@@ -1,11 +1,11 @@
 {
   "name": "oil-ui",
-  "version": "0.33.2",
+  "version": "0.33.4",
   "distribution": "original",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "16b30579489155ed4fae723c4d031e9f4d3c36df",
-    "release": "v0.33.2",
+    "commit": "28948c3d88e5d141fa0e943ff385560c5ffba979",
+    "release": "v0.33.4",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -71,7 +71,7 @@
       }
     ]
   },
-  "fileCount": 46,
+  "fileCount": 45,
   "files": [
     {
       "path": ".gitignore",
@@ -201,8 +201,8 @@
     },
     {
       "path": "references/tools.md",
-      "sha256": "9f7cae54437f7c78cd790fe3b9eebb6c42ee911b446e031842a4bf1a2aa91596",
-      "size": 9470,
+      "sha256": "4b16bf320884ed2ad0281952d2dbfd43632bd0f371046e1b72aacd808f93096c",
+      "size": 11096,
       "mode": "0644"
     },
     {
@@ -284,21 +284,15 @@
       "mode": "0755"
     },
     {
-      "path": "scripts/recommend_once.py",
-      "sha256": "c1b28d9cec6d47ab637e65fa19b3b183ddddf4a4a950b5bdc6f11aa113bb9672",
-      "size": 2275,
-      "mode": "0644"
-    },
-    {
       "path": "scripts/shoot.mjs",
-      "sha256": "d11704d96d03e46bf0a0dbe725e585d57e7e863918477f3e3f7852577e748d3e",
-      "size": 138247,
+      "sha256": "4f2d7b3db32d186f8270c9ad73babfae25d42b8e1b63b4cb5f9148a355e10e4a",
+      "size": 142800,
       "mode": "0644"
     },
     {
       "path": "SKILL.md",
-      "sha256": "c4505ffcadfffab99dc8f79cb57a4e36021cb3a86013647e880d1209d89dd424",
-      "size": 21703,
+      "sha256": "ad6b97b768384b43d2a12cfbb431db0a70572466bb44256249365419d09eed91",
+      "size": 20581,
       "mode": "0644"
     },
     {
@@ -339,8 +333,8 @@
     },
     {
       "path": "tests/test_shoot.py",
-      "sha256": "21aa627fb9e7e808e36bc127be7de3f3487729d085f470d6899887da0c2f2475",
-      "size": 158511,
+      "sha256": "aa98f2a01818a50b38694582a7b411a54b8c7c6399ed9eb649413b50a411b377",
+      "size": 178834,
       "mode": "0644"
     },
     {
