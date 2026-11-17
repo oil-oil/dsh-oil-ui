@@ -1,11 +1,11 @@
 {
   "name": "oil-ui",
-  "version": "0.33.4",
+  "version": "0.33.5",
   "distribution": "original",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "28948c3d88e5d141fa0e943ff385560c5ffba979",
-    "release": "v0.33.4",
+    "commit": "5cf5bcb93653a3e00afa30b70b167e3d984c4ed4",
+    "release": "v0.33.5",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -75,8 +75,8 @@
   "files": [
     {
       "path": ".gitignore",
-      "sha256": "81f2db0af12e2c1268f92a7e2aa5a826dedbb5778f288b2d988ea07bfe6c69d5",
-      "size": 113,
+      "sha256": "cc8f8cb4193fe226f0f10c69d5b4cf6b9596f04104ab552044145afd694bc3ea",
+      "size": 160,
       "mode": "0644"
     },
     {
@@ -117,14 +117,14 @@
     },
     {
       "path": "README.md",
-      "sha256": "cbcbb7cbb3799d8e97e9691ba0371cf63fa3797a72afa8b57509bcc6e8c96d55",
-      "size": 9695,
+      "sha256": "200c7af12c6e5f258f5d3c591602a6cc520f4223a471e13e3559b2f67035df63",
+      "size": 14325,
       "mode": "0644"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "07e6e2a095b7c109d5842702be701247678a5c718c0460f0522016fad5293b43",
-      "size": 8680,
+      "sha256": "15611200dc0f9eea8f48dbdd56b1b5b70260048ba8305ad1e74990795f380dd6",
+      "size": 13346,
       "mode": "0644"
     },
     {
@@ -159,8 +159,8 @@
     },
     {
       "path": "references/motion.md",
-      "sha256": "d4bb6feb692b86812d459534d1f443c500dbc953ee5273db17108067aab91f76",
-      "size": 11166,
+      "sha256": "d194e8a9c1e5d6494d9e628987530a2f2ec0c87a86f792074d6d8bce9b48b169",
+      "size": 11858,
       "mode": "0644"
     },
     {
@@ -207,8 +207,8 @@
     },
     {
       "path": "references/ux-review.md",
-      "sha256": "1cfc3eafaf90a53170a9de375a5dee56ecb656dfc4a174fc95f2ebbf084b0b17",
-      "size": 2666,
+      "sha256": "307250dc06d139bd009d8d3e2dfbe3c30d0eb0ef0786b665c7009c630b3d9376",
+      "size": 2778,
       "mode": "0644"
     },
     {
@@ -225,8 +225,8 @@
     },
     {
       "path": "references/visual-review.md",
-      "sha256": "27f4ff47c93741c72004769097c871b6cfb351659b36a54f43efa83c8578d55f",
-      "size": 4111,
+      "sha256": "f309b915f44e514f72fd66059a048a93ade14b98839c5cc07ac7eb451fea0113",
+      "size": 4244,
       "mode": "0644"
     },
     {
@@ -291,8 +291,8 @@
     },
     {
       "path": "SKILL.md",
-      "sha256": "ad6b97b768384b43d2a12cfbb431db0a70572466bb44256249365419d09eed91",
-      "size": 20581,
+      "sha256": "e322f021fc7a6d2f6f1128a30dfdf74cbd32033b21ccf5133e0a188d26c5302f",
+      "size": 21902,
       "mode": "0644"
     },
     {
