@@ -98,7 +98,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ### Pro 发现与实际加载诊断
 
-每次查询状态时，插件重新发现本机 `oil-ui-pro`：先检查显式配置及 DSH 的项目、用户 Skill 目录（包括 `~/.dsh/skills` 和 `~/.agents/skills`），再检查 oil-cli 支持的用户安装位置：`~/.claude/skills`、`$CODEX_HOME/skills`（未设置时为 `~/.codex/skills`）、`~/.cursor/skills`、`~/.workbuddy/skills`。每处只检查 `oil-ui-pro`，不会递归扫描其他目录；这些跨宿主回退位置不用于发现 image-gen。自定义安装位置用 `proSkillDir` 或 `OIL_UI_PRO_DIR` 指定。该列表依据 [oil-cli 的 installationRoots/targetRoot](https://github.com/oil-oil/oil-cli/blob/e6ee580c01e854919ee50ef1f3de6876c3c52c18/src/skills.js#L139)；默认安装优先已存在的 Claude 目录，Codex 和 DSH 通常共享 `.agents/skills`。
+每次查询状态时，插件重新发现本机 `oil-ui-pro`：先检查显式配置及 DSH 的项目、用户 Skill 目录（包括 `~/.dsh/skills` 和 `~/.agents/skills`），再检查 oil-cli 支持的用户安装位置：`~/.claude/skills`、`$CODEX_HOME/skills`（未设置时为 `~/.codex/skills`）、`~/.cursor/skills`、`~/.workbuddy/skills`。每处只检查 `oil-ui-pro`，不会递归扫描其他目录；这些跨宿主回退位置不用于发现 image-gen。自定义安装位置用 `proSkillDir` 或 `OIL_UI_PRO_DIR` 指定。该列表依据 [oil-cli 的 installationRoots/targetRoot](https://github.com/oil-oil/oil-cli/blob/3a9f2b417d0f3dfe5a143dbd4c96017e7f7e8ded/src/skills.js#L139)；默认安装优先已存在的 Claude 目录，Codex 和 DSH 通常共享 `.agents/skills`。
 
 **Lite 与 Pro 原文都直接可用；Pro 由 Harness filesystem Provider 唯一发布。** 插件只发布内置 `oil-ui`，在 Host、preset、Agent 任何层都不注册同名 Pro，也不读取私有适配规则、不改写 Pro 或生成 Pro 缓存。Pro 的 `references/tools.md` 宿主一节说明如何使用 `oil_ui_shoot`、`oil_ui_media`、`oil_ui_image`、`oil_ui_explorer`；参数对应工具同名字段，版本和生图来源以宿主状态工具为准。新版宿主说明随 Pro `0.33.1` 交付。
 
@@ -110,7 +110,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 `oil_ui_skill_status` 直接内置版本更新检查：
 
-- **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件通常每 10 分钟最多向 `https://ui.oiloil.org/api/store/versions` 核对一次版本号，结果缓存在 `~/.local/state/oil/<name>-update.json`。请求最多等待 8 秒；失败后自动退避，显式更新或发现本地版本高于缓存时会提前检查。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）时，只对 filesystem 安装的 Lite/Pro 通过固定提交的 oil-cli 更新；内置 Lite 只提示更新插件，绝不改插件安装目录。
+- **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件通常每 10 分钟最多向 `https://ui.oiloil.org/api/store/versions` 核对一次版本号，结果缓存在 `~/.local/state/oil/<name>-update.json`。请求最多等待 8 秒；失败后自动退避，显式更新或发现本地版本高于缓存时会提前检查。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）时，只对 filesystem 安装的 Lite/Pro 通过固定提交的 oil-cli 更新（默认超时 10 分钟，可通过 `OIL_UPDATE_TIMEOUT` 设置秒数）；内置 Lite 只提示更新插件，绝不改插件安装目录。
 
 ---
 

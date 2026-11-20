@@ -1,11 +1,11 @@
 {
   "name": "oil-ui",
-  "version": "0.33.4",
+  "version": "0.34.2",
   "distribution": "original",
   "source": {
     "repository": "https://github.com/oil-oil/oil-ui",
-    "commit": "28948c3d88e5d141fa0e943ff385560c5ffba979",
-    "release": "v0.33.4",
+    "commit": "81f2657f41410f04ae47ba77f902fcc0567eaab2",
+    "release": "v0.34.2",
     "rootSymlinkResolved": true
   },
   "symlinkAudit": {
@@ -68,15 +68,19 @@
       {
         "path": "README.ja.md",
         "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
+      },
+      {
+        "path": "scripts/__pycache__",
+        "reason": "Excluded from the runtime distribution (repository metadata, caches or documentation-only files)."
       }
     ]
   },
-  "fileCount": 45,
+  "fileCount": 46,
   "files": [
     {
       "path": ".gitignore",
-      "sha256": "81f2db0af12e2c1268f92a7e2aa5a826dedbb5778f288b2d988ea07bfe6c69d5",
-      "size": 113,
+      "sha256": "cc8f8cb4193fe226f0f10c69d5b4cf6b9596f04104ab552044145afd694bc3ea",
+      "size": 160,
       "mode": "0644"
     },
     {
@@ -117,38 +121,44 @@
     },
     {
       "path": "README.md",
-      "sha256": "cbcbb7cbb3799d8e97e9691ba0371cf63fa3797a72afa8b57509bcc6e8c96d55",
-      "size": 9695,
+      "sha256": "78ec4db67ada72b7940ac9f55f8979c740e7f785c893845684961ddc25f2a321",
+      "size": 14326,
       "mode": "0644"
     },
     {
       "path": "README.zh-CN.md",
-      "sha256": "07e6e2a095b7c109d5842702be701247678a5c718c0460f0522016fad5293b43",
-      "size": 8680,
+      "sha256": "f1ca5cfad0511b8b44e2220cf06b4d1c07c416d2f702bb591247176c5d804464",
+      "size": 13829,
       "mode": "0644"
     },
     {
       "path": "references/design-direction.md",
-      "sha256": "6cd52ca6beb0f0ff542a8c59164d6f94ac20346f556e8c3e5aa18dc9bde3421a",
-      "size": 26423,
+      "sha256": "afb8e5b8f6e7d188d07d05f828c2607810f5a5068acd5ff047f5bbb6ebba1d9f",
+      "size": 26184,
       "mode": "0644"
     },
     {
       "path": "references/direction-persuasion.md",
-      "sha256": "f229766bf763be2628c50ce9045c052d87018ffc91aea4a7964eb8a215cd146c",
-      "size": 2120,
+      "sha256": "59efd787daddd270192b4e40bed2d4059f812bcc263a1ad0a1ed1348066428d4",
+      "size": 2199,
       "mode": "0644"
     },
     {
       "path": "references/image-ideation.md",
-      "sha256": "b26066c5d92e3044cf298870432f2733d4f4949f2a8e250e11e5b7958c674e7e",
-      "size": 20664,
+      "sha256": "f2add5110432a44bc58c29e24164c30798eb6c6213ab8fdf224a25de86c271a8",
+      "size": 20546,
       "mode": "0644"
     },
     {
       "path": "references/layout-and-viewport.md",
-      "sha256": "18385f506a894025175a6f1f47e0d759eab09f603e1bbacccce44fea20a857be",
-      "size": 3278,
+      "sha256": "025c3ba31820b94cad33e623d12a058a97b256b2616e3f7fd499027c5b428e59",
+      "size": 3296,
+      "mode": "0644"
+    },
+    {
+      "path": "references/light-path.md",
+      "sha256": "a8a7f5e4e5ef08a857b105f329a60ed4b0e62e451e82a4f841343b52f2330685",
+      "size": 5908,
       "mode": "0644"
     },
     {
@@ -159,8 +169,8 @@
     },
     {
       "path": "references/motion.md",
-      "sha256": "d4bb6feb692b86812d459534d1f443c500dbc953ee5273db17108067aab91f76",
-      "size": 11166,
+      "sha256": "d8b85f8e83faa32dd032baac9ac83da9e27838bb543d111e81a2d943ef0c5af7",
+      "size": 11888,
       "mode": "0644"
     },
     {
@@ -171,14 +181,14 @@
     },
     {
       "path": "references/reviewer-manual.md",
-      "sha256": "7448a7887e5b04d1a817d0beb48e01ddfe534b5934692bba88ea1474c44276f8",
-      "size": 11549,
+      "sha256": "cce297fa183f7ebf7a609a43a9ed505d73e3cdf30e2b0d79df007ea367377a48",
+      "size": 11373,
       "mode": "0644"
     },
     {
       "path": "references/scroll-narrative.md",
-      "sha256": "568faf68eb4ae2fd5cf7e35d8caa055ccd352c787488caa1e1d41985f9edf8d2",
-      "size": 9825,
+      "sha256": "5855d1c3e3d45e8df4b6270ceb0ed77d329c983fc07e64505b9df0e9b282b67d",
+      "size": 9882,
       "mode": "0644"
     },
     {
@@ -189,26 +199,26 @@
     },
     {
       "path": "references/task-explore.md",
-      "sha256": "07a853988b844033b55c4fd386de30acd663279c5548ac483f9203e4cce7508d",
-      "size": 3385,
+      "sha256": "e8bb2f7a9e1c184358bf43836523e94c707bd8e525b403c709677dede5387484",
+      "size": 3424,
       "mode": "0644"
     },
     {
       "path": "references/task-review.md",
-      "sha256": "f7aa2861f851ebeb378cca45ab7a29eb2f46da089a53c656497dd9ee35cfe869",
-      "size": 1238,
+      "sha256": "54c3366f46ef7dbfe16c76e5b9dda68c5965a0000e6a164d11cde04079b646b5",
+      "size": 1235,
       "mode": "0644"
     },
     {
       "path": "references/tools.md",
-      "sha256": "4b16bf320884ed2ad0281952d2dbfd43632bd0f371046e1b72aacd808f93096c",
-      "size": 11096,
+      "sha256": "2b8c0562c3dbe8d4df34ec4c361ddd7ecf37d7381db8573122e0e3673d4ea801",
+      "size": 11364,
       "mode": "0644"
     },
     {
       "path": "references/ux-review.md",
-      "sha256": "1cfc3eafaf90a53170a9de375a5dee56ecb656dfc4a174fc95f2ebbf084b0b17",
-      "size": 2666,
+      "sha256": "307250dc06d139bd009d8d3e2dfbe3c30d0eb0ef0786b665c7009c630b3d9376",
+      "size": 2778,
       "mode": "0644"
     },
     {
@@ -219,14 +229,14 @@
     },
     {
       "path": "references/visual-language.md",
-      "sha256": "667ee3bdfcfbed643cc230171dca28a45e3e5d93002634f364d0683dd9b7faea",
-      "size": 11104,
+      "sha256": "4c153fec80fe0a35fdc018db8d23eeb368d4a876a804e2090d766a44960b17d9",
+      "size": 11071,
       "mode": "0644"
     },
     {
       "path": "references/visual-review.md",
-      "sha256": "27f4ff47c93741c72004769097c871b6cfb351659b36a54f43efa83c8578d55f",
-      "size": 4111,
+      "sha256": "752a70db9c5e43898200e77adf979d176f7e7121b76831de44691f8b1563d942",
+      "size": 4325,
       "mode": "0644"
     },
     {
@@ -243,8 +253,8 @@
     },
     {
       "path": "scripts/check_update.py",
-      "sha256": "a50605dbf50c1bc7226dc7801aa53acac2dbfacaa5b1e75beba2adb3f3d30b16",
-      "size": 14393,
+      "sha256": "b6964662533467a9e976d129b772913c7e125538848fc834c08ed54982bc945c",
+      "size": 15876,
       "mode": "0755"
     },
     {
@@ -285,14 +295,14 @@
     },
     {
       "path": "scripts/shoot.mjs",
-      "sha256": "4f2d7b3db32d186f8270c9ad73babfae25d42b8e1b63b4cb5f9148a355e10e4a",
-      "size": 142800,
+      "sha256": "a4b0440a99ed01fcedeed7915a801020466ed18816502a1fdee2cf6aa125d5cb",
+      "size": 148898,
       "mode": "0644"
     },
     {
       "path": "SKILL.md",
-      "sha256": "ad6b97b768384b43d2a12cfbb431db0a70572466bb44256249365419d09eed91",
-      "size": 20581,
+      "sha256": "bd59b27da0fc58fc921c51d697d16a22ee8a989402314a13564c474988f03bb1",
+      "size": 13857,
       "mode": "0644"
     },
     {
@@ -303,8 +313,8 @@
     },
     {
       "path": "tests/test_check_update.py",
-      "sha256": "dc07e776739c5feafa62a580881c132d7a1914da7bbecb2625d807f7069f68f9",
-      "size": 20611,
+      "sha256": "e37f21dc5cd60c205a67849a7bdc5f99699ec993d0d66cb4178b35ce702e623a",
+      "size": 23176,
       "mode": "0644"
     },
     {
@@ -333,8 +343,8 @@
     },
     {
       "path": "tests/test_shoot.py",
-      "sha256": "aa98f2a01818a50b38694582a7b411a54b8c7c6399ed9eb649413b50a411b377",
-      "size": 178834,
+      "sha256": "0febea73da1f769d91ff73358ba33d0d5f63ca2c2a66e26f7fb895b433ab5d30",
+      "size": 186672,
       "mode": "0644"
     },
     {

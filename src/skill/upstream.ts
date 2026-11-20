@@ -1,10 +1,10 @@
 import { mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { join, resolve, relative, isAbsolute, dirname, sep } from 'node:path';
+import { join, resolve, relative, isAbsolute, dirname, sep, extname, win32 } from 'node:path';
 import { parse } from 'yaml';
 import type { SkillRegistration, SkillDefinition, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill';
 import { OilApiError, readOilCredits, readOilToken } from '../oil-api.ts';
@@ -14,6 +14,162 @@ const execFileAsync = promisify(execFile);
 const VERSIONS_URL = 'https://ui.oiloil.org/api/store/versions';
 const CHECK_INTERVAL_MS = 600_000;
 const FETCH_TIMEOUT_MS = 8_000;
+const DEFAULT_UPDATE_TIMEOUT_MS = 600_000;
+const MAX_UPDATE_TIMEOUT_MS = 86_400_000;
+const NODE_SCRIPT_EXTS = new Set(['.js', '.cjs', '.mjs']);
+
+export interface NpxInvocation {
+  command: string;
+  args: string[];
+}
+
+export interface ResolveNpxOptions {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  nodePath?: string;
+}
+
+function isRegularFile(filePath: string): boolean {
+  try {
+    return statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isNodeScript(filePath: string): boolean {
+  const candidates = [filePath];
+  try {
+    const resolved = realpathSync(filePath);
+    if (resolved !== filePath) candidates.push(resolved);
+  } catch {
+    // Ignore unreadable symlink targets; inspect the given path directly.
+  }
+  if (candidates.some((item) => NODE_SCRIPT_EXTS.has(extname(item).toLowerCase()))) {
+    return true;
+  }
+  try {
+    const info = statSync(filePath);
+    if (!info.isFile() || info.size === 0 || info.size > 64 * 1024) return false;
+    const firstLine = readFileSync(filePath, 'utf8').split(/\r?\n/, 1)[0] ?? '';
+    return /^#![^\r\n]*(?:^|[\s/\\])node(?:\.exe)?(?:\s|$)/i.test(firstLine);
+  } catch {
+    return false;
+  }
+}
+
+function findNpxCliInAncestors(startPath: string): string | null {
+  const roots = new Set<string>();
+  const startDir = isRegularFile(startPath) ? dirname(startPath) : startPath;
+  roots.add(startDir);
+  try {
+    const resolved = realpathSync(startPath);
+    roots.add(isRegularFile(resolved) ? dirname(resolved) : resolved);
+  } catch {
+    // Ignore unresolved symlink targets.
+  }
+  for (const root of roots) {
+    let dir = root;
+    while (true) {
+      for (const rel of [
+        join('node_modules', 'npm', 'bin', 'npx-cli.js'),
+        join('node_modules', 'npm', 'bin', 'npx-cli.cjs'),
+        join('lib', 'node_modules', 'npm', 'bin', 'npx-cli.js'),
+        join('lib', 'node_modules', 'npm', 'bin', 'npx-cli.cjs'),
+      ]) {
+        const candidate = join(dir, rel);
+        if (isRegularFile(candidate)) return candidate;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  return null;
+}
+
+/** Resolve npx without directly spawning Windows .cmd/.bat shims via execFile. */
+export function resolveNpxInvocation(
+  args: string[],
+  { env = process.env, platform = process.platform, nodePath = process.execPath }: ResolveNpxOptions = {},
+): NpxInvocation {
+  if (platform !== 'win32') {
+    return { command: 'npx', args: [...args] };
+  }
+  const pathValue = env.PATH ?? env.Path ?? '';
+  const pathDirs = pathValue
+    .split(win32.delimiter)
+    .map((entry) => entry.trim().replace(/^"(.*)"$/, '$1'))
+    .filter(Boolean);
+
+  let unresolvedShim: string | null = null;
+  for (const dir of pathDirs) {
+    const npxPlain = join(dir, 'npx');
+    if (isRegularFile(npxPlain) && isNodeScript(npxPlain)) {
+      return { command: nodePath, args: [npxPlain, ...args] };
+    }
+    const npxExe = join(dir, 'npx.exe');
+    if (isRegularFile(npxExe)) {
+      return { command: npxExe, args: [...args] };
+    }
+    for (const shimName of ['npx.cmd', 'npx.ps1', 'npx']) {
+      const shimPath = join(dir, shimName);
+      if (!isRegularFile(shimPath)) continue;
+      const cliEntry = findNpxCliInAncestors(shimPath);
+      if (cliEntry) {
+        return { command: nodePath, args: [cliEntry, ...args] };
+      }
+      unresolvedShim ??= shimPath;
+    }
+  }
+
+  const fallbackEntry = findNpxCliInAncestors(dirname(nodePath));
+  if (fallbackEntry) {
+    return { command: nodePath, args: [fallbackEntry, ...args] };
+  }
+
+  if (unresolvedShim) {
+    throw new Error(
+      `Found Windows npx shim at "${unresolvedShim}" without an accompanying npm npx-cli.js entrypoint; cannot spawn .cmd directly.`,
+    );
+  }
+  throw new Error('Could not locate npx executable or npm npx-cli.js entrypoint on PATH or beside Node.js.');
+}
+
+export function resolveUpdateTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.OIL_UPDATE_TIMEOUT?.trim();
+  if (!raw) return DEFAULT_UPDATE_TIMEOUT_MS;
+  const match = /^([1-9]\d*)(ms|s)?$/i.exec(raw);
+  if (!match) return DEFAULT_UPDATE_TIMEOUT_MS;
+  const value = Number(match[1]);
+  const ms = match[2]?.toLowerCase() === 'ms' ? value : value * 1000;
+  return Number.isSafeInteger(ms) && ms >= 1 && ms <= MAX_UPDATE_TIMEOUT_MS ? ms : DEFAULT_UPDATE_TIMEOUT_MS;
+}
+
+function parseCliErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const { stdout, stderr } = error as { stdout?: unknown; stderr?: unknown };
+  const combined = [typeof stdout === 'string' ? stdout : '', typeof stderr === 'string' ? stderr : ''].join('\n');
+  for (const line of combined.split(/\r?\n/).reverse()) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as { error?: unknown };
+      if (typeof parsed?.error === 'string' && /^[a-z0-9_]{1,40}$/.test(parsed.error)) {
+        return parsed.error;
+      }
+    } catch {
+      /* Ignore non-JSON npx output lines. */
+    }
+  }
+  return null;
+}
+
+function isExecTimeout(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const record = error as { killed?: unknown; code?: unknown; signal?: unknown };
+  return record.killed === true || record.code === 'ETIMEDOUT' || record.signal === 'SIGTERM';
+}
 
 const packagedSkillDirectory = fileURLToPath(new URL('../skills/oil-ui', import.meta.url));
 const sourceSkillDirectory = fileURLToPath(new URL('../../skills/oil-ui', import.meta.url));
@@ -227,9 +383,19 @@ export async function checkSkillUpdate(
   const targetDir = active.directory;
   if (performUpdate) {
     try {
-      const cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-      await execFileAsync(cmd, ['-y', INSTALL_REPO, 'update', active.name, '--path', targetDir, '--json'], {
-        timeout: 90_000,
+      const invocation = resolveNpxInvocation([
+        '-y',
+        INSTALL_REPO,
+        'update',
+        active.name,
+        '--path',
+        targetDir,
+        '--json',
+      ]);
+      await execFileAsync(invocation.command, invocation.args, {
+        timeout: resolveUpdateTimeoutMs(),
+        env: { ...process.env, CI: '1' },
+        windowsHide: true,
       });
       return {
         latestVersion: latest,
@@ -238,12 +404,28 @@ export async function checkSkillUpdate(
         updateNotice: `[${active.name}] Updated to ${latest}. Reload the Skill to use the updated instructions.`,
         lastError,
       };
-    } catch {
+    } catch (error) {
+      const cliError = parseCliErrorCode(error);
+      const manual = `npx -y ${INSTALL_REPO} update ${active.name} --path "${targetDir}"`;
+      let updateNotice: string;
+      if (cliError === 'download_timeout' || isExecTimeout(error)) {
+        const retryCommand =
+          process.platform === 'win32'
+            ? `Set OIL_UPDATE_TIMEOUT=900 and OIL_DOWNLOAD_TIMEOUT=600, then run: ${manual}`
+            : `OIL_UPDATE_TIMEOUT=900 OIL_DOWNLOAD_TIMEOUT=600 ${manual}`;
+        updateNotice = `[${active.name}] Auto-update timed out (slow network or large transfer). Retry with a longer timeout: ${retryCommand}`;
+      } else if (cliError === 'unauthorized') {
+        updateNotice = `[${active.name}] Auto-update requires sign-in (authorization missing or expired). Run: npx -y ${INSTALL_REPO} login, then retry oil_ui_skill_status({ "update": true }).`;
+      } else if (cliError === 'inactive') {
+        updateNotice = `[${active.name}] Auto-update skipped: no active purchase record for this account. Purchase at https://ui.oiloil.org/pro/ or sign in with the purchasing account.`;
+      } else {
+        updateNotice = `[${active.name}] Auto-update failed${cliError ? ` (${cliError})` : ''}. Run manually: ${manual}`;
+      }
       return {
         latestVersion: latest,
         updateAvailable: true,
         updated: false,
-        updateNotice: `[${active.name}] Auto-update failed. Run manually: npx -y ${INSTALL_REPO} update ${active.name} --path "${targetDir}"`,
+        updateNotice,
         lastError,
       };
     }

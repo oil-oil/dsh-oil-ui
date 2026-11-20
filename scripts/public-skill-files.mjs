@@ -14,6 +14,7 @@ export const publicSkillFiles = Object.freeze([
   'references/direction-persuasion.md',
   'references/image-ideation.md',
   'references/layout-and-viewport.md',
+  'references/light-path.md',
   'references/media.md',
   'references/motion.md',
   'references/play.md',

@@ -7,13 +7,15 @@ import {
   skillStatus,
   resolveActiveSkill,
   resolveImageGenScript,
+  resolveNpxInvocation,
+  resolveUpdateTimeoutMs,
   createSkillProvider,
   checkSkillUpdate,
   loadReviewerManual,
   loadSkillDirectory,
 } from '../src/skill/upstream.ts';
 import { createHash } from 'node:crypto';
-import { delimiter, join, relative, sep } from 'node:path';
+import { delimiter, join, relative, sep, win32 } from 'node:path';
 
 const fixture = vi.hoisted(() => ({ home: '' }));
 vi.mock('node:os', async (original) => ({
@@ -39,6 +41,7 @@ beforeEach(async () => {
   vi.stubEnv('OIL_TOKEN', '');
   vi.stubEnv('OIL_API', '');
   vi.stubEnv('OIL_NO_UPDATE_CHECK', '1');
+  vi.stubEnv('OIL_UPDATE_TIMEOUT', '');
 });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -751,5 +754,152 @@ describe('raw Pro resources and Lite package evidence', () => {
     const loaded = await loadReviewerManual({ proSkillDir: dir }, active);
     expect(loaded).toBe(bundled);
     expect(loaded).not.toContain('PRIVATE OUTSIDE MANUAL');
+  });
+});
+
+describe('resolveNpxInvocation', () => {
+  it('returns plain npx on non-win32 platforms', () => {
+    expect(resolveNpxInvocation(['-y', 'pkg'], { platform: 'darwin' })).toEqual({
+      command: 'npx',
+      args: ['-y', 'pkg'],
+    });
+  });
+
+  it('resolves npx.cmd beside node_modules/npm/bin/npx-cli.js in spaced directories on win32', async () => {
+    const base = join(root, 'Program Files', 'Node Dir');
+    const bin = join(base, 'bin');
+    const cli = join(base, 'node_modules', 'npm', 'bin', 'npx-cli.js');
+    await mkdir(bin, { recursive: true });
+    await mkdir(join(base, 'node_modules', 'npm', 'bin'), { recursive: true });
+    await writeFile(join(bin, 'npx.cmd'), '@echo off\r\n');
+    await writeFile(cli, '// npx cli\n');
+
+    const resolved = resolveNpxInvocation(['-y', 'oil-ui'], {
+      platform: 'win32',
+      env: { Path: `"${bin}"${win32.delimiter}C:\\Windows\\System32` },
+      nodePath: 'C:\\custom\\node.exe',
+    });
+    expect(resolved).toEqual({
+      command: 'C:\\custom\\node.exe',
+      args: [cli, '-y', 'oil-ui'],
+    });
+  });
+
+  it('falls back to npx-cli.cjs beside nodePath when PATH is empty and errors when only npx.cmd exists', async () => {
+    const nodeDir = join(root, 'portable node');
+    const cli = join(nodeDir, 'node_modules', 'npm', 'bin', 'npx-cli.cjs');
+    await mkdir(join(nodeDir, 'node_modules', 'npm', 'bin'), { recursive: true });
+    await writeFile(cli, '// cjs cli\n');
+
+    expect(
+      resolveNpxInvocation(['status'], {
+        platform: 'win32',
+        env: { PATH: '' },
+        nodePath: join(nodeDir, 'node.exe'),
+      }),
+    ).toEqual({
+      command: join(nodeDir, 'node.exe'),
+      args: [cli, 'status'],
+    });
+
+    const shimOnly = join(root, 'shim-only');
+    const isolatedNodeDir = join(root, 'isolated-node');
+    await mkdir(shimOnly, { recursive: true });
+    await mkdir(isolatedNodeDir, { recursive: true });
+    await writeFile(join(shimOnly, 'npx.cmd'), '@echo off\r\n');
+
+    expect(() =>
+      resolveNpxInvocation(['status'], {
+        platform: 'win32',
+        env: { PATH: shimOnly },
+        nodePath: join(isolatedNodeDir, 'node.exe'),
+      }),
+    ).toThrow(/npx-cli\.js/);
+  });
+});
+
+describe('self-update timeout and failure notices', () => {
+  it('parses OIL_UPDATE_TIMEOUT and falls back to 600s on invalid inputs', () => {
+    expect(resolveUpdateTimeoutMs({})).toBe(600_000);
+    expect(resolveUpdateTimeoutMs({ OIL_UPDATE_TIMEOUT: '900' })).toBe(900_000);
+    expect(resolveUpdateTimeoutMs({ OIL_UPDATE_TIMEOUT: '120s' })).toBe(120_000);
+    expect(resolveUpdateTimeoutMs({ OIL_UPDATE_TIMEOUT: '75ms' })).toBe(75);
+    for (const invalid of ['', '0', '-5', 'abc', '999999999']) {
+      expect(resolveUpdateTimeoutMs({ OIL_UPDATE_TIMEOUT: invalid })).toBe(600_000);
+    }
+  });
+
+  it('surfaces distinct timeout, auth, purchase, and generic notices on update failure and sets CI=1', async () => {
+    const dir = await pro(join(root, 'failing-pro'), 'oil-ui-pro', 'Pro body\n', '1.0.0');
+    const bin = join(root, 'bin fail');
+    const cliDir = join(bin, 'node_modules', 'npm', 'bin');
+    const ciLog = join(root, 'ci-log.txt');
+    await mkdir(cliDir, { recursive: true });
+    const npxCli = join(cliDir, 'npx-cli.js');
+    await writeFile(
+      npxCli,
+      [
+        "const { appendFileSync } = require('node:fs');",
+        'if (process.env.FAKE_CI_LOG) appendFileSync(process.env.FAKE_CI_LOG, `${process.env.CI ?? ""}\\n`);',
+        'const finish = () => {',
+        '  if (process.env.FAKE_STDOUT) console.log(process.env.FAKE_STDOUT);',
+        '  process.exit(1);',
+        '};',
+        'const delay = Number(process.env.FAKE_SLEEP_MS || 0);',
+        'if (delay > 0) setTimeout(finish, delay); else finish();',
+      ].join('\n'),
+    );
+    await writeFile(join(bin, 'npx.cmd'), '@echo off\r\nexit /b 99\r\n');
+    const posixNpx = join(bin, 'npx');
+    await writeFile(posixNpx, `#!/bin/sh\nexec "${process.execPath}" "${npxCli}" "$@"\n`);
+    await chmod(posixNpx, 0o755);
+
+    vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
+    vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
+    vi.stubEnv('FAKE_CI_LOG', ciLog);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ skills: { 'oil-ui-pro': { latest: '1.1.0' } } })),
+    );
+    const active = await resolveActiveSkill({ proSkillDir: dir });
+
+    vi.stubEnv('XDG_STATE_HOME', join(root, 'state-exec-timeout'));
+    vi.stubEnv('OIL_UPDATE_TIMEOUT', '40ms');
+    vi.stubEnv('FAKE_SLEEP_MS', '250');
+    const execTimedOut = await checkSkillUpdate(active, '1.0.0', true);
+    expect(execTimedOut.updated).toBe(false);
+    expect(execTimedOut.updateNotice).toContain('timed out');
+    expect(execTimedOut.updateNotice).toContain('OIL_UPDATE_TIMEOUT=900');
+    expect(execTimedOut.updateNotice).toContain('OIL_DOWNLOAD_TIMEOUT=600');
+
+    vi.stubEnv('FAKE_SLEEP_MS', '');
+    vi.stubEnv('OIL_UPDATE_TIMEOUT', '');
+
+    vi.stubEnv('XDG_STATE_HOME', join(root, 'state-cli-timeout'));
+    vi.stubEnv('FAKE_STDOUT', JSON.stringify({ ok: false, error: 'download_timeout', message: 'PRIVATE_ERR' }));
+    const cliTimedOut = await checkSkillUpdate(active, '1.0.0', true);
+    expect(cliTimedOut.updateNotice).toContain('timed out');
+    expect(cliTimedOut.updateNotice).not.toContain('PRIVATE_ERR');
+
+    vi.stubEnv('XDG_STATE_HOME', join(root, 'state-unauth'));
+    vi.stubEnv('FAKE_STDOUT', JSON.stringify({ ok: false, error: 'unauthorized', message: 'PRIVATE_TOKEN' }));
+    const unauth = await checkSkillUpdate(active, '1.0.0', true);
+    expect(unauth.updateNotice).toContain('requires sign-in');
+    expect(unauth.updateNotice).toContain('login');
+    expect(unauth.updateNotice).not.toContain('PRIVATE_TOKEN');
+
+    vi.stubEnv('XDG_STATE_HOME', join(root, 'state-inactive'));
+    vi.stubEnv('FAKE_STDOUT', JSON.stringify({ ok: false, error: 'inactive' }));
+    const inactive = await checkSkillUpdate(active, '1.0.0', true);
+    expect(inactive.updateNotice).toContain('no active purchase record');
+
+    vi.stubEnv('XDG_STATE_HOME', join(root, 'state-download'));
+    vi.stubEnv('FAKE_STDOUT', JSON.stringify({ ok: false, error: 'download' }));
+    const downloadFail = await checkSkillUpdate(active, '1.0.0', true);
+    expect(downloadFail.updateNotice).toContain('Auto-update failed (download)');
+
+    const loggedCi = (await readFile(ciLog, 'utf8')).trim().split('\n');
+    expect(loggedCi.length).toBeGreaterThanOrEqual(4);
+    expect(loggedCi.every((line) => line === '1')).toBe(true);
   });
 });
