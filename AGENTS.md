@@ -7,7 +7,7 @@
 - 插件版本只看 `package.json`，内置 Skill 版本和上游来源只看 `skills/oil-ui.manifest.json`。
 - `main` 是开发分支，Release 是已发布快照，线上 Skill 版本由官方 versions API 提供；三者不能用同一个数字互相代替。
 - 发布后把开发分支切到下一预发布版本。功能、整理和机械格式化分别提交，不用一个提交覆盖所有变化。
-- 定时同步通过自动 PR 合入，不由 bot 直接推 `main`。发布流程见 `docs/releasing.md`。
+- 定时同步通过自动 PR 合入，不由 bot 直接推 `main`。发布流程见 `docs/releasing.md`；和 Pro、公开 `oil-ui`、oil-cli 一起发版时插件总在最后，顺序见其中的“和 Pro 配对发版”。
 
 ## 目录所有权
 

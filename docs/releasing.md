@@ -50,7 +50,7 @@ GitHub 分支保护应要求 PR 和 CI 通过。定时 Skill 同步也只创建�
 
 ## 和 Pro 配对发版
 
-Pro 或公开 `oil-ui` 有改动、插件也要跟着发时：
+Pro 或公开 `oil-ui` 有改动、插件也要跟着发时（插件总在最后发；涉及 oil-cli、Pro、开源版、画廊与积分服务的完整顺序见 Pro 仓库的[跨仓库配对发版](https://github.com/oil-oil/oil-ui-pro/blob/main/.github/RELEASING.md#跨仓库配对发版)，维护者可见）：
 
 1. 先按 Pro 仓库的流程配对发布 Pro 和公开 `oil-ui`。插件只从已发布的公开 `../oil-ui` 同步，不从 Pro 源目录或未发布的构建同步。
 2. 在插件仓库运行：
