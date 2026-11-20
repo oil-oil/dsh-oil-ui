@@ -111,6 +111,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 `oil_ui_skill_status` 直接内置版本更新检查：
 
 - **版本检查与一键更新**：调用 `oil_ui_skill_status` 时，插件通常每 10 分钟最多向 `https://ui.oiloil.org/api/store/versions` 核对一次版本号，结果缓存在 `~/.local/state/oil/<name>-update.json`。请求最多等待 8 秒；失败后自动退避，显式更新或发现本地版本高于缓存时会提前检查。发现新版本时会在返回结果里附上 `updateNotice`；传入 `{"update": true}`（或执行 `/oil-ui-status update`）时，只对 filesystem 安装的 Lite/Pro 通过固定提交的 oil-cli 更新（默认超时 10 分钟，可通过 `OIL_UPDATE_TIMEOUT` 设置秒数）；内置 Lite 只提示更新插件，绝不改插件安装目录。
+- **Pro 附赠的配套 Skill**：版本接口在 Pro 条目里用 `included` 列出已发布的附赠 Skill（如 `oil-art-landing`）。filesystem 安装的 Pro 旁边缺少它时，`updateNotice` 会请模型先征得用户同意；用户同意后传入 `{"update": true}`，同一个固定 oil-cli 会补装到 Pro 所在目录及链接到同一份 Pro 的用户级目录。结果里的 `missingIncludedSkills`、`installedIncludedSkills` 分别列出仍缺少和本次装好的配套 Skill；新装的 Skill 需要新开会话或重新加载 Skill 后可见。
 
 ---
 

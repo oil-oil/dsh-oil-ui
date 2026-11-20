@@ -311,7 +311,7 @@ describe('original Lite distribution', () => {
 
 describe('public install pin', () => {
   it('keeps the Harness installer pin fixed and checks only public source declarations', async () => {
-    expect(INSTALL_REPO).toBe('github:oil-oil/oil-cli#3a9f2b417d0f3dfe5a143dbd4c96017e7f7e8ded');
+    expect(INSTALL_REPO).toBe('github:oil-oil/oil-cli#df0155b7e40960369f7a191a9e0faac2667d71bb');
     const root = await tempDirectory();
     const skill = join(root, 'skill');
     await mkdir(join(skill, 'scripts'), { recursive: true });

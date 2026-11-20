@@ -253,6 +253,36 @@ interface UpdateCache {
   failures: number;
   latest: string | null;
   lastError: string | null;
+  /** Published companion Skills the paid Skill includes (versions API `included`). */
+  companions: string[];
+}
+
+const COMPANION_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+function companionNames(value: unknown, owner: string): string[] {
+  return Array.isArray(value)
+    ? [
+        ...new Set(
+          value.filter(
+            (name): name is string => typeof name === 'string' && COMPANION_NAME.test(name) && name !== owner,
+          ),
+        ),
+      ]
+    : [];
+}
+
+/** Companions live next to the paid Skill; oil-cli installs them into the same parent (plus its linked roots). */
+async function missingCompanions(skillDirectory: string, names: string[]): Promise<string[]> {
+  const missing: string[] = [];
+  for (const name of names) {
+    try {
+      const { data } = frontmatter(await readFile(join(dirname(skillDirectory), name, 'SKILL.md'), 'utf8'));
+      if ((data as Record<string, unknown>).name !== name) missing.push(name);
+    } catch {
+      missing.push(name);
+    }
+  }
+  return missing;
 }
 const updateCache = new Map<string, UpdateCache>();
 const updateChecks = new Map<string, Promise<UpdateCache>>();
@@ -267,9 +297,21 @@ export async function checkSkillUpdate(
   updated: boolean;
   updateNotice: string | null;
   lastError: string | null;
+  /** Included companion Skills that are published but not installed next to this Skill. */
+  missingCompanions: string[];
+  /** Companions this call installed. */
+  installedCompanions: string[];
 }> {
   if (process.env.OIL_NO_UPDATE_CHECK === '1' && !performUpdate) {
-    return { latestVersion: null, updateAvailable: false, updated: false, updateNotice: null, lastError: null };
+    return {
+      latestVersion: null,
+      updateAvailable: false,
+      updated: false,
+      updateNotice: null,
+      lastError: null,
+      missingCompanions: [],
+      installedCompanions: [],
+    };
   }
   const cachePath = join(stateRootDir(), 'oil', `${active.name}-update.json`);
   let cache = updateCache.get(cachePath);
@@ -288,9 +330,10 @@ export async function checkSkillUpdate(
         failures: poisonedLegacyCache ? 0 : rawFailures,
         latest: typeof raw.latest === 'string' ? raw.latest : null,
         lastError: rawLastError,
+        companions: companionNames(raw.companions, active.name),
       };
     } catch {
-      cache = { attemptedAt: 0, succeededAt: 0, failures: 0, latest: null, lastError: null };
+      cache = { attemptedAt: 0, succeededAt: 0, failures: 0, latest: null, lastError: null, companions: [] };
     }
     cache = updateCache.get(cachePath) ?? cache;
     updateCache.set(cachePath, cache);
@@ -321,10 +364,14 @@ export async function checkSkillUpdate(
             const payload = (await res.json()) as {
               skills?: Record<
                 string,
-                { latest?: string; version?: string; published_at?: string; history?: unknown[] }
+                { latest?: string; version?: string; published_at?: string; history?: unknown[]; included?: unknown }
               >;
             };
             const entry = payload?.skills?.[active.name];
+            // Only companions that are themselves published in the same response can be installed.
+            next.companions = companionNames(entry?.included, active.name).filter(
+              (name) => typeof payload?.skills?.[name] === 'object' && payload.skills[name] !== null,
+            );
             const version =
               typeof entry?.latest === 'string' && entry.latest.trim()
                 ? entry.latest
@@ -365,79 +412,130 @@ export async function checkSkillUpdate(
   }
   const latest = cache.latest && isNewerVersion(currentVersion, cache.latest) ? currentVersion : cache.latest;
   const lastError = cache.lastError;
+  // Bundled files are immutable plugin assets, never an oil-cli installation.
+  const bundled = await isBundledSkillDirectory(active.directory);
+  const missing = bundled ? [] : await missingCompanions(active.directory, cache.companions);
+  const listed = missing.join(', ');
+  const none = { missingCompanions: missing, installedCompanions: [] as string[] };
 
   if (!latest || !isNewerVersion(latest, currentVersion)) {
-    return { latestVersion: latest, updateAvailable: false, updated: false, updateNotice: null, lastError };
+    if (!missing.length) {
+      return { latestVersion: latest, updateAvailable: false, updated: false, updateNotice: null, lastError, ...none };
+    }
+    // The paid Skill is current but an included companion is not installed next to it.
+    if (!performUpdate) {
+      return {
+        latestVersion: latest,
+        updateAvailable: false,
+        updated: false,
+        updateNotice: `[${active.name}] Included with ${active.name} but not installed yet: ${listed}. Ask the user whether to install it now; if confirmed, call oil_ui_skill_status({ "update": true }).`,
+        lastError,
+        ...none,
+      };
+    }
+    const result = await runInstaller(active);
+    const remaining = await missingCompanions(active.directory, missing);
+    const installed = missing.filter((name) => !remaining.includes(name));
+    return {
+      latestVersion: latest,
+      updateAvailable: false,
+      updated: false,
+      updateNotice: installed.length
+        ? `[${active.name}] Installed the included ${installed.join(', ')} next to ${active.name}. Start a new session or reload Skills to use it.`
+        : (result.notice ??
+          `[${active.name}] Could not install the included ${listed} yet. Run manually: ${result.manual}`),
+      lastError,
+      missingCompanions: remaining,
+      installedCompanions: installed,
+    };
   }
 
-  // Bundled files are immutable plugin assets, never an oil-cli installation.
-  if (await isBundledSkillDirectory(active.directory)) {
+  if (bundled) {
     return {
       latestVersion: latest,
       updateAvailable: true,
       updated: false,
       updateNotice: `[oil-ui] Update available: ${currentVersion} -> ${latest}. Update the dsh-oil-ui plugin to receive its bundled Skill; do not update files inside the plugin installation.`,
       lastError,
+      ...none,
     };
   }
-  const targetDir = active.directory;
   if (performUpdate) {
-    try {
-      const invocation = resolveNpxInvocation([
-        '-y',
-        INSTALL_REPO,
-        'update',
-        active.name,
-        '--path',
-        targetDir,
-        '--json',
-      ]);
-      await execFileAsync(invocation.command, invocation.args, {
-        timeout: resolveUpdateTimeoutMs(),
-        env: { ...process.env, CI: '1' },
-        windowsHide: true,
-      });
+    const result = await runInstaller(active);
+    if (!result.notice) {
+      const remaining = await missingCompanions(active.directory, missing);
+      const installed = missing.filter((name) => !remaining.includes(name));
       return {
         latestVersion: latest,
         updateAvailable: false,
         updated: true,
-        updateNotice: `[${active.name}] Updated to ${latest}. Reload the Skill to use the updated instructions.`,
+        updateNotice: `[${active.name}] Updated to ${latest}${installed.length ? ` and installed the included ${installed.join(', ')}` : ''}. Reload the Skill to use the updated instructions.`,
         lastError,
-      };
-    } catch (error) {
-      const cliError = parseCliErrorCode(error);
-      const manual = `npx -y ${INSTALL_REPO} update ${active.name} --path "${targetDir}"`;
-      let updateNotice: string;
-      if (cliError === 'download_timeout' || isExecTimeout(error)) {
-        const retryCommand =
-          process.platform === 'win32'
-            ? `Set OIL_UPDATE_TIMEOUT=900 and OIL_DOWNLOAD_TIMEOUT=600, then run: ${manual}`
-            : `OIL_UPDATE_TIMEOUT=900 OIL_DOWNLOAD_TIMEOUT=600 ${manual}`;
-        updateNotice = `[${active.name}] Auto-update timed out (slow network or large transfer). Retry with a longer timeout: ${retryCommand}`;
-      } else if (cliError === 'unauthorized') {
-        updateNotice = `[${active.name}] Auto-update requires sign-in (authorization missing or expired). Run: npx -y ${INSTALL_REPO} login, then retry oil_ui_skill_status({ "update": true }).`;
-      } else if (cliError === 'inactive') {
-        updateNotice = `[${active.name}] Auto-update skipped: no active purchase record for this account. Purchase at https://ui.oiloil.org/pro/ or sign in with the purchasing account.`;
-      } else {
-        updateNotice = `[${active.name}] Auto-update failed${cliError ? ` (${cliError})` : ''}. Run manually: ${manual}`;
-      }
-      return {
-        latestVersion: latest,
-        updateAvailable: true,
-        updated: false,
-        updateNotice,
-        lastError,
+        missingCompanions: remaining,
+        installedCompanions: installed,
       };
     }
+    return {
+      latestVersion: latest,
+      updateAvailable: true,
+      updated: false,
+      updateNotice: result.notice,
+      lastError,
+      ...none,
+    };
   }
 
   return {
     latestVersion: latest,
     updateAvailable: true,
     updated: false,
-    updateNotice: `[${active.name}] Update available: ${currentVersion} -> ${latest}. Ask the user whether to update now; if confirmed, call oil_ui_skill_status({ "update": true }).`,
+    updateNotice: `[${active.name}] Update available: ${currentVersion} -> ${latest}${missing.length ? `; updating also installs the included ${listed}` : ''}. Ask the user whether to update now; if confirmed, call oil_ui_skill_status({ "update": true }).`,
     lastError,
+    ...none,
   };
+}
+
+/** Runs the pinned oil-cli in place; the CLI also installs missing companions of a paid Skill. */
+async function runInstaller(active: ActiveSkill): Promise<{ notice: string | null; manual: string }> {
+  const targetDir = active.directory;
+  const manual = `npx -y ${INSTALL_REPO} update ${active.name} --path "${targetDir}"`;
+  try {
+    const invocation = resolveNpxInvocation(['-y', INSTALL_REPO, 'update', active.name, '--path', targetDir, '--json']);
+    await execFileAsync(invocation.command, invocation.args, {
+      timeout: resolveUpdateTimeoutMs(),
+      env: { ...process.env, CI: '1' },
+      windowsHide: true,
+    });
+    return { notice: null, manual };
+  } catch (error) {
+    const cliError = parseCliErrorCode(error);
+    if (cliError === 'download_timeout' || isExecTimeout(error)) {
+      const retryCommand =
+        process.platform === 'win32'
+          ? `Set OIL_UPDATE_TIMEOUT=900 and OIL_DOWNLOAD_TIMEOUT=600, then run: ${manual}`
+          : `OIL_UPDATE_TIMEOUT=900 OIL_DOWNLOAD_TIMEOUT=600 ${manual}`;
+      return {
+        manual,
+        notice: `[${active.name}] Auto-update timed out (slow network or large transfer). Retry with a longer timeout: ${retryCommand}`,
+      };
+    }
+    if (cliError === 'unauthorized') {
+      return {
+        manual,
+        notice: `[${active.name}] Auto-update requires sign-in (authorization missing or expired). Run: npx -y ${INSTALL_REPO} login, then retry oil_ui_skill_status({ "update": true }).`,
+      };
+    }
+    if (cliError === 'inactive') {
+      return {
+        manual,
+        notice: `[${active.name}] Auto-update skipped: no active purchase record for this account. Purchase at https://ui.oiloil.org/pro/ or sign in with the purchasing account.`,
+      };
+    }
+    return {
+      manual,
+      notice: `[${active.name}] Auto-update failed${cliError ? ` (${cliError})` : ''}. Run manually: ${manual}`,
+    };
+  }
 }
 
 export async function resolveImageGenScript(options: ImageGenOptions = {}): Promise<string | null> {
@@ -770,6 +868,8 @@ export async function skillStatus(
     updated: updateInfo.updated,
     updateNotice: updateInfo.updateNotice,
     updateCheckError: updateInfo.lastError,
+    missingIncludedSkills: updateInfo.missingCompanions,
+    installedIncludedSkills: updateInfo.installedCompanions,
     bundledVersion: manifest.version,
     proInstalled: pro !== null,
     proVisible: visible?.name === 'oil-ui-pro',

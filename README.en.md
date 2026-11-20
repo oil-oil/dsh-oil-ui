@@ -111,6 +111,7 @@ Cross-host discovery and `proSkillDir` provide local diagnostics, not publicatio
 `oil_ui_skill_status` includes cached version update checks:
 
 - **Cached version check & self-update**: `oil_ui_skill_status` normally checks `https://ui.oiloil.org/api/store/versions` at most once every 10 minutes, caching the result in `~/.local/state/oil/<name>-update.json`. Requests time out after 8 seconds and failures back off; an explicit update or a local version newer than the cache triggers an earlier check. When a newer version is available, it attaches `updateNotice`; passing `{"update": true}` (or running `/oil-ui-status update`) updates filesystem Lite/Pro through pinned oil-cli (10-minute default timeout, configurable in seconds via `OIL_UPDATE_TIMEOUT`). Bundled Lite only prompts for a plugin update; files inside the plugin installation are never updated in place.
+- **Companion Skills included with Pro**: the versions API lists published companions (such as `oil-art-landing`) under `included` on the Pro entry. When one is missing next to a filesystem Pro install, `updateNotice` asks the model to get the user's consent first; with `{"update": true}` the same pinned oil-cli installs it into the Pro directory's parent and the user-level directories that link to the same Pro. `missingIncludedSkills` and `installedIncludedSkills` report what is still missing and what this call installed; a newly installed Skill becomes visible after a new session or a Skill reload.
 
 ---
 

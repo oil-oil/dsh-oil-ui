@@ -15,7 +15,7 @@ import {
   loadSkillDirectory,
 } from '../src/skill/upstream.ts';
 import { createHash } from 'node:crypto';
-import { delimiter, join, relative, sep, win32 } from 'node:path';
+import { delimiter, dirname, join, relative, sep, win32 } from 'node:path';
 
 const fixture = vi.hoisted(() => ({ home: '' }));
 vi.mock('node:os', async (original) => ({
@@ -901,5 +901,117 @@ describe('self-update timeout and failure notices', () => {
     const loggedCi = (await readFile(ciLog, 'utf8')).trim().split('\n');
     expect(loggedCi.length).toBeGreaterThanOrEqual(4);
     expect(loggedCi.every((line) => line === '1')).toBe(true);
+  });
+});
+
+describe('included companion Skills', () => {
+  async function companionFixture(options: {
+    version: string;
+    included: unknown[];
+    published?: string[];
+    fail?: string;
+  }) {
+    const directory = await pro(join(root, '.agents/skills/oil-ui-pro'), 'oil-ui-pro', 'Pro body\n', options.version);
+    const bin = join(root, 'bin');
+    const log = join(root, 'npx-calls.log');
+    await mkdir(bin, { recursive: true });
+    const runner = join(root, 'fake-companion-npx.cjs');
+    await writeFile(
+      runner,
+      [
+        "const fs = require('node:fs');",
+        "const path = require('node:path');",
+        'const args = process.argv.slice(2);',
+        `fs.appendFileSync(${JSON.stringify(log)}, args.join(' ') + '\\n');`,
+        ...(options.fail
+          ? [`console.log(JSON.stringify({ ok: false, error: ${JSON.stringify(options.fail)} }));`, 'process.exit(3);']
+          : []),
+        "const target = args[args.indexOf('--path') + 1];",
+        "const skill = path.join(target, 'SKILL.md');",
+        "fs.writeFileSync(skill, fs.readFileSync(skill, 'utf8').replace(\"version: '1.0.0'\", \"version: '1.1.0'\"));",
+        "const companion = path.join(path.dirname(target), 'oil-art-landing');",
+        'fs.mkdirSync(companion, { recursive: true });',
+        "fs.writeFileSync(path.join(companion, 'SKILL.md'), \"---\\nname: oil-art-landing\\ndescription: Companion\\nmetadata:\\n  version: '1.1.0'\\n---\\nBody\\n\");",
+      ].join('\n'),
+    );
+    const executable = join(bin, process.platform === 'win32' ? 'npx.cmd' : 'npx');
+    await writeFile(executable, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(runner)} "$@"\n`);
+    await chmod(executable, 0o755);
+    vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
+    vi.stubEnv('OIL_NO_UPDATE_CHECK', '0');
+    vi.stubEnv('XDG_STATE_HOME', join(root, 'state-companion'));
+    const skills: Record<string, unknown> = { 'oil-ui-pro': { latest: '1.1.0', included: options.included } };
+    for (const name of options.published ?? options.included)
+      if (typeof name === 'string') skills[name] = { latest: '1.1.0' };
+    const fetcher = vi.fn(async () => Response.json({ skills }));
+    vi.stubGlobal('fetch', fetcher);
+    const active = { edition: 'pro' as const, name: 'oil-ui-pro' as const, directory, source: 'filesystem' as const };
+    const calls = async () => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
+    return { directory, active, calls, companion: join(dirname(directory), 'oil-art-landing', 'SKILL.md') };
+  }
+
+  it.skipIf(process.platform === 'win32')(
+    'offers a missing companion and installs it only after the user agrees',
+    async () => {
+      const { active, calls, companion } = await companionFixture({ version: '1.1.0', included: ['oil-art-landing'] });
+      const offered = await checkSkillUpdate(active, '1.1.0');
+      expect(offered).toMatchObject({
+        updateAvailable: false,
+        updated: false,
+        missingCompanions: ['oil-art-landing'],
+        installedCompanions: [],
+      });
+      expect(offered.updateNotice).toContain('not installed yet: oil-art-landing');
+      expect(offered.updateNotice).toContain('oil_ui_skill_status({ "update": true })');
+      expect(await calls()).toEqual([]);
+
+      const installed = await checkSkillUpdate(active, '1.1.0', true);
+      expect(installed).toMatchObject({
+        updated: false,
+        missingCompanions: [],
+        installedCompanions: ['oil-art-landing'],
+      });
+      expect(installed.updateNotice).toContain('Installed the included oil-art-landing');
+      expect(await calls()).toHaveLength(1);
+      expect((await calls())[0]).toContain(`update oil-ui-pro --path ${active.directory}`);
+      expect(await readFile(companion, 'utf8')).toContain('name: oil-art-landing');
+
+      expect(await checkSkillUpdate(active, '1.1.0')).toMatchObject({ updateNotice: null, missingCompanions: [] });
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'mentions the companion in a paid update and installs both together',
+    async () => {
+      const { active } = await companionFixture({ version: '1.0.0', included: ['oil-art-landing'] });
+      const offered = await checkSkillUpdate(active, '1.0.0');
+      expect(offered.updateNotice).toContain('updating also installs the included oil-art-landing');
+      const updated = await checkSkillUpdate(active, '1.0.0', true);
+      expect(updated).toMatchObject({ updated: true, installedCompanions: ['oil-art-landing'], missingCompanions: [] });
+      expect(updated.updateNotice).toContain('Updated to 1.1.0 and installed the included oil-art-landing');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('keeps the companion pending and explains sign-in failures', async () => {
+    const { active, companion } = await companionFixture({
+      version: '1.1.0',
+      included: ['oil-art-landing'],
+      fail: 'unauthorized',
+    });
+    const result = await checkSkillUpdate(active, '1.1.0', true);
+    expect(result).toMatchObject({ missingCompanions: ['oil-art-landing'], installedCompanions: [] });
+    expect(result.updateNotice).toContain('requires sign-in');
+    await expect(readFile(companion, 'utf8')).rejects.toThrow();
+  });
+
+  it('ignores unpublished, unsafe or self-referencing companion names', async () => {
+    const { active, calls } = await companionFixture({
+      version: '1.1.0',
+      included: ['../escape', '/abs', 'oil-ui-pro', 'unpublished'],
+      published: ['../escape', '/abs'],
+    });
+    expect(await checkSkillUpdate(active, '1.1.0')).toMatchObject({ updateNotice: null, missingCompanions: [] });
+    expect(await checkSkillUpdate(active, '1.1.0', true)).toMatchObject({ updateNotice: null, missingCompanions: [] });
+    expect(await calls()).toEqual([]);
   });
 });
