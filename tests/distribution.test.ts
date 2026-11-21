@@ -97,7 +97,9 @@ async function sentinel(root: string) {
   return join(destination, 'sentinel.txt');
 }
 
-describe('original Lite distribution', () => {
+// Every case here starts several git and vendor-script child processes; on Windows CI a single spawn
+// costs hundreds of milliseconds, so the default 5s limit timed out repeatedly while assertions passed.
+describe('original Lite distribution', { timeout: 30_000 }, () => {
   it('does not let archive environment claims bypass a missing or stale Git release tag', async () => {
     const root = await pluginClone(await tempDirectory());
     const source = await sourceTree(root);
