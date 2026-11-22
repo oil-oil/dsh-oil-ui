@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { join, resolve, relative, isAbsolute, dirname, sep, extname, win32 } from 'node:path';
 import { parse } from 'yaml';
 import type { SkillRegistration, SkillDefinition, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill';
-import { OilApiError, readOilCredits, readOilToken } from '../oil-api.ts';
+import { OilApiError, readOilCredits, readOilImagePreference, readOilToken } from '../oil-api.ts';
 import { INSTALL_REPO } from './install.ts';
 
 const execFileAsync = promisify(execFile);
@@ -810,6 +810,7 @@ export async function skillStatus(
       ? await realpath(effectiveBase)
       : await findPro(options);
   const imageGenScriptPath = await resolveImageGenScript(options);
+  const imagePreference = await readOilImagePreference();
   const oilToken = await readOilToken();
   let oilLoggedIn = Boolean(oilToken);
   let oilBalance: number | null = null;
@@ -822,6 +823,14 @@ export async function skillStatus(
       oilBalanceError = '无法查询 oiloil 余额';
     }
   }
+  const imageSource =
+    imageGenScriptPath && oilLoggedIn && imagePreference === 'oiloil'
+      ? 'oiloil'
+      : imageGenScriptPath
+        ? 'image-gen'
+        : oilLoggedIn
+          ? 'oiloil'
+          : 'none';
   const skillLoadState = visibleMatchesOriginal
     ? ('ready' as const)
     : !visible || visible.invocation?.modelInvocable === false
@@ -841,7 +850,7 @@ export async function skillStatus(
     skillLoadWarning,
     imageGenAvailable: imageGenScriptPath !== null,
     imageGenScriptPath,
-    imageSource: imageGenScriptPath ? 'image-gen' : oilLoggedIn ? 'oiloil' : 'none',
+    imageSource,
     oilLoggedIn,
     oilBalance,
     oilBalanceError,

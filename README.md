@@ -69,7 +69,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 | `oil_ui_explorer`     | 读取 `explore/manifest.json`（兼容常见简写字段），把多个首屏候选内联打包成可交互的 `style-explorer.html` 对比页                                                                                                                                                                                      |
 | `oil_ui_shoot`        | 在真实浏览器里打开本地页面或 URL：支持指定视口尺寸、2x 特写、多状态连拍（`states`）、交互步骤脚本（`steps`）、动效序列图（`frames`）、按需录屏（`record` / `motion`）以及按共有元素同比例拼图（`stitch` 项的 `matchWidth` / `scale`、全局 `crop`），并自动检查控制台报错、横向溢出、断图与文字对比度 |
 | `oil_ui_media`        | 搜索、预览和下载免版权/公有领域图片、博物馆馆藏（Met、AIC、Cleveland、Wikimedia、Openverse 等）、视频与地图素材                                                                                                                                                                                      |
-| `oil_ui_image`        | 优先调用本地 `image-gen`；本机不可用时使用 oiloil 生成或编辑图片，支持指定分辨率；oiloil 返回格式不同时按实际格式保存并返回路径                                                                                                                                                                      |
+| `oil_ui_image`        | 默认优先调用本地 `image-gen`（或按 `preferences.json` 偏好优先 oiloil）；不可用、余额不足、登录失效或超出能力限制时自动回退，支持指定分辨率并按实际格式保存返回路径                                                                                                                                  |
 
 同时向聊天输入框注册 3 个以 `oil-ui-` 为前缀的 Slash 快捷命令（与其他 `oil-*` 系列 Skill 区分）：
 
@@ -209,7 +209,7 @@ Windows / Linux 的相同入口由 CI 执行，web 与 headless 均测试。CI �
 ```
 
 - **浏览器截图（`oil_ui_shoot`）**：使用本机安装的 Chrome / Chromium（或 Playwright Chromium）；若使用录屏抽帧（`record` / `motion`），需本机装有 `ffmpeg`。
-- **AI 生图修图（`oil_ui_image`）**：优先使用本机 `image-gen`（需 `python3`）；不可用时读取 `OIL_TOKEN` 或 `~/.config/oil/config.json` 的登录状态调用 oiloil。可用 `OIL_API` 覆盖 API 地址，默认 `https://api.oiloil.org`。
+- **AI 生图修图（`oil_ui_image`）**：默认优先使用本机 `image-gen`（需 `python3`）；不可用时读取 `OIL_TOKEN` 或 `~/.config/oil/config.json` 的登录状态调用 oiloil。若同目录 `preferences.json` 设置了 `image_tool: "oiloil"` 且已登录，则优先使用 oiloil（余额不足、登录失效或超出单图能力限制时自动回退本机 `image-gen`）。可用 `OIL_API` 覆盖 API 地址，默认 `https://api.oiloil.org`。
 
 ---
 
