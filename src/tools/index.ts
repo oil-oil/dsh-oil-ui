@@ -286,7 +286,7 @@ export function registerTools(ctx: Context, options: ToolRegistrationOptions): v
         name: 'oil_ui_image',
         timeoutMs: 905_000,
         description:
-          '优先调用本机 image-gen；不可用时使用 oiloil 生图。可指定分辨率，在当前工作目录生成图片（mode=generate）或基于参考图编辑（mode=edit）。oiloil 返回其他图片格式时会按实际格式保存并返回实际路径。',
+          '默认优先调用本机 image-gen，不可用时使用 oiloil 生图；若 preferences.json 已设为 oiloil 且已登录，则优先使用 oiloil（余额不足、登录失效或超出单图能力限制时自动回退本机 image-gen）。可指定分辨率，在当前工作目录生成图片（mode=generate）或基于参考图编辑（mode=edit）。oiloil 返回其他图片格式时会按实际格式保存并返回实际路径。',
         parameters: {
           prompt: { type: 'string', required: true, description: '生成或编辑图片的提示词描述。' },
           mode: {

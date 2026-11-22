@@ -61,6 +61,7 @@ GitHub 直接安装依赖已提交的 `lib/` 和 `skills/`，不能把它们当�
 
 - 内置 Lite 是不可变插件资产，更新只提示更新插件；仅实际胜出的 filesystem 安装可由 oil-cli 更新。不要把 Provider 标签当作安装归属。
 - oil-cli 固定值在 `src/skill/install.ts`；同步 workflow 和发布检查必须与公开 `scripts/check_update.py` 对齐（存在时）。本地未来版本模拟用 `npm run test:sync-workflow`。
+- `src/oil-api.ts` 与 `src/workbench/image.ts` 的超时预算、错误脱敏、429/5xx 处理及 `preferences.json` 偏好路由必须与内置 `skills/oil-ui/scripts/oiloil-image.mjs` 保持契约一致，并由 `pnpm check` 中的 `tests/oil-api-contract.test.ts` 自动门禁校验（包含 `DEFAULT_IMAGE_TIMEOUT_MS` 不低于内置脚本默认超时）。
 
 - Cordis 注入 callback 只能读取声明的服务；`ctx.agents?.list()` 也需要注入 `agents`。真实冒烟必须检查插件加载错误和系统提示，并实际调用原生 read，不能只验证 Host 启动或五工具存在。
 - `DSH_SMOKE_PROFILE=headless npm run smoke:dsh` 验证 headless 原生组合；仅临时关闭模型 runner，保留 startup 服务，不把 web preset 塞入 headless。安装说明使用 npm 临时提供固定 pnpm，兼容 DSH 自身的 Node 要求，不改全局 Corepack。

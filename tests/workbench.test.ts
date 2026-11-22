@@ -598,7 +598,7 @@ describe('managed image generation and editing in cwd', () => {
       'python3',
       expect.any(Array),
       cwd,
-      180000,
+      250000,
       undefined,
     );
     expect(await readFile(result.outputFiles[0]!, 'utf8')).toBe('image fixture');

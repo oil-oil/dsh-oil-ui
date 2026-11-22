@@ -2,9 +2,24 @@ import { lstat, open, readFile, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { resolveImageGenScript, type ImageGenOptions, type SkillOptions } from '../skill/upstream.ts';
-import { OilApiError, readOilToken, requestOilApi, type OilImageResponse } from '../oil-api.ts';
+import {
+  DEFAULT_IMAGE_TIMEOUT_MS,
+  OilApiError,
+  readOilImagePreference,
+  readOilToken,
+  requestOilApi,
+  sanitizeErrorDetail,
+  type OilImageResponse,
+} from '../oil-api.ts';
 import { timeout, type ManagedProcesses } from '../processes.ts';
 import type { ImageRequest } from '../tool-requests.ts';
+
+const OIL_ACCOUNT_IMAGES_URL = 'https://ui.oiloil.org/account/?tab=images';
+const LOCAL_IMAGE_GEN_SIZE_ALIAS: Record<string, string> = {
+  '1k': '1024x1024',
+  '2k': '2048x2048',
+  '4k': '3840x2160',
+};
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.png': 'image/png',
@@ -32,6 +47,7 @@ export interface ImageResult {
   usage?: { credits: number; balance: number };
   reason?: string;
   agentInstruction?: string;
+  idempotencyKey?: string;
 }
 
 interface ImageDependencies {
@@ -64,7 +80,22 @@ export async function generateImage(
   const script = await resolveImageGenScript({ ...dependencies.skillOptions, cwd: workspace });
   if (!script) return oilImage(workspace, input, mode, images, dependencies, signal);
 
-  const size = input.size ?? '1024x1024';
+  if ((await readOilImagePreference()) === 'oiloil' && images.length <= 1 && !input.model?.trim()) {
+    const token = await readOilToken();
+    if (token) {
+      const oilResult = await oilImage(workspace, input, mode, images, dependencies, signal, token);
+      if (
+        oilResult.reason !== 'insufficient_credits' &&
+        oilResult.reason !== 'not_logged_in' &&
+        oilResult.reason !== 'reference_image_too_large'
+      ) {
+        return oilResult;
+      }
+    }
+  }
+
+  const rawSize = input.size ?? '1024x1024';
+  const size = LOCAL_IMAGE_GEN_SIZE_ALIAS[rawSize.trim().toLowerCase()] ?? rawSize;
   const dimensions = /^(\d+)x(\d+)$/.exec(size);
   if (
     size !== 'auto' &&
@@ -77,7 +108,7 @@ export async function generateImage(
   }
   if (input.model !== undefined && !input.model.trim()) throw new Error('model must be nonempty');
 
-  const timeoutMs = timeout(input.timeoutMs, 180_000);
+  const timeoutMs = timeout(input.timeoutMs, DEFAULT_IMAGE_TIMEOUT_MS);
   let out = await dependencies.scopedPath(workspace, input.out ?? 'assets/generated.png');
   if (!input.out && input.force !== true) {
     let suffix = 1;
@@ -194,8 +225,10 @@ async function oilImage(
   images: string[],
   dependencies: ImageDependencies,
   signal?: AbortSignal,
+  resolvedToken?: string,
 ): Promise<ImageResult> {
-  const token = await readOilToken();
+  if (signal?.aborted) throw new Error('Tool invocation aborted');
+  const token = resolvedToken ?? (await readOilToken());
   if (!token) {
     return {
       ok: false,
@@ -222,11 +255,13 @@ async function oilImage(
     };
   }
 
-  const requestedSize = input.size ?? '1K';
-  const size = requestedSize === 'auto' ? '1K' : requestedSize;
+  const requestedSize = (input.size ?? '1K').trim();
+  const upperSize = requestedSize.toUpperCase();
+  const size = requestedSize === 'auto' ? '1K' : ['1K', '2K', '4K'].includes(upperSize) ? upperSize : requestedSize;
   if (!['1K', '2K', '4K'].includes(size) && !/^\d{3,4}x\d{3,4}$/.test(size)) {
     throw new Error('size must be 1K, 2K, 4K or supported WIDTHxHEIGHT dimensions');
   }
+  const timeoutMs = timeout(input.timeoutMs, DEFAULT_IMAGE_TIMEOUT_MS);
 
   let referenceImage: string | undefined;
   if (images.length === 1) {
@@ -272,6 +307,7 @@ async function oilImage(
     input.background === 'transparent' && !/transparent|透明/i.test(input.prompt)
       ? `${input.prompt}\n请使用透明背景。`
       : input.prompt;
+  const idempotencyKey = randomUUID();
   let result: OilImageResponse;
   try {
     result = await requestOilApi<OilImageResponse>('/images', {
@@ -283,7 +319,8 @@ async function oilImage(
         ...(input.background && input.background !== 'auto' ? { background: input.background } : {}),
         ...(referenceImage ? { reference_image: referenceImage } : {}),
       },
-      idempotencyKey: true,
+      idempotencyKey,
+      timeoutMs,
       signal,
       token,
     });
@@ -304,6 +341,64 @@ async function oilImage(
         reason: 'not_logged_in',
         agentInstruction:
           'oiloil 登录状态已失效，暂时没有可用的生图工具。合适的时候友好提示用户一次：可运行 `npx github:oil-oil/oil-cli login` 重新登录，并在 https://ui.oiloil.org/account 充值，或自行配置生图工具；任务照常继续。',
+      };
+    }
+    if (error instanceof OilApiError && error.status === 429) {
+      const retryHint = error.retryAfter ? `（建议 ${error.retryAfter}s 后重试）` : '';
+      let agentInstruction: string;
+      if (error.code === 'rate_limit_exceeded') {
+        agentInstruction = `oiloil 请求过于频繁（HTTP 429）${retryHint}，本次未收到图片且未扣费。请稍后重试。`;
+      } else if (error.code === 'cost_budget_exceeded') {
+        agentInstruction = `oiloil 当前生图额度已达上限（HTTP 429）${retryHint}，本次未收到图片且未扣费。请稍后重试。`;
+      } else {
+        const detail = sanitizeErrorDetail(error.detail);
+        agentInstruction = `oiloil 请求频率或额度受限（HTTP 429）${detail ? `：${detail}` : ''}${retryHint}，本次未收到图片且未扣费。请稍后重试。`;
+      }
+      return {
+        ok: false,
+        source: 'oiloil',
+        outputFiles: [],
+        reason: 'rate_limited',
+        agentInstruction,
+      };
+    }
+    if (error instanceof OilApiError && error.status === 504 && error.code === 'timeout' && error.requestId) {
+      return {
+        ok: false,
+        source: 'oiloil',
+        outputFiles: [],
+        reason: 'timeout',
+        agentInstruction: 'oiloil 生成超时（HTTP 504），本次未收到图片且未扣费。请稍后重试。',
+      };
+    }
+    if (error instanceof OilApiError && error.status === 502 && error.code === 'upstream_error' && error.requestId) {
+      return {
+        ok: false,
+        source: 'oiloil',
+        outputFiles: [],
+        reason: 'service_unavailable',
+        agentInstruction: 'oiloil 服务暂时繁忙或不可用（HTTP 502），本次未收到图片且未扣费。请稍后重试。',
+      };
+    }
+    if (error instanceof OilApiError && error.status >= 500) {
+      return {
+        ok: false,
+        source: 'oiloil',
+        outputFiles: [],
+        reason: 'uncertain_status',
+        idempotencyKey,
+        agentInstruction: `oiloil 服务响应异常（HTTP ${error.status}），暂时无法确认本次是否扣费。原请求幂等键：${idempotencyKey}，请先到 ${OIL_ACCOUNT_IMAGES_URL} 或用 oiloil-image.mjs status ${idempotencyKey} 核对记录，不要直接重新生成。`,
+      };
+    }
+    if (!(error instanceof OilApiError)) {
+      if (signal?.aborted) throw error;
+      return {
+        ok: false,
+        source: 'oiloil',
+        outputFiles: [],
+        reason: 'uncertain_status',
+        idempotencyKey,
+        agentInstruction: `连接 oiloil 失败或请求超时，暂时没有拿到图片，无法确认本次是否扣费。原请求幂等键：${idempotencyKey}，请先到 ${OIL_ACCOUNT_IMAGES_URL} 或用 oiloil-image.mjs status ${idempotencyKey} 核对记录，不要直接重新生成。`,
       };
     }
     throw error;

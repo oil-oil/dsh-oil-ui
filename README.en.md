@@ -69,7 +69,7 @@ The plugin registers 5 tools, all resolved relative to the active session's work
 | `oil_ui_explorer`     | Reads `explore/manifest.json` (normalizing common shorthand fields) and bundles candidate HTML files into a single interactive `style-explorer.html` comparison page                                                                                                                                                                                                                                 |
 | `oil_ui_shoot`        | Captures real browser screenshots of local files or URLs: supports custom viewports, 2x zoom crops, multi-state captures (`states`), scripted interactions (`steps`), motion frame sequences (`frames`), optional recordings (`record` / `motion`), and normalized image comparisons (`stitch` items with `matchWidth` / `scale`, plus global `crop`), and built-in console/overflow/contrast checks |
 | `oil_ui_media`        | Searches, previews, and downloads public-domain images, museum collections (Met, AIC, Cleveland, Wikimedia, Openverse), video clips, and map tiles                                                                                                                                                                                                                                                   |
-| `oil_ui_image`        | Uses local `image-gen` first, then oiloil when unavailable; supports a requested resolution and reports the saved path when oiloil returns a different format                                                                                                                                                                                                                                        |
+| `oil_ui_image`        | Uses local `image-gen` by default (or oiloil first when `preferences.json` sets `image_tool: "oiloil"`), falling back automatically when unavailable, unauthenticated, out of credits, or beyond oiloil limits; supports requested resolutions and reports the saved path on format mismatch                                                                                                         |
 
 It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoid collisions with other `oil-*` Skills):
 
@@ -209,7 +209,7 @@ The plugin works out of the box and automatically discovers local `oil-ui-pro` a
 ```
 
 - **Browser captures (`oil_ui_shoot`)**: Uses locally installed Chrome / Chromium (or Playwright Chromium). Motion frame strips (`record` / `motion`) require `ffmpeg`.
-- **AI image generation (`oil_ui_image`)**: Uses local `image-gen` first; when unavailable, it reads the oil CLI token from `OIL_TOKEN` or `~/.config/oil/config.json` and calls oiloil. Set `OIL_API` to override the API root; the default is `https://api.oiloil.org`.
+- **AI image generation (`oil_ui_image`)**: Uses local `image-gen` by default and falls back to oiloil (reading `OIL_TOKEN` or `~/.config/oil/config.json`) when unavailable. When `preferences.json` in the same config directory sets `image_tool: "oiloil"` and a login token is present, oiloil is tried first and falls back to local `image-gen` on 401/402 or unsupported local parameters. Set `OIL_API` to override the API root; the default is `https://api.oiloil.org`.
 
 ---
 
