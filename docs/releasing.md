@@ -74,7 +74,7 @@ Pro 仓库的 `adapters/dsh/` 只为已发布的旧插件（0.4.9 及更早）�
 
 ## 当前快照与后续同步
 
-插件发布 `0.4.16`（对齐 oil-api 250s 超时/脱敏/偏好路由、新增契约门禁并同步公开 Skill）；内置公开 Skill 为 `0.34.6`（`v0.34.6` / `00623968faf4e5ad80770cad4c355de803cb0977`）。实际来源始终以 manifest 为准。
+插件已发布 `0.4.16`（对齐 oil-api 250s 超时/脱敏/偏好路由、新增契约门禁并同步公开 Skill），当前开发版为 `0.4.17-dev.0`；内置公开 Skill 为 `0.34.6`（`v0.34.6` / `00623968faf4e5ad80770cad4c355de803cb0977`）。实际来源始终以 manifest 为准。
 
 同步公开 Skill 后运行 `pnpm check` 时，`tests/oil-api-contract.test.ts` 会自动校验 `src/oil-api.ts` 与 `src/workbench/image.ts` 的超时预算、错误脱敏与 `preferences.json` 偏好路由是否与内置 `skills/oil-ui/scripts/oiloil-image.mjs` 保持契约一致；若上游调大超时或变更契约，门禁会直接失败提醒。
 
