@@ -32,6 +32,7 @@ Object.assign(env, {
   npm_config_userconfig: path.join(home, '.npmrc'),
   npm_config_globalconfig: path.join(home, 'global.npmrc'),
   COREPACK_HOME: path.join(home, '.corepack'),
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
   OIL_NO_UPDATE_CHECK: '1',
   NO_COLOR: '1',
 });
@@ -107,6 +108,7 @@ try {
   git(['tag', `v${version}`], source);
 
   const workflow = parse(await readFile(path.join(checkout, '.github/workflows/sync-skill.yml'), 'utf8'));
+  const ciWorkflow = parse(await readFile(path.join(checkout, '.github/workflows/ci.yml'), 'utf8'));
   const steps = workflow.jobs.sync.steps;
   const upstreamCheckout = steps.find((step) => step.with?.repository === 'oil-oil/oil-ui');
   if (upstreamCheckout?.with?.ref !== '${{ steps.upstream.outputs.tag }}')
@@ -114,6 +116,45 @@ try {
   const block = steps.find((step) => step.name === 'Sync and verify the upstream snapshot')?.run;
   if (!block || !block.includes('check-public-pin.mjs'))
     throw new Error('Workflow validation and pin check are required.');
+
+  const verifyJob = workflow.jobs.verify;
+  const verifyNeeds = Array.isArray(verifyJob?.needs) ? verifyJob.needs : [verifyJob?.needs];
+  if (
+    !verifyNeeds.includes('sync') ||
+    verifyJob?.uses !== './.github/workflows/ci.yml' ||
+    verifyJob?.with?.ref !== '${{ needs.sync.outputs.head_sha }}'
+  ) {
+    throw new Error('sync-skill verify job must call ./.github/workflows/ci.yml with needs.sync.outputs.head_sha.');
+  }
+
+  const publishNeeds = Array.isArray(workflow.jobs.publish?.needs) ? workflow.jobs.publish.needs : [];
+  if (!publishNeeds.includes('sync') || !publishNeeds.includes('verify')) {
+    throw new Error('sync-skill publish job must depend on [sync, verify].');
+  }
+
+  const notifyNeeds = Array.isArray(workflow.jobs['notify-failure']?.needs)
+    ? workflow.jobs['notify-failure'].needs
+    : [];
+  if (!notifyNeeds.includes('sync') || !notifyNeeds.includes('verify')) {
+    throw new Error('sync-skill notify-failure job must depend on [sync, verify].');
+  }
+
+  if (!ciWorkflow.on?.workflow_call?.inputs?.ref) {
+    throw new Error('ci.yml must declare workflow_call input ref.');
+  }
+  if (!String(ciWorkflow.concurrency?.group ?? '').includes('inputs.ref')) {
+    throw new Error('ci.yml concurrency group must include inputs.ref.');
+  }
+  for (const jobName of ['check', 'install-smoke']) {
+    const checkoutStep = ciWorkflow.jobs?.[jobName]?.steps?.find((step) => step.uses === 'actions/checkout@v4');
+    if (checkoutStep?.with?.ref !== '${{ inputs.ref }}') {
+      throw new Error(`ci.yml ${jobName} job must pass inputs.ref to actions/checkout@v4.`);
+    }
+    if (jobName === 'install-smoke' && checkoutStep?.with?.['persist-credentials'] !== false) {
+      throw new Error('ci.yml install-smoke checkout must keep persist-credentials: false.');
+    }
+  }
+
   run(process.platform === 'win32' ? 'bash' : 'sh', ['-eu', '-c', block]);
   const manifest = JSON.parse(await readFile(path.join(checkout, 'skills/oil-ui.manifest.json'), 'utf8'));
   if (manifest.version !== version || manifest.source.release !== `v${version}` || manifest.distribution !== 'original')
@@ -127,7 +168,7 @@ try {
   if (!changed.length || changed.some((file) => !file.startsWith('skills/') && !file.startsWith('lib/')))
     throw new Error('Workflow changed files outside generated assets.');
   process.stdout.write(
-    `${JSON.stringify({ ok: true, fictionalVersion: version, validationBlockPassed: true, originalBytesUnchanged: true, changedOnlyGeneratedAssets: true })}\n`,
+    `${JSON.stringify({ ok: true, fictionalVersion: version, validationBlockPassed: true, originalBytesUnchanged: true, changedOnlyGeneratedAssets: true, workflowStructureVerified: true })}\n`,
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

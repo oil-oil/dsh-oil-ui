@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '17 4 * * *'
   workflow_dispatch:
+    inputs:
+      auto_release:
+        description: 'Auto-merge and publish a GitHub Release after cross-platform CI passes'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -16,8 +22,20 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.prepare.outputs.status }}
+      auto_release: ${{ steps.prepare.outputs.auto_release }}
+      head_sha: ${{ steps.prepare.outputs.head_sha }}
+      pr_number: ${{ steps.prepare.outputs.pr_number }}
+      branch: ${{ steps.prepare.outputs.branch }}
+      release_version: ${{ steps.prepare.outputs.release_version }}
+      next_dev_version: ${{ steps.prepare.outputs.next_dev_version }}
+      upstream_version: ${{ steps.prepare.outputs.upstream_version }}
+      upstream_commit: ${{ steps.prepare.outputs.upstream_commit }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Resolve the latest published public release
         id: upstream
         env:
@@ -39,6 +57,7 @@ jobs:
           python-version: '3.12'
       - run: pnpm install --frozen-lockfile
       - name: Sync and verify the upstream snapshot
+        id: sync_verify
         run: |
           node scripts/vendor-oil-ui.mjs --source upstream-oil-ui
           node scripts/vendor-oil-ui.mjs --source upstream-oil-ui --check
@@ -46,53 +65,332 @@ jobs:
           rm -rf upstream-oil-ui
           pnpm check
           pnpm pack:plugin
-      - name: Read sync metadata
-        id: metadata
-        shell: bash
-        run: |
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('skills/oil-ui.manifest.json', 'utf8')).version")
-          COMMIT=$(node -p "JSON.parse(require('fs').readFileSync('skills/oil-ui.manifest.json', 'utf8')).source.commit")
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
-          echo "branch=bot/oil-ui-$VERSION-$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
-      - name: Push a dedicated sync branch
-        if: steps.metadata.outputs.changed == 'true'
+      - name: Open or update adaptation PR when validation fails
+        if: failure() && steps.sync_verify.outcome == 'failure'
         shell: bash
         env:
-          BRANCH: ${{ steps.metadata.outputs.branch }}
-          VERSION: ${{ steps.metadata.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
+          rm -rf upstream-oil-ui
+          if git diff --quiet -- skills/oil-ui.manifest.json; then
+            echo "skills/oil-ui.manifest.json did not change; skipping adaptation PR."
+            exit 0
+          fi
+
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('skills/oil-ui.manifest.json', 'utf8')).version")
+          COMMIT=$(node -p "JSON.parse(require('fs').readFileSync('skills/oil-ui.manifest.json', 'utf8')).source.commit")
+          BRANCH="bot/oil-ui-$VERSION-needs-adaptation"
+          TITLE="chore(skill): 同步内置 oil-ui 至 $VERSION（校验失败，需人工适配）"
+
+          git checkout -- package.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git add skills/
+          git commit -m "$TITLE"
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+          fi
+          git push --force-with-lease origin "$BRANCH"
+
+          EXISTING_PR=$(gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr comment "$EXISTING_PR" --body "上游 \`oil-ui\` $VERSION（\`$COMMIT\`）再次同步后 \`pnpm check\` 校验未通过，自动发布已中止。请查看工作流日志并人工适配：$RUN_URL"
+          else
+            BODY=$(cat <<EOF
+          同步上游 \`oil-ui\` $VERSION 后校验失败（例如 \`pnpm check\` / \`oil-api-contract.test.ts\`），已中止自动发布，需人工适配。
+
+          - 上游 commit: \`$COMMIT\`
+          - \`package.json\` 版本保持未修改
+          - 失败的工作流日志: $RUN_URL
+          EOF
+            )
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "$TITLE" \
+              --body "$BODY"
+          fi
+      - name: Prepare sync PR and release plan
+        id: prepare
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_AUTO_RELEASE: ${{ inputs.auto_release }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_AUTO_RELEASE" = "false" ]; then
+            AUTO_RELEASE="false"
+          else
+            AUTO_RELEASE="true"
+          fi
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "status=noop" >> "$GITHUB_OUTPUT"
+            echo "auto_release=$AUTO_RELEASE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('skills/oil-ui.manifest.json', 'utf8')).version")
+          COMMIT=$(node -p "JSON.parse(require('fs').readFileSync('skills/oil-ui.manifest.json', 'utf8')).source.commit")
+          PLAN_JSON=$(node scripts/release-version.mjs --plan)
+          RELEASE_VERSION=$(printf '%s' "$PLAN_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).releaseVersion)")
+          NEXT_DEV_VERSION=$(printf '%s' "$PLAN_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).nextDevVersion)")
+          RELEASE_TAG=$(printf '%s' "$PLAN_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).releaseTag)")
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Remote tag $RELEASE_TAG already exists; cannot plan release for oil-ui $VERSION."
+            exit 1
+          fi
+
+          BASE_SHA=$(git rev-parse HEAD)
+          if [ "$AUTO_RELEASE" = "true" ]; then
+            node scripts/release-version.mjs --set "$RELEASE_VERSION"
+            pnpm build
+            pnpm format:check && pnpm release:check --tag "$RELEASE_TAG"
+            PR_TITLE="chore(skill): 同步内置 oil-ui 至 $VERSION（$RELEASE_VERSION）"
+            STAGE_PATHS=(skills/ lib/ package.json)
+            READY_STATUS="ready"
+          else
+            PR_TITLE="chore(skill): 同步内置 oil-ui 至 $VERSION"
+            STAGE_PATHS=(skills/ lib/)
+            READY_STATUS="pr_only"
+          fi
+
+          BRANCH="bot/oil-ui-$VERSION-$GITHUB_RUN_ID"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
-          git add skills/ lib/
-          git commit -m "chore(skill): 同步内置 oil-ui 至 $VERSION"
-          git push origin "$BRANCH"
-      - name: Open a sync pull request
-        if: steps.metadata.outputs.changed == 'true'
-        shell: bash
-        env:
-          BRANCH: ${{ steps.metadata.outputs.branch }}
-          VERSION: ${{ steps.metadata.outputs.version }}
-          COMMIT: ${{ steps.metadata.outputs.commit }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          BODY=$(cat <<EOF
-          自动同步 oil-ui $VERSION。
+          git add "${STAGE_PATHS[@]}"
+          git commit -m "$PR_TITLE"
+          LOCAL_SHA=$(git rev-parse HEAD)
+          LOCAL_TREE=$(git rev-parse 'HEAD^{tree}')
 
-          - 上游 commit: $COMMIT
-          - 已通过 pnpm check
-          - 已通过打包与解包验证
-          - 由 sync-skill workflow 创建
-          EOF
+          OPEN_PRS_JSON=$(gh pr list --state open --base main --limit 100 --json number,title,headRefName,headRefOid)
+          MATCH_JSON=$(
+            OPEN_PRS_JSON="$OPEN_PRS_JSON" VERSION="$VERSION" PR_TITLE="$PR_TITLE" node -e '
+              const prs = JSON.parse(process.env.OPEN_PRS_JSON);
+              const baseTitle = `chore(skill): 同步内置 oil-ui 至 ${process.env.VERSION}`;
+              const branchPrefix = `bot/oil-ui-${process.env.VERSION}-`;
+              const matching = prs.filter(
+                (pr) =>
+                  pr.headRefName.startsWith(branchPrefix) &&
+                  (pr.title === baseTitle || pr.title.startsWith(`${baseTitle}（`)),
+              );
+              const exact = matching.find((pr) => pr.title === process.env.PR_TITLE) ?? null;
+              process.stdout.write(JSON.stringify({ matching, exact }));
+            '
           )
+
+          EXACT_PR=$(printf '%s' "$MATCH_JSON" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(d.exact ? String(d.exact.number) : '')")
+          EXACT_BRANCH=$(printf '%s' "$MATCH_JSON" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(d.exact ? d.exact.headRefName : '')")
+          EXACT_SHA=$(printf '%s' "$MATCH_JSON" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(d.exact ? d.exact.headRefOid : '')")
+
+          if [ -n "$EXACT_PR" ]; then
+            git fetch origin "refs/heads/$EXACT_BRANCH:refs/remotes/origin/$EXACT_BRANCH"
+            EXISTING_TREE=$(git rev-parse "refs/remotes/origin/$EXACT_BRANCH^{tree}")
+            EXISTING_PARENT=$(git rev-parse "refs/remotes/origin/$EXACT_BRANCH^")
+            if [ "$EXISTING_TREE" = "$LOCAL_TREE" ] && [ "$EXISTING_PARENT" = "$BASE_SHA" ]; then
+              if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$AUTO_RELEASE" = "true" ]; then
+                echo "Reusing identical open PR #$EXACT_PR ($EXACT_BRANCH) for manual auto-release rerun."
+                {
+                  echo "status=ready"
+                  echo "auto_release=true"
+                  echo "head_sha=$EXACT_SHA"
+                  echo "pr_number=$EXACT_PR"
+                  echo "branch=$EXACT_BRANCH"
+                  echo "release_version=$RELEASE_VERSION"
+                  echo "next_dev_version=$NEXT_DEV_VERSION"
+                  echo "upstream_version=$VERSION"
+                  echo "upstream_commit=$COMMIT"
+                } >> "$GITHUB_OUTPUT"
+              else
+                echo "Identical open PR #$EXACT_PR ($EXACT_BRANCH) already exists; skipping duplicate PR."
+                {
+                  echo "status=noop"
+                  echo "auto_release=$AUTO_RELEASE"
+                  echo "head_sha=$EXACT_SHA"
+                  echo "pr_number=$EXACT_PR"
+                  echo "branch=$EXACT_BRANCH"
+                  echo "release_version=$RELEASE_VERSION"
+                  echo "next_dev_version=$NEXT_DEV_VERSION"
+                  echo "upstream_version=$VERSION"
+                  echo "upstream_commit=$COMMIT"
+                } >> "$GITHUB_OUTPUT"
+              fi
+              exit 0
+            fi
+          fi
+
+          git push origin "$BRANCH"
+
+          if [ "$AUTO_RELEASE" = "true" ]; then
+            BODY=$(cat <<EOF
+          自动同步 \`oil-ui\` $VERSION 并准备自动发布 \`$RELEASE_TAG\`。
+
+          - 上游 commit: \`$COMMIT\`
+          - 目标插件版本: \`$RELEASE_VERSION\`（发布后进入 \`$NEXT_DEV_VERSION\`）
+          - 已通过 \`pnpm check\`、\`pnpm release:check --tag $RELEASE_TAG\` 与打包解包验证
+          - 跨平台 CI（\`verify\`）全部通过后将自动 squash merge 并发布 GitHub Release
+          - 工作流运行: $RUN_URL
+          EOF
+            )
+          else
+            BODY=$(cat <<EOF
+          自动同步 \`oil-ui\` $VERSION（仅创建 PR，未启用自动发布）。
+
+          - 上游 commit: \`$COMMIT\`
+          - 已通过 \`pnpm check\`
+          - 已通过打包与解包验证
+          - 工作流运行: $RUN_URL
+          EOF
+            )
+          fi
+
           gh pr create \
             --base main \
             --head "$BRANCH" \
-            --title "chore(skill): 同步内置 oil-ui 至 $VERSION" \
+            --title "$PR_TITLE" \
             --body "$BODY"
+          PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq .number)
+
+          SUPERSEDED_PRS=$(printf '%s' "$MATCH_JSON" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(d.matching.map((pr) => pr.number).join('\n'))")
+          while IFS= read -r OLD_PR; do
+            if [ -n "$OLD_PR" ] && [ "$OLD_PR" != "$PR_NUMBER" ]; then
+              gh pr close "$OLD_PR" --delete-branch --comment "已被新的同步 PR #$PR_NUMBER 替代。" || gh pr close "$OLD_PR" --comment "已被新的同步 PR #$PR_NUMBER 替代。"
+            fi
+          done <<< "$SUPERSEDED_PRS"
+
+          {
+            echo "status=$READY_STATUS"
+            echo "auto_release=$AUTO_RELEASE"
+            echo "head_sha=$LOCAL_SHA"
+            echo "pr_number=$PR_NUMBER"
+            echo "branch=$BRANCH"
+            echo "release_version=$RELEASE_VERSION"
+            echo "next_dev_version=$NEXT_DEV_VERSION"
+            echo "upstream_version=$VERSION"
+            echo "upstream_commit=$COMMIT"
+          } >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: sync
+    if: needs.sync.outputs.status == 'ready' && needs.sync.outputs.auto_release == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.sync.outputs.head_sha }}
+
+  publish:
+    needs: [sync, verify]
+    if: needs.sync.outputs.status == 'ready' && needs.sync.outputs.auto_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Verify PR state and squash merge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.sync.outputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ needs.sync.outputs.head_sha }}
+          RELEASE_VERSION: ${{ needs.sync.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq .state)
+          PR_HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+          if [ "$PR_STATE" != "OPEN" ]; then
+            echo "::error::PR #$PR_NUMBER is in state $PR_STATE (expected OPEN); aborting auto-merge."
+            exit 1
+          fi
+          if [ "$PR_HEAD_SHA" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "::error::PR #$PR_NUMBER head SHA changed ($PR_HEAD_SHA != $EXPECTED_HEAD_SHA); aborting auto-merge."
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "::error::Remote tag v$RELEASE_VERSION already exists; aborting auto-merge and release."
+            exit 1
+          fi
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile
+      - name: Verify merged main, pack release archive, and publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.sync.outputs.release_version }}
+          NEXT_DEV_VERSION: ${{ needs.sync.outputs.next_dev_version }}
+        run: |
+          set -euo pipefail
+          ACTUAL_VERSION=$(node -p "require('./package.json').version")
+          if [ "$ACTUAL_VERSION" != "$RELEASE_VERSION" ]; then
+            sleep 3
+            git pull --ff-only origin main
+            ACTUAL_VERSION=$(node -p "require('./package.json').version")
+          fi
+          if [ "$ACTUAL_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "::error::Merged main package.json version ($ACTUAL_VERSION) does not match expected release version ($RELEASE_VERSION)."
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "::error::Remote tag v$RELEASE_VERSION already exists."
+            exit 1
+          fi
+
+          pnpm release:check --tag "v$RELEASE_VERSION"
+          node scripts/release-check.mjs --tag "v$RELEASE_VERSION" --notes .work/release-notes.md
+          pnpm pack:plugin
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$RELEASE_VERSION" -m "Release v$RELEASE_VERSION"
+          git push origin "refs/tags/v$RELEASE_VERSION"
+
+          gh release create "v$RELEASE_VERSION" ".work/dsh-oil-ui-$RELEASE_VERSION.tgz" \
+            --notes-file .work/release-notes.md \
+            --title "v$RELEASE_VERSION" \
+            --verify-tag
+
+          node scripts/release-version.mjs --set "$NEXT_DEV_VERSION"
+          pnpm build
+          pnpm check
+          git add package.json lib/
+          git commit -m "chore(release): 进入 $NEXT_DEV_VERSION 开发周期"
+          git push origin HEAD:main
+
+  notify-failure:
+    needs: [sync, verify]
+    if: failure() && needs.sync.outputs.status == 'ready' && needs.verify.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment cross-platform CI failure on sync PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.sync.outputs.pr_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "跨平台 CI（\`verify\`）未通过，已跳过自动合入与自动发布。请查看工作流日志并人工处理：$RUN_URL"
