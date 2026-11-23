@@ -25,6 +25,7 @@ jobs:
     outputs:
       status: ${{ steps.prepare.outputs.status }}
       auto_release: ${{ steps.prepare.outputs.auto_release }}
+      base_sha: ${{ steps.prepare.outputs.base_sha }}
       head_sha: ${{ steps.prepare.outputs.head_sha }}
       pr_number: ${{ steps.prepare.outputs.pr_number }}
       branch: ${{ steps.prepare.outputs.branch }}
@@ -90,13 +91,27 @@ jobs:
           git switch -C "$BRANCH"
           git add skills/
           git commit -m "$TITLE"
-
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            git fetch origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
-          fi
-          git push --force-with-lease origin "$BRANCH"
+          LOCAL_SKILLS_TREE=$(git rev-parse 'HEAD:skills')
 
           EXISTING_PR=$(gh pr list --state open --head "$BRANCH" --json number --jq '.[0].number // empty')
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            git fetch origin "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+            NON_BOT_AUTHORS=$(git log --format='%an' "origin/main..refs/remotes/origin/$BRANCH" | grep -vx 'github-actions\[bot\]' || true)
+            if [ -n "$NON_BOT_AUTHORS" ]; then
+              echo "Branch $BRANCH contains non-bot commits; leaving branch and PR untouched."
+              exit 0
+            fi
+            REMOTE_SKILLS_TREE=$(git rev-parse "refs/remotes/origin/$BRANCH:skills" 2>/dev/null || true)
+            REMOTE_COMMIT=$(git show "refs/remotes/origin/$BRANCH:skills/oil-ui.manifest.json" 2>/dev/null | node -e "try { const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(String(d.source?.commit ?? '')); } catch {}" || true)
+            if [ "$REMOTE_SKILLS_TREE" = "$LOCAL_SKILLS_TREE" ] && [ "$REMOTE_COMMIT" = "$COMMIT" ] && [ -n "$EXISTING_PR" ]; then
+              echo "Adaptation PR #$EXISTING_PR ($BRANCH) already matches oil-ui $VERSION ($COMMIT); skipping redundant push and comment."
+              exit 0
+            fi
+            git push --force-with-lease origin "$BRANCH"
+          else
+            git push origin "$BRANCH"
+          fi
+
           if [ -n "$EXISTING_PR" ]; then
             gh pr comment "$EXISTING_PR" --body "上游 \`oil-ui\` $VERSION（\`$COMMIT\`）再次同步后 \`pnpm check\` 校验未通过，自动发布已中止。请查看工作流日志并人工适配：$RUN_URL"
           else
@@ -130,9 +145,13 @@ jobs:
             AUTO_RELEASE="true"
           fi
 
+          BASE_SHA=$(git rev-parse HEAD)
           if [ -z "$(git status --porcelain)" ]; then
-            echo "status=noop" >> "$GITHUB_OUTPUT"
-            echo "auto_release=$AUTO_RELEASE" >> "$GITHUB_OUTPUT"
+            {
+              echo "status=noop"
+              echo "auto_release=$AUTO_RELEASE"
+              echo "base_sha=$BASE_SHA"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -143,16 +162,14 @@ jobs:
           NEXT_DEV_VERSION=$(printf '%s' "$PLAN_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).nextDevVersion)")
           RELEASE_TAG=$(printf '%s' "$PLAN_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).releaseTag)")
 
-          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "::error::Remote tag $RELEASE_TAG already exists; cannot plan release for oil-ui $VERSION."
-            exit 1
-          fi
-
-          BASE_SHA=$(git rev-parse HEAD)
           if [ "$AUTO_RELEASE" = "true" ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+              echo "::error::Remote tag $RELEASE_TAG already exists; cannot plan release for oil-ui $VERSION."
+              exit 1
+            fi
             node scripts/release-version.mjs --set "$RELEASE_VERSION"
             pnpm build
-            pnpm format:check && pnpm release:check --tag "$RELEASE_TAG"
+            pnpm release:check --tag "$RELEASE_TAG"
             PR_TITLE="chore(skill): 同步内置 oil-ui 至 $VERSION（$RELEASE_VERSION）"
             STAGE_PATHS=(skills/ lib/ package.json)
             READY_STATUS="ready"
@@ -175,15 +192,16 @@ jobs:
           MATCH_JSON=$(
             OPEN_PRS_JSON="$OPEN_PRS_JSON" VERSION="$VERSION" PR_TITLE="$PR_TITLE" node -e '
               const prs = JSON.parse(process.env.OPEN_PRS_JSON);
-              const baseTitle = `chore(skill): 同步内置 oil-ui 至 ${process.env.VERSION}`;
-              const branchPrefix = `bot/oil-ui-${process.env.VERSION}-`;
-              const matching = prs.filter(
-                (pr) =>
-                  pr.headRefName.startsWith(branchPrefix) &&
-                  (pr.title === baseTitle || pr.title.startsWith(`${baseTitle}（`)),
+              const syncTitlePrefix = "chore(skill): 同步内置 oil-ui 至 ";
+              const versionBranchPrefix = `bot/oil-ui-${process.env.VERSION}-`;
+              const botSyncPrs = prs.filter(
+                (pr) => pr.headRefName.startsWith("bot/oil-ui-") && pr.title.startsWith(syncTitlePrefix),
               );
-              const exact = matching.find((pr) => pr.title === process.env.PR_TITLE) ?? null;
-              process.stdout.write(JSON.stringify({ matching, exact }));
+              const exact =
+                botSyncPrs.find(
+                  (pr) => pr.headRefName.startsWith(versionBranchPrefix) && pr.title === process.env.PR_TITLE,
+                ) ?? null;
+              process.stdout.write(JSON.stringify({ botSyncPrs, exact }));
             '
           )
 
@@ -192,16 +210,19 @@ jobs:
           EXACT_SHA=$(printf '%s' "$MATCH_JSON" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(d.exact ? d.exact.headRefOid : '')")
 
           if [ -n "$EXACT_PR" ]; then
-            git fetch origin "refs/heads/$EXACT_BRANCH:refs/remotes/origin/$EXACT_BRANCH"
+            git fetch origin "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/$EXACT_BRANCH:refs/remotes/origin/$EXACT_BRANCH"
+            FETCHED_SHA=$(git rev-parse "refs/remotes/origin/$EXACT_BRANCH")
             EXISTING_TREE=$(git rev-parse "refs/remotes/origin/$EXACT_BRANCH^{tree}")
             EXISTING_PARENT=$(git rev-parse "refs/remotes/origin/$EXACT_BRANCH^")
-            if [ "$EXISTING_TREE" = "$LOCAL_TREE" ] && [ "$EXISTING_PARENT" = "$BASE_SHA" ]; then
+            EXISTING_NON_BOT=$(git log --format='%an' "origin/main..refs/remotes/origin/$EXACT_BRANCH" | grep -vx 'github-actions\[bot\]' || true)
+            if [ "$FETCHED_SHA" = "$EXACT_SHA" ] && [ -z "$EXISTING_NON_BOT" ] && [ "$EXISTING_TREE" = "$LOCAL_TREE" ] && [ "$EXISTING_PARENT" = "$BASE_SHA" ]; then
               if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$AUTO_RELEASE" = "true" ]; then
                 echo "Reusing identical open PR #$EXACT_PR ($EXACT_BRANCH) for manual auto-release rerun."
                 {
                   echo "status=ready"
                   echo "auto_release=true"
-                  echo "head_sha=$EXACT_SHA"
+                  echo "base_sha=$BASE_SHA"
+                  echo "head_sha=$FETCHED_SHA"
                   echo "pr_number=$EXACT_PR"
                   echo "branch=$EXACT_BRANCH"
                   echo "release_version=$RELEASE_VERSION"
@@ -214,7 +235,8 @@ jobs:
                 {
                   echo "status=noop"
                   echo "auto_release=$AUTO_RELEASE"
-                  echo "head_sha=$EXACT_SHA"
+                  echo "base_sha=$BASE_SHA"
+                  echo "head_sha=$FETCHED_SHA"
                   echo "pr_number=$EXACT_PR"
                   echo "branch=$EXACT_BRANCH"
                   echo "release_version=$RELEASE_VERSION"
@@ -259,16 +281,28 @@ jobs:
             --body "$BODY"
           PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq .number)
 
-          SUPERSEDED_PRS=$(printf '%s' "$MATCH_JSON" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(d.matching.map((pr) => pr.number).join('\n'))")
-          while IFS= read -r OLD_PR; do
-            if [ -n "$OLD_PR" ] && [ "$OLD_PR" != "$PR_NUMBER" ]; then
-              gh pr close "$OLD_PR" --delete-branch --comment "已被新的同步 PR #$PR_NUMBER 替代。" || gh pr close "$OLD_PR" --comment "已被新的同步 PR #$PR_NUMBER 替代。"
+          SUPERSEDED_PRS=$(printf '%s' "$MATCH_JSON" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); process.stdout.write(d.botSyncPrs.map((pr) => pr.number + '\t' + pr.headRefName).join('\n'))")
+          while IFS=$'\t' read -r OLD_PR OLD_BRANCH; do
+            if [ -z "$OLD_PR" ] || [ "$OLD_PR" = "$PR_NUMBER" ]; then
+              continue
             fi
+            if ! git ls-remote --exit-code --heads origin "$OLD_BRANCH" >/dev/null 2>&1; then
+              echo "Skipping superseded PR #$OLD_PR ($OLD_BRANCH): branch not found on origin."
+              continue
+            fi
+            git fetch origin "+refs/heads/main:refs/remotes/origin/main" "+refs/heads/$OLD_BRANCH:refs/remotes/origin/$OLD_BRANCH"
+            NON_BOT_AUTHORS=$(git log --format='%an' "origin/main..refs/remotes/origin/$OLD_BRANCH" | grep -vx 'github-actions\[bot\]' || true)
+            if [ -n "$NON_BOT_AUTHORS" ]; then
+              echo "Skipping superseded PR #$OLD_PR ($OLD_BRANCH): contains non-bot commits."
+              continue
+            fi
+            gh pr close "$OLD_PR" --delete-branch --comment "已被新的同步 PR #$PR_NUMBER 替代。" || gh pr close "$OLD_PR" --comment "已被新的同步 PR #$PR_NUMBER 替代。"
           done <<< "$SUPERSEDED_PRS"
 
           {
             echo "status=$READY_STATUS"
             echo "auto_release=$AUTO_RELEASE"
+            echo "base_sha=$BASE_SHA"
             echo "head_sha=$LOCAL_SHA"
             echo "pr_number=$PR_NUMBER"
             echo "branch=$BRANCH"
@@ -295,15 +329,28 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Verify PR state and squash merge
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Verify PR state, main base SHA, and squash merge
+        id: merge
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ needs.sync.outputs.pr_number }}
+          EXPECTED_BASE_SHA: ${{ needs.sync.outputs.base_sha }}
           EXPECTED_HEAD_SHA: ${{ needs.sync.outputs.head_sha }}
           RELEASE_VERSION: ${{ needs.sync.outputs.release_version }}
         run: |
           set -euo pipefail
+          git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+          CURRENT_MAIN_SHA=$(git rev-parse origin/main)
+          if [ "$CURRENT_MAIN_SHA" != "$EXPECTED_BASE_SHA" ]; then
+            echo "::error::main moved while verify was running ($CURRENT_MAIN_SHA != $EXPECTED_BASE_SHA); aborting auto-merge."
+            exit 1
+          fi
+
           PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq .state)
           PR_HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
           if [ "$PR_STATE" != "OPEN" ]; then
@@ -314,15 +361,40 @@ jobs:
             echo "::error::PR #$PR_NUMBER head SHA changed ($PR_HEAD_SHA != $EXPECTED_HEAD_SHA); aborting auto-merge."
             exit 1
           fi
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$RELEASE_VERSION" >/dev/null 2>&1; then
+          if git ls-remote --exit-code --tags origin "refs/tags/v$RELEASE_VERSION" >/dev/null 2>&1; then
             echo "::error::Remote tag v$RELEASE_VERSION already exists; aborting auto-merge and release."
             exit 1
           fi
+
           gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --delete-branch
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
+
+          MERGE_SHA=""
+          for attempt in 1 2 3 4 5; do
+            MERGE_SHA=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json mergeCommit --jq '.mergeCommit.oid // empty')
+            if [ -n "$MERGE_SHA" ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$MERGE_SHA" ]; then
+            echo "::error::Could not determine mergeCommit.oid for PR #$PR_NUMBER after squash merge."
+            exit 1
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+            if [ "$(git rev-parse origin/main)" = "$MERGE_SHA" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          git checkout -B main origin/main
+          if [ "$(git rev-parse HEAD)" != "$MERGE_SHA" ]; then
+            echo "::error::Checked out main HEAD ($(git rev-parse HEAD)) does not match squash mergeCommit ($MERGE_SHA); aborting tag."
+            exit 1
+          fi
+          echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -336,16 +408,16 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_SHA: ${{ steps.merge.outputs.merge_sha }}
           RELEASE_VERSION: ${{ needs.sync.outputs.release_version }}
           NEXT_DEV_VERSION: ${{ needs.sync.outputs.next_dev_version }}
         run: |
           set -euo pipefail
-          ACTUAL_VERSION=$(node -p "require('./package.json').version")
-          if [ "$ACTUAL_VERSION" != "$RELEASE_VERSION" ]; then
-            sleep 3
-            git pull --ff-only origin main
-            ACTUAL_VERSION=$(node -p "require('./package.json').version")
+          if [ "$(git rev-parse HEAD)" != "$MERGE_SHA" ]; then
+            echo "::error::HEAD ($(git rev-parse HEAD)) does not match expected squash merge commit ($MERGE_SHA)."
+            exit 1
           fi
+          ACTUAL_VERSION=$(node -p "require('./package.json').version")
           if [ "$ACTUAL_VERSION" != "$RELEASE_VERSION" ]; then
             echo "::error::Merged main package.json version ($ACTUAL_VERSION) does not match expected release version ($RELEASE_VERSION)."
             exit 1
@@ -357,14 +429,19 @@ jobs:
 
           pnpm release:check --tag "v$RELEASE_VERSION"
           node scripts/release-check.mjs --tag "v$RELEASE_VERSION" --notes .work/release-notes.md
-          pnpm pack:plugin
+
+          ARCHIVE=".work/dsh-oil-ui-$RELEASE_VERSION.tgz"
+          if [ ! -f "$ARCHIVE" ]; then
+            echo "::error::Expected packed release archive not found: $ARCHIVE"
+            exit 1
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$RELEASE_VERSION" -m "Release v$RELEASE_VERSION"
           git push origin "refs/tags/v$RELEASE_VERSION"
 
-          gh release create "v$RELEASE_VERSION" ".work/dsh-oil-ui-$RELEASE_VERSION.tgz" \
+          gh release create "v$RELEASE_VERSION" "$ARCHIVE" \
             --notes-file .work/release-notes.md \
             --title "v$RELEASE_VERSION" \
             --verify-tag

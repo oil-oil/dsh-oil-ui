@@ -131,6 +131,9 @@ try {
   if (!publishNeeds.includes('sync') || !publishNeeds.includes('verify')) {
     throw new Error('sync-skill publish job must depend on [sync, verify].');
   }
+  if (!workflow.jobs.sync.outputs?.base_sha) {
+    throw new Error('sync-skill sync job must output base_sha to guard main movement.');
+  }
 
   const notifyNeeds = Array.isArray(workflow.jobs['notify-failure']?.needs)
     ? workflow.jobs['notify-failure'].needs
