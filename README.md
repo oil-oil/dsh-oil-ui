@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/readme/hero.webp" alt="dsh-oil-ui — 把 DeepSeek 的 UI 设计能力，推到极限。" width="100%">
+  <a href="https://ui.oiloil.org/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui"><img src="assets/readme/hero.webp" alt="dsh-oil-ui — 把 DeepSeek 的 UI 设计能力，推到极限。" width="100%"></a>
 </p>
 
 <p align="center">
-  <a href="https://ui.oiloil.org">作品画廊</a> ·
-  <a href="https://ui.oiloil.org/pro/">Oil UI Pro</a> ·
+  <a href="https://ui.oiloil.org/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui">作品画廊</a> ·
+  <a href="https://ui.oiloil.org/pro/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui">Oil UI Pro</a> ·
   <a href="https://github.com/oil-oil/oil-ui">上游 oil-ui</a> ·
   <a href="#安装">安装</a> ·
   <a href="#原生工具与快捷命令">原生工具</a> ·
@@ -19,7 +19,7 @@
 
 它把 `oil-ui` 的界面设计流程直接接进 `@deepseek-ai/dsh`：先在同屏对比页里摆开 3 个真正拉开差距的方向，挑定后再在当前目录里写代码、截真图、点交互、查多端，照着真实画面一轮轮把界面改到位。
 
-关于设计方法与作品画廊，可直接看 **[oil-ui 仓库](https://github.com/oil-oil/oil-ui)** 和 **[ui.oiloil.org](https://ui.oiloil.org)**。这里重点说明 `dsh-oil-ui` 在 DeepSeek Harness 里做了什么，以及怎样配合 **Oil UI Pro** 使用。
+关于设计方法与作品画廊，可直接看 **[oil-ui 仓库](https://github.com/oil-oil/oil-ui)** 和 **[ui.oiloil.org](https://ui.oiloil.org/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui)**。这里重点说明 `dsh-oil-ui` 在 DeepSeek Harness 里做了什么，以及怎样配合 **Oil UI Pro** 使用。
 
 <p align="center">
   <img src="assets/readme/showcase.webp" alt="DeepSeek Harness + dsh-oil-ui 实跑作品" width="100%">
@@ -83,7 +83,7 @@ DeepSeek Harness 本身已经有文件读写（`read` / `write` / `edit`）、�
 
 ## Oil UI Pro 与更新检查
 
-`dsh-oil-ui` 内置免费版 `oil-ui`，开箱就能跑通方向探索与同屏对比页。如果你经常做正式上线页、复杂工作台或需要多轮视觉精修，可以搭配 **[Oil UI Pro](https://ui.oiloil.org/pro/)** 使用。
+`dsh-oil-ui` 内置免费版 `oil-ui`，开箱就能跑通方向探索与同屏对比页。如果你经常做正式上线页、复杂工作台或需要多轮视觉精修，可以搭配 **[Oil UI Pro](https://ui.oiloil.org/pro/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui)** 使用。
 
 ### Oil UI Pro 多了什么
 
@@ -224,6 +224,8 @@ pnpm pack:plugin .work/dsh-oil-ui.tgz
 ```
 
 维护规则见[开发指南](docs/development.md)、[版本与来源](docs/versioning.md)和[发布流程](docs/releasing.md)。
+
+更多 Oil 系列作品：[Oil Book](https://book.oiloil.org/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui)（AI 实战课程与精译专栏）· [Oil Studio](https://studio.oiloil.org/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui)（Mac 原生自动缩放录屏与离线 Whisper 按字剪辑）
 
 ---
 
