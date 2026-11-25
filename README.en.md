@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/readme/hero.en.webp" alt="dsh-oil-ui — Push DeepSeek's UI design to its limits." width="100%">
+  <a href="https://ui.oiloil.org/en/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui"><img src="assets/readme/hero.en.webp" alt="dsh-oil-ui — Push DeepSeek's UI design to its limits." width="100%"></a>
 </p>
 
 <p align="center">
-  <a href="https://ui.oiloil.org/en">Showcase Gallery</a> ·
-  <a href="https://ui.oiloil.org/en/pro/">Oil UI Pro</a> ·
+  <a href="https://ui.oiloil.org/en/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui">Showcase Gallery</a> ·
+  <a href="https://ui.oiloil.org/en/pro/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui">Oil UI Pro</a> ·
   <a href="https://github.com/oil-oil/oil-ui">Upstream oil-ui</a> ·
   <a href="#installation">Installation</a> ·
   <a href="#native-tools--slash-commands">Native Tools</a> ·
@@ -19,7 +19,7 @@ China mirror: [AtomGit](https://atomgit.com/oil-oil/dsh-oil-ui), synced from Git
 
 It brings the full `oil-ui` design workflow straight into DeepSeek Harness: explore 3 genuinely distinct first-screen directions side by side in a single comparison page, pick the strongest one, and refine the final interface against real browser screenshots, interactive step checks, and multi-viewport captures directly in your working directory.
 
-For the core design workflow and live gallery, see the **[oil-ui repository](https://github.com/oil-oil/oil-ui)** and **[ui.oiloil.org/en](https://ui.oiloil.org/en)**. This README covers how `dsh-oil-ui` works inside DeepSeek Harness and how it pairs with **Oil UI Pro**.
+For the core design workflow and live gallery, see the **[oil-ui repository](https://github.com/oil-oil/oil-ui)** and **[ui.oiloil.org/en](https://ui.oiloil.org/en/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui)**. This README covers how `dsh-oil-ui` works inside DeepSeek Harness and how it pairs with **Oil UI Pro**.
 
 <p align="center">
   <img src="assets/readme/showcase.en.webp" alt="Built autonomously by DeepSeek Harness + dsh-oil-ui" width="100%">
@@ -83,7 +83,7 @@ It also registers 3 `oil-ui-` slash commands in the composer (namespaced to avoi
 
 ## Oil UI Pro & Update Checks
 
-`dsh-oil-ui` bundles the free `oil-ui` Skill out of the box. For production landing pages, dense product consoles, and multi-round visual polish, you can pair it with **[Oil UI Pro](https://ui.oiloil.org/en/pro/)**.
+`dsh-oil-ui` bundles the free `oil-ui` Skill out of the box. For production landing pages, dense product consoles, and multi-round visual polish, you can pair it with **[Oil UI Pro](https://ui.oiloil.org/en/pro/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui)**.
 
 ### What Oil UI Pro Adds
 
@@ -224,6 +224,8 @@ pnpm pack:plugin .work/dsh-oil-ui.tgz
 ```
 
 See [development](docs/development.md), [versioning](docs/versioning.md), and [release](docs/releasing.md) for the maintenance workflow.
+
+More from Oil Oil: [Oil Studio](https://studio.oiloil.org/en/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui) (native Mac auto-zoom screen recorder) · [Oil Book](https://book.oiloil.org/?utm_source=github&utm_medium=readme&utm_campaign=dsh-oil-ui) (AI engineering & design guides)
 
 ---
 
